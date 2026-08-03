@@ -1,0 +1,398 @@
+import { test, describe } from 'node:test'
+import assert from 'node:assert/strict'
+
+import {
+  calcScenario,
+  calcEnterprise,
+  linePerAcre,
+  num,
+  VARIABLE_LINES,
+} from '../src/calc.js'
+import { scenario, SHEET } from './fixture.js'
+
+/** Excel carries ~15 significant digits, so exact equality is not available. */
+function close(actual, expected, label) {
+  const tolerance = 1e-6 * Math.max(1, Math.abs(expected))
+  assert.ok(
+    Math.abs(actual - expected) <= tolerance,
+    `${label}: expected ${expected}, got ${actual} (diff ${Math.abs(actual - expected)})`
+  )
+}
+
+const r = calcScenario(scenario)
+const [corn, soy] = r.enterprises
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Agreement with the spreadsheet
+   Everything the sheet gets right, calc.js must reproduce exactly.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+describe('matches the spreadsheet — enterprise budgets', () => {
+  test('Corn (columns A–D)', () => {
+    close(corn.cropRevPerAcre, SHEET.D7, 'D7 crop revenue/acre')
+    close(corn.grossRevPerAcre, SHEET.D9, 'D9 total crop revenue/acre')
+    close(corn.totalRevenue, SHEET.D10, 'D10 total enterprise revenue')
+    close(corn.totalVarPerAcre, SHEET.D27, 'D27 total variable expenses/acre')
+    close(corn.totalVar, SHEET.D28, 'D28 total variable expenses')
+    close(corn.grossMarginPerAcre, SHEET.D29, 'D29 gross margin/acre')
+    close(corn.enterpriseGrossMargin, SHEET.D30, 'D30 enterprise gross margin')
+  })
+
+  test('Soybeans (columns E–H), including misc income', () => {
+    close(soy.cropRevPerAcre, SHEET.H7, 'H7 crop revenue/acre')
+    close(soy.grossRevPerAcre, SHEET.H9, 'H9 total crop revenue/acre')
+    close(soy.totalRevenue, SHEET.H10, 'H10 total enterprise revenue')
+    close(soy.totalVarPerAcre, SHEET.H27, 'H27 total variable expenses/acre')
+    close(soy.totalVar, SHEET.H28, 'H28 total variable expenses')
+    close(soy.grossMarginPerAcre, SHEET.H29, 'H29 gross margin/acre')
+    close(soy.enterpriseGrossMargin, SHEET.H30, 'H30 enterprise gross margin')
+  })
+})
+
+describe('matches the spreadsheet — fixed costs', () => {
+  const f = r.fixed
+
+  test('land rent and labor', () => {
+    close(f.landRentTotal, SHEET.O33, 'O33 land rent total')
+    close(f.laborHrsPerAcre, SHEET.N35, 'N35 hours/acre')
+    close(f.laborPerAcre, SHEET.O35, 'O35 labor $/acre')
+    close(f.laborTotal, SHEET.P35, 'P35 total labor cost')
+  })
+
+  test('equipment depreciation', () => {
+    close(f.equipment[0].annualDep, SHEET.P38, 'P38 tractor depreciation')
+    close(f.equipment[0].depPerAcre, SHEET.O38, 'O38 tractor depreciation/acre')
+    close(f.equipment[1].annualDep, SHEET.P39, 'P39 planter depreciation')
+    close(f.equipment[1].depPerAcre, SHEET.O39, 'O39 planter depreciation/acre')
+    close(f.equipDepTotal, SHEET.P44, 'P44 total equipment depreciation')
+    close(f.equipDepPerAcre, SHEET.O44, 'O44 total equipment depreciation/acre')
+  })
+
+  test('equipment interest uses (initial + salvage) / 2', () => {
+    close(f.equipment[0].annualInt, SHEET.P46, 'P46 tractor interest')
+    close(f.equipment[0].intPerAcre, SHEET.O46, 'O46 tractor interest/acre')
+    close(f.equipment[1].annualInt, SHEET.P47, 'P47 planter interest')
+    close(f.equipment[1].intPerAcre, SHEET.O47, 'O47 planter interest/acre')
+    close(f.equipIntTotal, SHEET.P52, 'P52 total equipment interest')
+    close(f.equipIntPerAcre, SHEET.O52, 'O52 total equipment interest/acre')
+  })
+
+  test('building depreciation and interest (interest on initial / 2)', () => {
+    close(f.buildings[0].annualDep, SHEET.P55, 'P55 shed depreciation')
+    close(f.buildings[0].depPerAcre, SHEET.O55, 'O55 shed depreciation/acre')
+    close(f.bldgDepTotal, SHEET.P61, 'P61 total building depreciation')
+    close(f.bldgDepPerAcre, SHEET.O61, 'O61 total building depreciation/acre')
+    close(f.buildings[0].annualInt, SHEET.P63, 'P63 shed interest')
+    close(f.buildings[0].intPerAcre, SHEET.O63, 'O63 shed interest/acre')
+    close(f.bldgIntTotal, SHEET.P69, 'P69 total building interest')
+    close(f.bldgIntPerAcre, SHEET.O69, 'O69 total building interest/acre')
+  })
+
+  test('annual overhead costs', () => {
+    close(f.annual.utilities.perAcre, SHEET.O71, 'O71 utilities/acre')
+    close(f.annual.farmInsurance.perAcre, SHEET.O72, 'O72 farm insurance/acre')
+    close(f.annual.duesFees.perAcre, SHEET.O73, 'O73 dues & fees/acre')
+    close(f.annual.misc.perAcre, SHEET.O74, 'O74 miscellaneous/acre')
+  })
+
+  test('P75 total fixed costs/acre — the one whole-farm total the sheet gets right', () => {
+    close(r.fixed.totalFixedPerAcre, SHEET.P75, 'P75 total fixed costs/acre')
+  })
+})
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Deliberate divergences
+   These assert that calc.js does NOT match the sheet, and pin the exact
+   relationship between the two so a future change can't quietly reintroduce
+   the spreadsheet's bugs.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+describe('deliberate divergences from the spreadsheet', () => {
+  test('P78: total profit includes the equipment interest the sheet omits', () => {
+    // The sheet subtracts SUM(P44,P35,O33,P61,P69,P71:P74) — P52 is missing.
+    // The gap is therefore exactly total equipment interest.
+    close(
+      r.totals.totalProfit,
+      SHEET.P78 - SHEET.P52,
+      'total profit = sheet P78 minus the omitted equipment interest'
+    )
+
+    // Concretely: the sheet reports a small profit on a farm that loses money.
+    assert.ok(SHEET.P78 > 0, 'sheet reports a profit')
+    assert.ok(r.totals.totalProfit < 0, 'the farm actually loses money')
+    close(r.totals.totalProfit, -19140.833333333336, 'total profit')
+  })
+
+  test('P75 and P78 contradict each other in the sheet, but not here', () => {
+    // P75 includes equipment interest, P78 does not. Rebuilding the sheet's own
+    // P78 from its own P75 gives a different answer than its P78 cell.
+    const impliedFromP75 =
+      r.totals.totalRevenue - r.totals.totalVariable - SHEET.P75 * r.totalAcres
+    assert.ok(
+      Math.abs(impliedFromP75 - SHEET.P78) > 19000,
+      'the sheet is internally inconsistent by ~$19k'
+    )
+    // calc.js has one fixed-cost figure, used everywhere.
+    close(
+      r.totals.totalProfit,
+      r.totals.totalRevenue - r.totals.totalVariable - r.fixed.totalFixedAnnual,
+      'total profit is consistent with total fixed costs'
+    )
+    close(
+      r.fixed.totalFixedPerAcre * r.totalAcres,
+      r.fixed.totalFixedAnnual,
+      'per-acre and annual fixed costs agree'
+    )
+  })
+
+  test('P76/P77: per-acre figures are acreage-weighted, not summed across enterprises', () => {
+    // The sheet adds the per-acre figures of enterprises with DIFFERENT acreage.
+    close(
+      SHEET.P76,
+      corn.totalVarPerAcre + soy.totalVarPerAcre + SHEET.P75,
+      'sheet P76 is an unweighted sum'
+    )
+    assert.notEqual(r.totals.expensesPerAcre, SHEET.P76)
+    assert.notEqual(r.totals.profitPerAcre, SHEET.P77)
+
+    // Ours are whole-farm dollars over whole-farm acres, so they round-trip.
+    close(
+      r.totals.profitPerAcre * r.totalAcres,
+      r.totals.totalProfit,
+      'profit/acre × acres = total profit'
+    )
+    close(r.totals.profitPerAcre, -23.92604166666667, 'profit/acre')
+    close(r.totalAcres, 800, 'total acres')
+  })
+
+  test('adds a whole-farm Total Gross Margin, which the sheet only labels', () => {
+    close(
+      r.totals.totalGrossMargin,
+      SHEET.D30 + SHEET.H30,
+      'total gross margin = sum of enterprise gross margins'
+    )
+  })
+
+  test('empty equipment rows are $0, not #DIV/0!', () => {
+    // In the sheet, one blank useful-life cell propagates #DIV/0! through
+    // P44, P61, P75, P76, P77 and P78 — no total can be produced at all.
+    const withBlanks = calcScenario({
+      ...scenario,
+      fixed: {
+        ...scenario.fixed,
+        equipment: [...scenario.fixed.equipment, { id: 'blank', name: '' }],
+        buildings: [...scenario.fixed.buildings, { id: 'blank2', name: '' }],
+      },
+    })
+    assert.ok(Number.isFinite(withBlanks.totals.totalProfit))
+    close(
+      withBlanks.totals.totalProfit,
+      r.totals.totalProfit,
+      'a blank row changes nothing'
+    )
+  })
+})
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Preharvest interest — computed here, hand-entered in the sheet
+   ══════════════════════════════════════════════════════════════════════════ */
+
+describe('preharvest interest', () => {
+  test('computes from preharvest costs only, at the stated 8 months / 10%', () => {
+    const auto = calcEnterprise({
+      ...scenario.enterprises[0],
+      preharvest: { auto: true, rate: 10, months: 8 },
+    })
+    // Corn preharvest costs (seed..miscellaneous) = 431.20; postharvest
+    // (hauling, drying, marketing) = 77.00 and must NOT be financed.
+    close(auto.preharvestBasis, 431.2, 'preharvest basis excludes post-harvest costs')
+    close(
+      auto.preharvestInterestPerAcre,
+      431.2 * 0.1 * (8 / 12),
+      'interest = basis × rate × months/12'
+    )
+    close(auto.preharvestInterestPerAcre, 28.746666666666666, 'interest/acre')
+  })
+
+  test('rate and term are editable', () => {
+    const e = calcEnterprise({
+      ...scenario.enterprises[0],
+      preharvest: { auto: true, rate: 6, months: 12 },
+    })
+    close(e.preharvestInterestPerAcre, 431.2 * 0.06, 'a full year at 6%')
+  })
+
+  test('defaults to the spreadsheet assumption when unspecified', () => {
+    const e = calcEnterprise({ ...scenario.enterprises[0], preharvest: { auto: true } })
+    close(e.preharvestInterestPerAcre, 431.2 * 0.1 * (8 / 12), '8 months at 10%')
+  })
+
+  test('manual entry overrides the calculation', () => {
+    close(corn.preharvestInterestPerAcre, 25.5, 'uses the entered figure')
+    assert.equal(corn.preharvestAuto, false)
+  })
+})
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Input handling and edge cases
+   ══════════════════════════════════════════════════════════════════════════ */
+
+describe('variable expense entry modes', () => {
+  test('$/unit × units/acre and $/acre reach the same total', () => {
+    close(linePerAcre({ mode: 'unit', costPerUnit: 22, unitsPerAcre: 1 }), 22, 'unit mode')
+    close(linePerAcre({ mode: 'perAcre', perAcre: 22 }), 22, 'per-acre mode')
+  })
+
+  test('an unset line is $0, not NaN', () => {
+    assert.equal(linePerAcre(undefined), 0)
+    assert.equal(linePerAcre({}), 0)
+    assert.equal(linePerAcre({ mode: 'perAcre' }), 0)
+  })
+
+  test('mode switching does not lose the other mode’s values', () => {
+    const line = { mode: 'unit', costPerUnit: 10, unitsPerAcre: 3, perAcre: 99 }
+    close(linePerAcre(line), 30, 'unit mode reads costPerUnit × unitsPerAcre')
+    close(linePerAcre({ ...line, mode: 'perAcre' }), 99, 'per-acre mode reads perAcre')
+  })
+
+  test('every spreadsheet variable line is present', () => {
+    assert.equal(VARIABLE_LINES.length, 14) // rows 12–26, less the computed row 23
+    for (const def of VARIABLE_LINES) {
+      assert.ok(def.key in corn.lines, `${def.key} missing from results`)
+    }
+  })
+})
+
+describe('edge cases', () => {
+  test('zero acres produces zeros and a warning, never Infinity or NaN', () => {
+    const empty = calcScenario({ enterprises: [], fixed: scenario.fixed })
+    assert.equal(empty.totalAcres, 0)
+    for (const [key, value] of Object.entries(empty.totals)) {
+      assert.ok(Number.isFinite(value), `${key} is ${value}`)
+    }
+    assert.ok(Number.isFinite(empty.fixed.totalFixedPerAcre))
+    assert.ok(empty.warnings.some((w) => w.includes('acres')))
+  })
+
+  test('an enterprise with zero acres does not break the others', () => {
+    const withEmpty = calcScenario({
+      ...scenario,
+      enterprises: [...scenario.enterprises, { id: 'x', crop: 'Oats', acres: 0 }],
+    })
+    close(withEmpty.totalAcres, 800, 'total acres unchanged')
+    close(withEmpty.totals.totalProfit, r.totals.totalProfit, 'profit unchanged')
+  })
+
+  test('zero useful life is $0 depreciation plus a warning, not Infinity', () => {
+    const out = calcScenario({
+      ...scenario,
+      fixed: {
+        ...scenario.fixed,
+        equipment: [
+          { id: 'q', name: 'Combine', initialCost: 400000, salvageValue: 0, usefulLife: 0, interestRate: 5 },
+        ],
+      },
+    })
+    assert.equal(out.fixed.equipDepTotal, 0)
+    close(out.fixed.equipIntTotal, 10000, 'interest is still charged')
+    assert.ok(out.warnings.some((w) => w.includes('useful life')))
+  })
+
+  test('negative useful life is $0 depreciation, never a negative cost', () => {
+    // Regression: safeDiv only guards an exact-zero divisor, so a typo of "-12"
+    // for 12 produced NEGATIVE depreciation — quietly REDUCING the farm's costs
+    // and inflating profit, while the warning claimed it was counted as $0.
+    const out = calcScenario({
+      ...scenario,
+      fixed: {
+        ...scenario.fixed,
+        equipment: [
+          { id: 'q', name: 'Tractor', initialCost: 285000, salvageValue: 95000, usefulLife: -12, interestRate: 0 },
+        ],
+        buildings: [{ id: 'b', name: 'Shed', initialCost: 90000, usefulLife: -30, interestRate: 0 }],
+      },
+    })
+    assert.equal(out.fixed.equipDepTotal, 0, 'equipment depreciation is not negative')
+    assert.equal(out.fixed.bldgDepTotal, 0, 'building depreciation is not negative')
+    assert.ok(out.fixed.totalFixedAnnual >= 0, 'fixed costs were not reduced by a typo')
+    assert.ok(out.warnings.some((w) => w.includes('useful life')))
+  })
+
+  test('a blank preharvest rate falls back to the documented default', () => {
+    // Clearing the field mid-edit must not silently drop the sheet's stated
+    // "8 months at 10%" assumption to zero. An explicit 0 still means zero.
+    const blank = calcEnterprise({
+      ...scenario.enterprises[0],
+      preharvest: { auto: true, rate: '', months: '' },
+    })
+    close(blank.preharvestInterestPerAcre, 431.2 * 0.1 * (8 / 12), 'blank uses the default')
+
+    const explicitZero = calcEnterprise({
+      ...scenario.enterprises[0],
+      preharvest: { auto: true, rate: 0, months: 8 },
+    })
+    assert.equal(explicitZero.preharvestInterestPerAcre, 0, 'an entered 0 means 0')
+  })
+
+  test('negative acres are flagged, not silently sign-flipped', () => {
+    const out = calcScenario({
+      ...scenario,
+      enterprises: [{ ...scenario.enterprises[0], crop: 'Corn', acres: -500 }],
+    })
+    assert.ok(out.warnings.some((w) => /negative acres/i.test(w)))
+  })
+
+  test('salvage above initial cost warns rather than silently inverting', () => {
+    const out = calcScenario({
+      ...scenario,
+      fixed: {
+        ...scenario.fixed,
+        equipment: [
+          { id: 'q', name: 'Odd', initialCost: 100, salvageValue: 500, usefulLife: 10, interestRate: 0 },
+        ],
+      },
+    })
+    assert.ok(out.warnings.some((w) => w.includes('salvage')))
+    close(out.fixed.equipDepTotal, -40, 'the arithmetic still follows the sheet')
+  })
+
+  test('missing sections do not throw', () => {
+    for (const input of [undefined, {}, { enterprises: [] }, { fixed: {} }]) {
+      const out = calcScenario(input)
+      assert.ok(Number.isFinite(out.totals.totalProfit))
+    }
+  })
+
+  test('scales past the spreadsheet’s four-enterprise ceiling', () => {
+    const ten = Array.from({ length: 10 }, (_, i) => ({
+      ...scenario.enterprises[0],
+      id: `e${i}`,
+      acres: 100,
+    }))
+    const out = calcScenario({ ...scenario, enterprises: ten })
+    assert.equal(out.enterprises.length, 10)
+    close(out.totalAcres, 1000, 'total acres')
+    close(
+      out.totals.totalGrossMargin,
+      out.enterprises.reduce((a, e) => a + e.enterpriseGrossMargin, 0),
+      'gross margin rolls up across all ten'
+    )
+  })
+
+  test('num() rejects Infinity, which `Number(x) || 0` would let through', () => {
+    assert.equal(num(Infinity), 0)
+    assert.equal(num(-Infinity), 0)
+    assert.equal(num(NaN), 0)
+    assert.equal(num(undefined), 0)
+    assert.equal(num(null), 0)
+    assert.equal(num(''), 0)
+    assert.equal(num('abc'), 0)
+    assert.equal(num('12.5'), 12.5)
+    assert.equal(num(-3), -3)
+  })
+
+  test('a negative-profit farm reports a negative figure, not zero', () => {
+    assert.ok(r.totals.totalProfit < 0)
+    assert.ok(r.totals.profitPerAcre < 0)
+  })
+})

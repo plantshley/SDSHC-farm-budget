@@ -1,0 +1,1265 @@
+/* ==========================================================================
+   SDSHC Farm Plan Budget — design tokens
+   Ported from the Virtual Fence ROI tool so the two SDSHC tools read as one
+   family. Colour values are deliberately identical; do not drift them.
+   ========================================================================== */
+
+:root {
+  --bg: #f7f9f7;
+  --card: #ffffff;
+  --text: #222222;
+  --muted: #5a625a;
+  --green: #2e7d32;
+  --green-dark: #256628;
+  --border: #d7ddd7;
+  --shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+  --save: #2e7d32;
+  --save-bg: #e8f5e9;
+  --cost: #c0392b;
+  --cost-bg: #fdecea;
+  --info: #1565c0;
+  --info-bg: #e7f0fb;
+  --overlay: rgba(0, 0, 0, 0.45);
+
+  /* Typography is one swappable property — see [data-font] below. */
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+
+  --maxw: 1400px;
+  --radius: 10px;
+}
+
+[data-theme="dark"] {
+  --bg: #14181a;
+  --card: #1e2426;
+  --text: #e7ecea;
+  --muted: #9fb0aa;
+  --green: #57b75c;
+  --green-dark: #4aa44f;
+  --border: #313a3d;
+  --shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  --save: #57b75c;
+  --save-bg: #1c2a1e;
+  --cost: #e57368;
+  --cost-bg: #2c1c1a;
+  --info: #6ea8e6;
+  --info-bg: #16222e;
+  --overlay: rgba(0, 0, 0, 0.6);
+}
+
+/* "Classic" = the Virtual Fence ROI tool's stack, for producers who prefer it
+   or want the two tools to look identical. "Browser" (default) uses the native
+   UI font so the app respects OS font-size settings. */
+[data-font="classic"] {
+  --font: Arial, Helvetica, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font);
+  margin: 0;
+  padding: 0 16px 16px;
+  background: var(--bg);
+  color: var(--text);
+  -webkit-text-size-adjust: 100%;
+}
+
+main {
+  max-width: var(--maxw);
+  margin: 0 auto;
+}
+
+/* ---- topbar ------------------------------------------------------------ */
+
+.topbar {
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: 12px 0 4px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.toplogo {
+  height: 44px;
+  width: auto;
+  max-width: 60%;
+}
+
+.topbar-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.toggle {
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 9px 14px;
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  white-space: nowrap;
+}
+
+/* Both font choices stay visible so it's obvious a choice exists and which one
+   is active — not a single button that swaps its own label. */
+.segmented {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 4px 4px 4px 4px;
+  box-shadow: var(--shadow);
+}
+
+.segmented-label {
+  font-size: 10px;
+  color: var(--muted);
+  display: none;
+}
+
+.seg {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 5px 11px;
+  border-radius: 16px;
+  cursor: pointer;
+}
+
+.seg[aria-pressed="true"] {
+  background: var(--green);
+  color: #fff;
+  font-weight: bold;
+}
+
+/* ---- cards ------------------------------------------------------------- */
+
+.box {
+  position: relative;
+  background: var(--card);
+  padding: 14px 15px;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+}
+
+.title {
+  font-weight: bold;
+  font-size: 16px;
+  color: var(--green);
+}
+
+/* ---- fields ------------------------------------------------------------ */
+
+.field {
+  margin: 9px 0;
+}
+
+.field > label {
+  display: block;
+  font-size: 13.5px;
+  color: var(--muted);
+  margin-bottom: 3px;
+}
+
+input,
+select,
+button {
+  font-family: inherit;
+}
+
+input,
+select {
+  width: 100%;
+  padding: 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  font-size: 16px; /* 16px stops iOS Safari zooming on focus */
+  min-height: 44px;
+}
+
+input.invalid {
+  border-color: var(--cost);
+  background: var(--cost-bg);
+}
+
+/* `?` EXPLAINS. It must never change a value. */
+.help-btn {
+  width: 22px;
+  height: 22px;
+  min-height: 0;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: bold;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+  flex: 0 0 auto;
+}
+
+.help-btn:hover {
+  color: var(--green);
+  border-color: var(--green);
+}
+
+/* `use typical value` ACTS — it writes into the field. Deliberately styled as a
+   text link, never as a `?`, so the two are never confused. */
+.tip {
+  background: none;
+  border: none;
+  color: var(--green);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 0 0;
+  text-decoration: underline;
+}
+
+.tip:hover {
+  color: var(--green-dark);
+}
+
+.flash {
+  animation: flash 0.7s ease;
+}
+
+@keyframes flash {
+  0% {
+    background: var(--save-bg);
+  }
+  100% {
+    background: var(--card);
+  }
+}
+
+/* ---- buttons ----------------------------------------------------------- */
+
+.btn-main {
+  padding: 14px 26px;
+  font-size: 17px;
+  font-weight: bold;
+  background-color: var(--green);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  min-height: 44px;
+}
+
+.btn-main:hover {
+  background-color: var(--green-dark);
+}
+
+.btn-add {
+  background: transparent;
+  border: 1px dashed var(--border);
+  color: var(--green);
+  border-radius: 8px;
+  padding: 11px 16px;
+  font-size: 14px;
+  font-weight: bold;
+  cursor: pointer;
+  min-height: 44px;
+  width: 100%;
+}
+
+.btn-add:hover {
+  border-color: var(--green);
+  background: var(--save-bg);
+}
+
+.btn-remove {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 6px;
+  flex: 0 0 auto;
+}
+
+.btn-remove:hover {
+  color: var(--cost);
+}
+
+.tip.danger {
+  color: var(--cost);
+}
+
+.footer {
+  text-align: center;
+  margin: 22px 0 96px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.footer .tip {
+  font-size: 12px;
+}
+
+.hint {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 4px 0 10px;
+  line-height: 1.45;
+}
+
+.sub-title {
+  font-size: 15px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+  margin: 18px 0 4px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 5px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pos {
+  color: var(--save);
+}
+.neg {
+  color: var(--cost);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ---- app header -------------------------------------------------------- */
+
+.app-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 8px 0 14px;
+}
+
+.name-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.scenario-name {
+  font-size: 19px;
+  font-weight: bold;
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 8px 10px;
+  min-width: 0;
+}
+
+.scenario-name:hover,
+.scenario-name:focus {
+  border-color: var(--border);
+  background: var(--card);
+}
+
+.save-state {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.save-state.dirty {
+  color: var(--green);
+}
+.save-state.warn {
+  color: var(--cost);
+}
+
+.app-nav {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.nav-btn {
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 20px;
+  padding: 8px 16px;
+  font-size: 14px;
+  cursor: pointer;
+  min-height: 44px;
+}
+
+.nav-btn.active {
+  background: var(--green);
+  border-color: var(--green);
+  color: #fff;
+  font-weight: bold;
+}
+
+/* ---- input frames ------------------------------------------------------ */
+
+.input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.affix {
+  position: absolute;
+  font-size: 14px;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.prefix {
+  left: 10px;
+}
+.suffix {
+  right: 10px;
+}
+
+.has-prefix input {
+  padding-left: 24px;
+}
+.has-suffix input {
+  padding-right: 44px;
+}
+
+.row-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+/* ---- enterprise columns ------------------------------------------------ */
+
+/* DESKTOP: parallel columns, mirroring the spreadsheet's four side-by-side
+   enterprise budgets. MOBILE: the same cards stacked as accordions. This media
+   query is the ONLY difference between the two — never fork the components. */
+
+.ent-scroller {
+  margin-bottom: 16px;
+}
+
+.ent-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.ent-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+  margin-bottom: 4px;
+}
+
+.ent-toggle {
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  background: none;
+  border: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  padding: 4px 0;
+  min-width: 0;
+}
+
+.ent-name {
+  font-weight: bold;
+  font-size: 18px;
+  color: var(--green);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ent-sub {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.chev {
+  display: none;
+}
+
+.ent-add {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  text-align: center;
+}
+
+.ent-add .hint {
+  margin: 0;
+}
+
+/* ---- variable expense lines -------------------------------------------- */
+
+.line {
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.line:last-of-type {
+  border-bottom: none;
+}
+
+.line-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.line-label {
+  font-size: 13.5px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.mode-toggle {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 12px;
+  font-size: 11px;
+  padding: 3px 9px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.mode-toggle:hover {
+  color: var(--green);
+  border-color: var(--green);
+}
+
+.line-inputs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.line-input {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 9px 8px;
+  min-height: 44px;
+}
+
+.line-input.narrow {
+  flex: 0 1 78px;
+}
+
+.times {
+  font-size: 12px;
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+
+.line-total {
+  flex: 0 0 auto;
+  min-width: 74px;
+  text-align: right;
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.preharvest {
+  background: var(--info-bg);
+  border-radius: 8px;
+  padding: 9px 10px;
+  margin-top: 8px;
+  border-bottom: none;
+}
+
+.preharvest .hint {
+  margin: 6px 0 0;
+}
+
+/* ---- readouts ---------------------------------------------------------- */
+
+.readout {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+  font-size: 14px;
+}
+
+.readout-label {
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.readout-value {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.readout.strong {
+  font-weight: bold;
+}
+
+.readout.strong .readout-label,
+.readout.strong .readout-value {
+  color: var(--green);
+}
+
+/* ---- fixed costs ------------------------------------------------------- */
+
+.block-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.block-head .title {
+  flex: 1;
+  margin: 0;
+  font-size: 17px;
+}
+
+.fixed-block {
+  margin-bottom: 16px;
+}
+
+.fixed-grid {
+  display: grid;
+  gap: 0 22px;
+  grid-template-columns: 1fr;
+}
+
+.item-list {
+  display: grid;
+  gap: 10px;
+}
+
+.item {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.item-head {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.item-head .field {
+  flex: 1;
+  margin-top: 0;
+}
+
+.item-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 10px;
+}
+
+.item-out {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-size: 12.5px;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  margin-top: 8px;
+}
+
+.item-out b {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.fixed-totals {
+  margin-top: 18px;
+  border-top: 2px solid var(--border);
+}
+
+/* ---- results ----------------------------------------------------------- */
+
+.results {
+  margin-bottom: 16px;
+}
+
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin: 14px 0 18px;
+}
+
+.kpi {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.kpi-label {
+  font-size: 12px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 4px;
+}
+
+.kpi-value {
+  font-size: 22px;
+  font-weight: bold;
+  font-variant-numeric: tabular-nums;
+}
+
+.results-grid {
+  display: grid;
+  gap: 0 26px;
+  grid-template-columns: 1fr;
+}
+
+.tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.tbl th,
+.tbl td {
+  text-align: left;
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tbl th {
+  font-size: 14px;
+  color: var(--muted);
+  font-weight: bold;
+ 
+}
+
+.tbl td:not(:first-child) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.tbl tr.minus td:not(:first-child)::before {
+  content: '− ';
+  color: var(--muted);
+}
+
+.tbl tr.subtotal td {
+  font-weight: bold;
+}
+
+.tbl tr.total td {
+  font-weight: bold;
+  border-top: 2px solid var(--border);
+  border-bottom: none;
+}
+
+/* Wide tables scroll inside their own box; the page body never scrolls sideways. */
+.tbl-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.warnings {
+  background: var(--cost-bg);
+  border: 1px solid var(--cost);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+
+.warnings p {
+  margin: 4px 0;
+  font-size: 13.5px;
+  color: var(--cost);
+}
+
+.differs-note {
+  margin-top: 18px;
+  font-size: 12.5px;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+/* ---- saved scenarios & compare ----------------------------------------- */
+
+.scn-list {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.scn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  flex-wrap: wrap;
+}
+
+.scn.current {
+  border-color: var(--green);
+  background: var(--save-bg);
+}
+
+.scn-pick input {
+  width: 22px;
+  height: 22px;
+  min-height: 0;
+}
+
+.scn-open {
+  flex: 1 1 220px;
+  background: none;
+  border: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  display: grid;
+  gap: 2px;
+  padding: 6px 0;
+  min-width: 0;
+}
+
+.scn-name {
+  font-weight: bold;
+  font-size: 15px;
+}
+
+.scn-name em {
+  font-weight: normal;
+  color: var(--green);
+  font-size: 12px;
+}
+
+.scn-meta,
+.scn-date {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.scn-btns {
+  display: flex;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+
+.scn-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.btn-main:disabled {
+  background: var(--border);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.compare-tbl th {
+  vertical-align: bottom;
+}
+
+.compare-tbl td:not(:first-child) {
+  min-width: 120px;
+}
+
+.delta {
+  display: block;
+  font-size: 11px;
+  font-weight: normal;
+  opacity: 0.85;
+}
+
+/* ---- sticky results bar ------------------------------------------------ */
+
+.sticky-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+  background: var(--card);
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.12);
+}
+
+.sticky-figs {
+  display: flex;
+  gap: 20px;
+  min-width: 0;
+}
+
+.sticky-figs span {
+  display: grid;
+}
+
+.sticky-figs small {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.sticky-figs b {
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+}
+
+.sticky-bar .btn-main {
+  padding: 12px 20px;
+  font-size: 15px;
+  flex: 0 0 auto;
+}
+
+/* ---- modals ------------------------------------------------------------ */
+
+.overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: var(--overlay);
+  z-index: 100;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.overlay.open {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.modal {
+  background: var(--card);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  max-width: 620px;
+  width: 100%;
+  margin: auto;
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--card);
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+
+.modal-title {
+  flex: 1;
+  margin: 0;
+  font-size: 17px;
+  color: var(--green);
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 26px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 6px;
+  min-height: 44px;
+  min-width: 44px;
+}
+
+.modal-body {
+  padding: 6px 16px 18px;
+}
+
+.def h3 {
+  font-size: 15px;
+  margin: 16px 0 6px;
+  color: var(--green);
+}
+
+.def p,
+.def li {
+  font-size: 14.5px;
+  line-height: 1.55;
+  margin: 8px 0;
+}
+
+.def ol {
+  padding-left: 22px;
+}
+
+.modal-note,
+.modal-warn,
+.modal-source {
+  font-size: 13px;
+  line-height: 1.5;
+  border-radius: 6px;
+  padding: 9px 11px;
+  margin: 12px 0;
+}
+
+.modal-note {
+  background: var(--info-bg);
+  color: var(--text);
+}
+
+.modal-warn {
+  background: var(--cost-bg);
+  color: var(--cost);
+}
+
+.modal-source {
+  color: var(--muted);
+  font-size: 11.5px;
+  padding: 0;
+  margin-top: 16px;
+}
+
+.modal-err {
+  background: var(--cost-bg);
+  color: var(--cost);
+  border-radius: 6px;
+  padding: 9px 11px;
+  font-size: 13.5px;
+}
+
+.typ-group {
+  margin: 14px 0;
+}
+
+.typ-group-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.typ-option {
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  gap: 2px 12px;
+  width: 100%;
+  text-align: left;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 11px 12px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  color: var(--text);
+  min-height: 44px;
+}
+
+.typ-option:hover {
+  border-color: var(--green);
+  background: var(--save-bg);
+}
+
+.typ-value {
+  font-weight: bold;
+  color: var(--green);
+  font-variant-numeric: tabular-nums;
+}
+
+.typ-label {
+  font-size: 14px;
+}
+
+.typ-option small {
+  grid-column: 2;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ======================================================================== */
+/* DESKTOP — enterprises become parallel columns, like the spreadsheet.      */
+/* ======================================================================== */
+
+@media (min-width: 900px) {
+  .ent-scroller {
+    overflow-x: auto;
+    padding-bottom: 6px;
+  }
+
+  .ent-grid {
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(310px, 1fr);
+    align-items: start;
+  }
+
+  .ent-add {
+    min-width: 220px;
+  }
+
+  /* Accordion collapsing is a mobile affordance; on desktop every column
+     stays open so they can be read against each other. */
+  .ent .ent-body {
+    display: block !important;
+  }
+
+  .ent-toggle {
+    cursor: default;
+  }
+
+  .fixed-grid,
+  .results-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .item-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+
+  .item-grid.three {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* ======================================================================== */
+/* MOBILE — the same cards, stacked and collapsible.                         */
+/* ======================================================================== */
+
+@media (max-width: 899px) {
+  body {
+    padding: 0 12px 12px;
+  }
+
+  .ent.collapsed .ent-body {
+    display: none;
+  }
+
+  .chev {
+    display: inline-block;
+    margin-left: auto;
+    border: solid var(--muted);
+    border-width: 0 2px 2px 0;
+    padding: 3px;
+    transform: rotate(45deg);
+    transition: transform 0.15s ease;
+  }
+
+  .ent.collapsed .chev {
+    transform: rotate(-45deg);
+  }
+
+  .toplogo {
+    height: 34px;
+  }
+
+  .kpi-value {
+    font-size: 19px;
+  }
+
+  .sticky-figs {
+    gap: 14px;
+  }
+
+  .sticky-figs b {
+    font-size: 15px;
+  }
+}
+
+/* ---- print ------------------------------------------------------------- */
+
+@media print {
+  .topbar,
+  .app-nav,
+  .sticky-bar,
+  .btn-add,
+  .btn-remove,
+  .tip,
+  .help-btn,
+  .mode-toggle,
+  .overlay,
+  .footer button {
+    display: none !important;
+  }
+
+  body {
+    background: #fff;
+    color: #000;
+  }
+
+  .box {
+    box-shadow: none;
+    border: 1px solid #999;
+    break-inside: avoid;
+  }
+
+  .ent-grid {
+    grid-auto-flow: row;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
