@@ -26,7 +26,12 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # Must be >= 21: `npm test` runs `node --test "test/**/*.test.js"`, and
+          # the test runner only expands glob patterns from v21 on. On Node 20 the
+          # pattern is treated as a literal path, so the step fails with
+          # "Could not find ...\test\**\*.test.js" and the deploy never runs.
+          # 22 also matches the version the suite is developed against.
+          node-version: 22
           cache: npm
       - name: Install dependencies
         run: npm ci
