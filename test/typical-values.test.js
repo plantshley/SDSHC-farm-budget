@@ -12,8 +12,42 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 
 import { TYPICAL_VALUES, EQUIPMENT_CATALOG, BUILDING_CATALOG, matchCategory } from '../src/data/typical-values.js'
+import { YIELD_UNITS } from '../src/ui/enterprise.js'
 
 const specs = Object.entries(TYPICAL_VALUES)
+
+describe('a figure quoted per yield unit says which one', () => {
+  // Hauling and drying are published in dollars per BUSHEL. Applying one records
+  // that on the line so main.js can clear it if the enterprise is later measured
+  // in tons; a spec naming a unit the picker does not offer would never match,
+  // and the figure would be thrown away the first time the unit was touched.
+  const quoted = specs.filter(([, spec]) => spec.quotedPerYieldUnit)
+
+  test('the per-bushel lists are the ones that declare it', () => {
+    assert.deepEqual(
+      quoted.map(([key]) => key).sort(),
+      ['drying', 'hauling'],
+      'every list quoted per unit of yield declares which unit'
+    )
+  })
+
+  test('each names a unit the producer can actually select', () => {
+    for (const [key, spec] of quoted) {
+      assert.ok(
+        YIELD_UNITS.includes(spec.quotedPerYieldUnit),
+        `${key} is quoted per "${spec.quotedPerYieldUnit}", which is not an option`
+      )
+    }
+  })
+
+  test('only a per-unit list can be quoted per yield unit', () => {
+    // A $/acre figure has nothing to do with bushels or tons, so declaring one
+    // would clear a perfectly good number for no reason.
+    for (const [key, spec] of quoted) {
+      assert.equal(spec.appliesTo, 'unit', `${key} writes into the cost-per-unit box`)
+    }
+  })
+})
 
 describe('every typical value is citable and well formed', () => {
   test('each spec has a title, a unit and at least one group', () => {
@@ -77,6 +111,76 @@ describe('every typical value is citable and well formed', () => {
     for (const [key, spec] of specs) {
       if (spec.status !== 'provisional') continue
       assert.ok(spec.note, `${key} is provisional and must carry a caveat`)
+    }
+  })
+})
+
+describe('South Dakota overhead, from FINBIN crop enterprise records', () => {
+  const KEYS = ['overheadUtilities', 'overheadInsurance', 'overheadDues', 'overheadMisc']
+
+  // Read off FINBIN reports 972802 (corn) and 972803 (soybeans), South Dakota
+  // 2025, "Overhead Expenses" block. Transcribed here a second time on purpose:
+  // if a figure in the shipped data is edited by hand, this disagrees.
+  const PUBLISHED = {
+    overheadUtilities: [6.11, 4.79],
+    overheadInsurance: [12.49, 9.37],
+    overheadDues: [4.97, 4.29],
+    overheadMisc: [8.07, 6.98],
+  }
+
+  test('all four overhead lines are offered', () => {
+    for (const key of KEYS) assert.ok(TYPICAL_VALUES[key], `${key} is shipped`)
+  })
+
+  test('each figure matches the published report', () => {
+    for (const key of KEYS) {
+      const options = TYPICAL_VALUES[key].groups.flatMap((g) => g.options)
+      const shares = options.map((o) => Number(/^=([\d.]+)\*acres$/.exec(o.value)[1]))
+      assert.deepEqual(shares, PUBLISHED[key], `${key} matches FINBIN`)
+    }
+  })
+
+  test('corn always costs more than soybeans, as the two reports show', () => {
+    for (const key of KEYS) {
+      const [corn, soy] = PUBLISHED[key]
+      assert.ok(corn > soy, `${key}: corn overhead exceeds soybean overhead`)
+    }
+  })
+
+  test('every overhead sentinel multiplies by acres, never by a sibling field', () => {
+    // `acres` is resolved from the whole farm by ui/modals.js. A sentinel naming
+    // anything else would look for `fixed.annual.<name>`, find nothing, and show
+    // the "enter your acres" guard forever.
+    for (const key of KEYS) {
+      for (const o of TYPICAL_VALUES[key].groups.flatMap((g) => g.options)) {
+        assert.match(o.value, /^=[\d.]+\*acres$/, `${key}/${o.label} multiplies by acres`)
+      }
+    }
+  })
+
+  test('each spec pins the period its figures are for', () => {
+    // The published figure is a full year. Without this the picker cannot move a
+    // line off "$ / month", and calcFixed() would multiply it by twelve.
+    for (const key of KEYS) {
+      assert.equal(TYPICAL_VALUES[key].basis, 'year', `${key} declares a yearly basis`)
+      assert.ok(TYPICAL_VALUES[key].requires?.message, `${key} explains what it needs`)
+    }
+  })
+
+  test('the citation names the database, the state, the year and the sample size', () => {
+    for (const key of KEYS) {
+      const source = TYPICAL_VALUES[key].source
+      assert.match(source, /FINBIN/)
+      assert.match(source, /South Dakota/)
+      assert.match(source, /2025/)
+      // Eight farms is thin enough that hiding it would be a misrepresentation.
+      assert.match(source, /[Ee]ight farms/)
+    }
+  })
+
+  test('the note tells the producer these are a check, not a substitute', () => {
+    for (const key of KEYS) {
+      assert.match(TYPICAL_VALUES[key].note, /eight farms/i)
     }
   })
 })
@@ -214,7 +318,7 @@ describe('Iowa State A3-29 figures, as published', () => {
 
   test('salvage falls monotonically with years kept, in every class', () => {
     for (const g of salvage.groups) {
-      if (!/Iowa State auction data$/.test(g.label)) continue
+      if (g.table !== '1a') continue
       const values = g.options.map((o) => Number(/^=([\d.]+)\*/.exec(o.value)[1]))
       for (let i = 1; i < values.length; i++) {
         assert.ok(values[i] < values[i - 1], `${g.label} must decline with age`)
@@ -225,6 +329,9 @@ describe('Iowa State A3-29 figures, as published', () => {
   test('every Table 1b class is offered, under A3-29’s own column heading', () => {
     // The eight column headings of Table 1b, verbatim. If a class is dropped or
     // renamed, a producer loses the ability to see which one they are picking.
+    // The table a group came from is carried as a flag, not spelled out in the
+    // heading — provenance belongs in the modal's source footer, not in the row
+    // a producer is choosing between.
     for (const cls of [
       'Plows and subsoilers',
       'Other tillage',
@@ -236,7 +343,7 @@ describe('Iowa State A3-29 figures, as published', () => {
       'Other machinery',
     ]) {
       assert.ok(
-        salvage.groups.some((g) => g.label === `${cls} — Iowa State Table 1b`),
+        salvage.groups.some((g) => g.label === cls && g.table === '1b'),
         `Table 1b class "${cls}" is offered`
       )
     }
@@ -258,7 +365,7 @@ describe('Iowa State A3-29 figures, as published', () => {
       'Other machinery': [0.2, 0.69],
     }
     for (const [cls, [low, high]] of Object.entries(BOUNDS)) {
-      const g = salvage.groups.find((x) => x.label === `${cls} — Iowa State Table 1b`)
+      const g = salvage.groups.find((x) => x.label === cls && x.table === '1b')
       for (const o of g.options) {
         const share = Number(/^=([\d.]+)\*/.exec(o.value)[1])
         assert.ok(
@@ -291,7 +398,7 @@ describe('Iowa State A3-29 figures, as published', () => {
   test('every equipment category can reach a sourced salvage figure', () => {
     const sourced = new Set(
       salvage.groups
-        .filter((g) => /Iowa State/.test(g.label))
+        .filter((g) => g.table)
         .flatMap((g) => g.options.flatMap((o) => o.categories ?? []))
     )
     for (const { category } of EQUIPMENT_CATALOG) {

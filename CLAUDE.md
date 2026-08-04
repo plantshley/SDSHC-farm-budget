@@ -31,7 +31,7 @@ which also records what was deliberately NOT shipped and why.
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 396 tests: the economic model, storage, data, and a DOM smoke test
+npm test           # 445 tests: the economic model, storage, data, and a DOM smoke test
 npm run build      # -> dist/
 ```
 
@@ -187,7 +187,12 @@ into it.
 Producers have saved work in their own browsers. When the scenario shape changes:
 bump `SCHEMA_VERSION` in `calc.js` **and** add a step to `migrate()` in
 `src/storage.js`. Never drop a scenario because it is old. One corrupt record is
-skipped, never fatal to the list.
+skipped, never fatal to the list. Currently at **3**; the tests assert against the
+exported constant, not a literal, so a bump does not break three of them.
+
+A step that writes nothing is still a step worth adding — see v2 → v3, where the
+absence of the new key is the correct state and backfilling it would be
+destructive.
 
 `storage.js` never throws — every failure path returns `{ok: false, error}`, so a
 full or blocked store is reported rather than swallowed.
@@ -232,6 +237,73 @@ Every picker also prints its unit (`.modal-unit`) and suffixes it onto each
 option, because "$0.14" and "$0.14 /bu" are the same number but only the second
 tells a producer what it is about to be multiplied by.
 
+**A sentinel is a share of a sibling; `*acres` is a rate.** `formatOption()`
+renders `=0.25*initialCost` as "25%" because a quarter of what you paid for a
+tractor genuinely is a percentage. Applying the same rule to `=6.11*acres` put
+**"611%" on the utilities button** for a $6.11/acre figure — not a cosmetic slip
+but a different quantity, with nothing on the button to say so. The `acres`
+branch falls through to money formatting instead. Pinned in `test/app.test.js`
+under *a figure is shown in the units it is actually in*, which asserts both
+halves so neither can be "simplified" back into one.
+
+### A figure quoted per bushel stops being that figure when the unit changes
+
+Hauling is published in $/bushel and drying in $/point per bushel. Switch an
+enterprise from bushels to tons and $0.135 a bushel silently becomes $0.135 a
+ton — off by roughly the weight of a ton of corn, in the flattering direction,
+with a number on screen that looks exactly as reasonable as it did before.
+Nothing downstream can detect it, because $0.135 is an ordinary cost per unit.
+
+The two specs declare `quotedPerYieldUnit: 'bu'`. `markQuotedUnit()` in
+`ui/modals.js` records it on the line as `typicalYieldUnit` when a figure is
+applied; `dropStaleTypicalValues()` in `main.js` clears the figure when the
+enterprise's `yieldUnit` moves off it, and says so.
+
+**Overhead has the same hole one field over, and it is worse.** A FINBIN rate is
+a published *annual* figure, and the picker moves the line's period select to
+"$ / year" to say so. Move it to "$ / month" afterwards and `calcFixed()`
+multiplies an already-annual figure by twelve: $3,055 of utilities becomes
+$36,660. So `openTypical()` also writes `fixed.annualTypicalBasis.<key>`
+alongside the select it just moved, and `dropStaleOverheadValue()` clears the
+line when the two disagree. The provenance path is passed in explicitly
+(`data-typical-basis-path`, set by `periodField()`) rather than derived from the
+basis path by string surgery.
+
+**Two paths, not one, and that is the point.** `fixed.annualBasis.<key>` is what
+the producer has the line set to; `fixed.annualTypicalBasis.<key>` is what the
+figure in it was published for. A single field could not tell the two apart, and
+the difference between them is the entire signal.
+
+**Only figures the picker wrote are cleared.** A number the producer typed
+carries no marker and is left alone, however unlikely it looks: the app knows the
+unit changed, not what they meant by it, and deleting typed work on a guess is
+worse than the error it would prevent. Asserted in `test/app.test.js` under
+*changing a yield unit does not silently reinterpret a figure*.
+
+The marker is persisted rather than held in memory because the mismatch outlives
+the session — a budget saved in bushels and reopened next week can still have its
+unit changed. That made it a scenario-shape change, hence `SCHEMA_VERSION = 3`
+and a v2 → v3 step in `migrate()`. **That step deliberately writes nothing:** a v2
+budget has no picker provenance, and the absence is the correct state, not a gap
+to backfill. Backfilling would mark figures the producer typed and hand them to
+the clearing logic.
+
+The message lives in `unitNotices` (a `Map` by enterprise index) and
+`fixedNotice` (a string, since the shared block has no index), both in `main.js`,
+consumed by the render that answers the change and cleared at the end of it. Same
+reasoning as `collapsedEnterprises`: not a fact about the farm, so not in the
+scenario and not in `localStorage`. A figure vanishing from a card with nothing on
+screen to explain it reads as the app losing work, so the notice is not garnish —
+it is what makes clearing the field safe to do at all.
+
+Each notice is `{ text, paths }`, and `unitNotice()` in `ui/fields.js` writes the
+paths into `data-notice-for`. A `focusin` listener in `main.js` **removes the
+paragraph when the producer taps into one of the fields it names** — it explains
+an empty box, and once they are filling that box in it has said everything it has
+to say. Only the named fields dismiss it; tabbing past a neighbour is not reading
+it. Removed from the DOM directly rather than through `render()`, which would take
+the focus they just gave the input.
+
 ### Exports are handed to other people
 
 `csvCell()` in `export.js` does RFC-4180 quoting **and** neutralises formulas: a
@@ -247,6 +319,13 @@ export, which is most of the reason to offer a CSV at all. The guard therefore
 tests `typeof value !== 'number'`, not the leading character alone. Both halves
 are asserted in `test/app.test.js` under *exports*.
 
+**The comparison exports too, from the table's own row list.** `compareToCSV()`
+imports `COMPARE_ROWS` from `ui/scenarios.js` rather than keeping its own copy —
+a second list is two things to keep in step, and the failure is a producer
+handing an instructor a file that quietly disagrees with the screen it came from.
+Differences get **their own column**, not a merged `value (+123)` cell: that
+reads correctly and computes as nothing.
+
 ### `?` explains, `use typical value` acts — never merge them
 
 - Round `?` (`.help-btn`, `data-info`) → `openInfo()`. **Read-only.** Tapping it
@@ -256,6 +335,35 @@ are asserted in `test/app.test.js` under *exports*.
 
 Both rules are asserted in `test/app.test.js` under *help affordances stay
 separate*.
+
+**A modal opens folded, and folded means shut.** A card's `?` opens several
+definitions at once — the fixed-costs one opens seven — so `openInfo()` renders
+each as a closed `<details>` whenever there is more than one. Flat, that is four
+screens of prose to scroll past to reach the term you actually tapped for; the
+list of headings is itself the answer to "what is on this card?". `showDifferences()`
+and the how-to guide use the same rule via `openGuide({ collapsible: true })`
+with no `firstOpen`. **A single definition is never folded** — tapping `?` and
+then tapping again to read the answer is not an improvement. Asserted in
+`test/app.test.js` under *a card `?` is a list of terms, not a wall of prose*.
+
+**Both live in the label row, never under the input.** `labelRow()` in
+`ui/fields.js` emits label → `?` → `use typical value`, and `renderLine()` in
+`ui/enterprise.js` does the same for a variable-expense line. Under the box, the
+link reads as a caption belonging to the *next* field down, and it adds a row of
+height to every field that has one — across fifteen expense lines and four
+equipment fields that is most of a screen. Asserted in `test/app.test.js` under
+*every "use typical value" link sits in its field label row*.
+
+### Prose style in every modal, hint and definition
+
+`data/definitions.js` carries the rule at the top of the file and
+`data/howto.js` follows it. In short: say what the thing is, how it is
+calculated, then a worked number. **No em-dashes** (full stop, comma or colon
+instead), no hedging openers, no editorialising, and **no source citations in the
+prose** — a source belongs in a spec's `source` field, which the picker prints in
+its footer, and in TYPICAL-VALUES.md. Same rule for group labels: a picker row
+says *"Planter, drill or sprayer"*, not *"…— Iowa State Table 1b"*. Provenance is
+carried as a `table: '1a' | '1b'` flag that the tests key on instead.
 
 ### Nothing auto-fills
 
@@ -269,8 +377,39 @@ message when that sibling is empty.
 
 See [TYPICAL-VALUES.md](TYPICAL-VALUES.md). Where no source exists, the link does
 not appear. Provisional figures are marked `status: 'provisional'` and carry a
-caution in the modal. Equipment purchase prices and South Dakota land
-rent/yield/price data are **deliberately absent** pending research.
+caution in the modal. Equipment purchase prices and South Dakota yields and
+prices are **deliberately absent**; that file records what each one is blocked
+on.
+
+**Aggregates from one report are not always divisible by aggregates from
+another.** The overhead figures nearly shipped from FINBIN's whole-farm income
+statement divided by its `Total crop acres`, which would have been wrong by a
+factor of three: the dollar lines average over all 28 farms while the acreage
+line averages over only those that recorded one. It was caught by dividing five
+*other* lines the same way and finding seed at $316/acre and land rent at
+$516/acre against our own NASS ceiling of $251. **Sanity-check a derived rate
+against lines you already know the right answer for**, before trusting the one
+you don't. The full account is in TYPICAL-VALUES.md.
+
+**A web-search summary is not a source.** Two searches in one session returned
+$3.75/acre and $0.90/acre for the same FINBIN line item, and an earlier one
+reported South Dakota *pasture* rents as cropland rents. Every figure shipped so
+far was extracted from the primary document by script. Keep it that way.
+
+**`acres` is the one sentinel base that is not a sibling field.** Every other
+sentinel (`=0.25*initialCost`) resolves against a field in the same object. The
+four overhead specs use `=6.11*acres`, which `totalAcres()` in `ui/modals.js`
+sums from every enterprise — overhead is published per acre and entered here as a
+whole-farm total, so the multiplier lives across the farm, not beside the field.
+Those specs also carry `basis: 'year'`, and applying one moves the line's period
+select to match: the figure is annual by construction, and a line left on
+"$ / month" would have it multiplied by twelve by `calcFixed()`.
+
+A spec may set `searchPlaceholder` to get a filter box at the top of its picker.
+Land rent uses it: 137 counties across three land types is not a list anyone
+should have to scroll. The filter matches the option label, hides groups with no
+match, and forces open a `<details>` holding one — otherwise a search appears to
+find nothing while the row sits inside a closed fold.
 
 ### One set of components, two grid arrangements
 
@@ -278,6 +417,60 @@ Desktop (≥900px) lays enterprises out as parallel columns mirroring the
 spreadsheet; mobile stacks the same cards as accordions. This is a media query in
 `styles.css` and nothing else. **Never fork into separate mobile and desktop
 components.**
+
+Three rules in that media query are load-bearing rather than decorative:
+
+- **A folded card is `align-self: flex-start`, never `stretch`.** Stretched, it
+  grew to match the tallest open column beside it, so the same folded card was
+  90px tall next to a short enterprise and 900px next to a full one — a
+  900px-tall box holding two lines of text.
+- **Remove stays on a folded card.** A new enterprise arrives folded, so the card
+  you are most likely to want rid of was the one you had to open first to reach
+  the button. It wraps onto its own line rather than competing with the name for
+  the 200px of width.
+- **`.fixed-col` is a flex column with a `.col-foot` pinned by `margin-top:
+  auto`,** so the readouts at the foot of Land & labor line up with the one at
+  the foot of Overhead instead of finishing a field and a half above it.
+  `.col-body` wraps the fields for one reason only: as direct flex children their
+  9px margins stop collapsing and every field in the block gains a row of space.
+
+- **`--fold-h` on `.ent-grid` is the one number for the row of shut cards.** The
+  folded enterprises and the "+ Add enterprise" tile both take it, so the row
+  reads as a rank of equal tiles. Change it in one place.
+
+`.sub-title` carries a `min-height` for the same reason as the columns. A `?` is
+22px tall and a line of 15px text is not, so "Overhead ?" sat taller than "Land &
+labor" and its underline finished a few pixels lower — one rule, visibly not the
+same rule. **It is 29px, not 22px**, and that is the whole fix: `*` sets
+`box-sizing: border-box`, so `min-height` covers the 5px padding and the 2px rule
+as well. At 22px it resolved to 15px of content, under the natural height of both
+variants, and did nothing at all. This was shipped once and did not work.
+
+**The fixed block's `.fold-sub` shows only while the block is shut.** Open, the
+same total is on the last row of the block a few inches below, and two copies of
+one number in one card is a thing to reconcile rather than a thing to read.
+
+**Every editable budget name is sized to its own text.** `sizeNameInputs()` in
+`main.js` measures the header name and every `.scn-name-input` against one
+off-screen mirror span, and the rows re-measure on each keystroke. `field-sizing:
+content` does it natively where supported; the JS covers everywhere else and wins
+when both apply. The point on the Saved tab is that the pencil sits at the end of
+the *name* and the "open" tag immediately after it — left to flex, the three
+scattered across the row and stopped reading as one title with two marks. jsdom
+has no layout, so the test can only prove the boxes are measured at all.
+
+**Print strips browser chrome, not just buttons.** The `@media print` block
+disables number-input spinners and the select `▾` as well as hiding `.help-btn`,
+`.tip`, `.chev` and `.differs-note`. On screen a spinner says "you can change
+this"; on paper it is ink on top of the producer's figures, and a `▾` beside a
+value reads as part of it.
+
+**Green means a positive number, not an action.** `.btn-main` (Save, Compare)
+takes the logo's blue and `.kpi` takes it on the card's top edge, which leaves
+green free to mean money-that-is-there and red money-that-is-not, on the KPI
+cards and the sticky bar alike. Those two show the same figures and are styled by
+one shared rule: they must never disagree about a colour any more than about a
+number.
 
 ### `render()` vs `updateOutputs()` — and why results must be `data-out`
 
@@ -307,7 +500,37 @@ Which cards are folded shut lives in module-level state in `main.js`
 (`collapsedEnterprises`, `fixedCollapsed`), **not** in the scenario. Whether a
 column is open on this phone right now is not a fact about the farm; putting it
 in the scenario would mark the budget dirty on every fold and carry the flag into
-the exported file. Same reasoning keeps it out of `localStorage`.
+the exported file. Same reasoning keeps it out of `localStorage`. `unitNotices`
+lives there too, and is additionally cleared at the end of `render()`: it is a
+message about something that just happened, and repeating it on the next
+structural render would make it read as a live problem.
+
+**Every enterprise starts folded, at every width.** `applyCollapseDefaults()`
+folds all of them, once per budget. Opening a card is a decision to work on that
+enterprise and should be the producer's, not a side effect of the budget having
+loaded. The width no longer matters: on a phone the alternative is scrolling past
+a whole enterprise to reach the second, on a computer it is columns squeezed
+narrow to fit contents nobody is reading yet.
+
+**The one exception is a brand-new budget's single enterprise**, which stays
+open — there is nothing to choose between, nothing to come back to, and no other
+place to begin typing. `scenarioIsNew` tracks that, and is set false wherever a
+stored budget becomes the working one: `open-scenario`, `duplicate-scenario`,
+file import, and boot when `getLastOpened()` finds something. A duplicate counts
+as a farm already built.
+
+A **newly added enterprise also arrives collapsed** (`add-enterprise`), and its
+Remove button stays reachable on the folded card for exactly that reason.
+
+### The unsaved flag gates a browser dialog, so it must be honest
+
+`dirty` is what makes `beforeunload` ask *"are you sure you want to leave?"*. The
+delegated `input` listener therefore **returns early when the new value equals the
+old one** — a focus, a tab, or an arrow key on a number box is not an edit, and
+raising the flag over one means asking the producer to confirm losing work they
+never did. The stored value may be a number while the input reports a string, so
+the comparison is `String(a) === String(b)`. Asserted in `test/app.test.js` under
+*only a real change marks a budget unsaved*.
 
 The boot block sits at the **bottom** of `main.js` on purpose: `render()` reads
 `const` bindings declared above it (`FORMATTERS`), so booting from the top hits
@@ -318,7 +541,7 @@ smoke test catches it.
 
 ## Tests
 
-396 tests across six files:
+445 tests across six files:
 
 - `test/calc.test.js` — the model against real Excel output, plus the deliberate
   divergences and the regressions listed above.

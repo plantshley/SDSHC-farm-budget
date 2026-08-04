@@ -4,169 +4,179 @@
  * These are read-only explanations. Nothing here writes a value into a field —
  * that is what the "use typical value" links do, deliberately kept separate.
  *
- * Written for producers, not accountants: plain language, a worked number
- * wherever a formula would otherwise be abstract.
+ * HOUSE STYLE, and it is a requirement rather than a preference:
+ *   - Say what the thing is, then how it is calculated, then a worked number.
+ *   - No em-dashes. Use a full stop, a comma, or a colon.
+ *   - No hedging openers ("if you want", "you might"), no editorialising
+ *     ("that beats any table", "this is the most useful thing here").
+ *   - No source citations in the prose. Sources belong in the `source` field of
+ *     a typical-value spec, which the modal prints in its footer, and in
+ *     TYPICAL-VALUES.md. A producer reading a definition does not need a
+ *     bibliography in the middle of it.
+ *   - Short sentences. These are read on a phone, often outdoors.
  */
 
 export const DEFINITIONS = {
   enterpriseName: {
     title: 'Enterprise name',
     body: [
-      'What you want this column called. It is only a label — it changes no numbers.',
-      'It is separate from the crop on purpose. Comparing tillage systems means two enterprises both growing corn, and "Corn" twice tells you nothing; "No-till corn" and "Conventional corn" tell you which is which at a glance, in the results and in every comparison.',
-      'Leave it blank and the crop is used instead, exactly as the original spreadsheet did.',
+      'A label for this column. It changes no numbers.',
+      'It is separate from the crop because two enterprises can grow the same crop. If you are comparing tillage systems, "No-till corn" and "Conventional corn" tell you which column is which. "Corn" twice does not.',
+      'Leave it blank and the crop name is used instead.',
     ],
   },
 
   enterpriseGrossMargin: {
-    title: 'Enterprise Gross Margin',
+    title: 'Enterprise gross margin',
     body: [
-      'The whole enterprise’s gross margin in dollars: gross margin per acre × its acres.',
-      'Gross margin per acre tells you how each acre performed. Enterprise gross margin tells you how much that enterprise contributed to the farm in total, which is a different question — a strong margin on 40 acres contributes less than a thin one on 900.',
+      'The whole enterprise in dollars: gross margin per acre × acres.',
       'Example: $232/acre × 500 acres = $116,000.',
-      'It is what is left to cover the farm’s fixed costs. Add up every enterprise’s gross margin, subtract total fixed costs, and you have the farm’s profit.',
+      'Gross margin per acre says how each acre performed. Enterprise gross margin says how much the enterprise contributed to the farm. A strong margin on 40 acres contributes less than a thin one on 900.',
+      'This is the money available to cover fixed costs. Add up every enterprise, subtract total fixed costs, and the result is farm profit.',
     ],
   },
 
   laborHours: {
     title: 'Hired labor hours',
     body: [
-      'How much hired help the whole farm uses — not the hours you work yourself, unless you intend to charge the business for your own time.',
-      'Enter it however you know it. If you hire someone about ten hours a week, choose "hours / week" and enter 10; the calculator turns that into a yearly figure for you.',
-      'The spreadsheet asks for an annual total, which means doing that conversion in your head first. That is where a budget quietly picks up a factor-of-twelve mistake.',
+      'Hired help for the whole farm. Do not include your own hours unless you intend to charge the business for your time.',
+      'Enter the figure the way you know it. For someone working ten hours a week, choose "hours / week" and enter 10. The calculator converts it to a yearly total.',
+      'The original spreadsheet asks for an annual total, which means doing that conversion first. That is where a budget picks up a factor-of-twelve error.',
     ],
   },
 
   overheadPeriod: {
-    title: 'Overhead, and the period you enter it for',
+    title: 'Overhead and its period',
     body: [
-      'Overhead is the running cost of being a farm business at all: utilities, insurance, dues and subscriptions, and whatever else does not belong to one crop.',
-      'Bills arrive monthly far more often than yearly, so each line lets you say which period your figure covers. A $180 power bill entered as "$ / month" becomes $2,160 a year.',
-      'Everything is converted to a yearly figure before it is spread across your acres.',
+      'Overhead is the cost of running the business: utilities, insurance, dues, subscriptions, and anything else that does not belong to one crop.',
+      'Most of these bills arrive monthly, so each line lets you choose the period your figure covers. A $180 power bill entered as "$ / month" becomes $2,160 a year.',
+      'Every line is converted to a yearly figure before it is spread across your acres.',
+      'Real estate and property taxes on ground you own belong on the Miscellaneous line. There is no separate row for them, and land rent covers rented acres only.',
+      'Each line offers a typical value taken from South Dakota farm records. Those figures are published per acre, so choosing one multiplies it by the acres you have entered and fills in a yearly total.',
     ],
   },
 
   budgetFile: {
     title: 'What is a budget file?',
     body: [
-      'A budget file is a small .json file this calculator produces — use "Save budget file" at the bottom of the page and it downloads to your device.',
-      'It holds one complete budget: every enterprise, every expense, and all the shared fixed costs.',
-      'It exists because budgets are saved in this browser only. To move a budget from your phone to your laptop, save the file on the phone, get it to the laptop however you normally would, and open it here.',
-      'Only files this calculator produced will open. A spreadsheet or a PDF will be refused.',
-      'Opening a file never replaces a saved budget — it always comes in as a new one. If the name is already in use, "(opened from file)" is added so you can tell them apart.',
+      'A .json file this calculator produces. Choose "Save budget file" at the bottom of the page and it downloads to your device.',
+      'It holds one complete budget: every enterprise, every expense, and the shared fixed costs.',
+      'It exists because budgets are saved in this browser only. To move a budget from your phone to your laptop, save the file on the phone, transfer it, and upload it here with "Upload a budget file".',
+      'Only files this calculator produced will open. A spreadsheet or a PDF is refused.',
+      'Uploading a file never replaces a saved budget. It always comes in as a new one. If the name is already in use, "(opened from file)" is added to it.',
     ],
   },
 
   enterpriseBudget: {
-    title: 'Enterprise Budget',
+    title: 'Enterprise budget',
     body: [
-      'An enterprise is one crop or activity you want to budget on its own — corn, soybeans, silage, a grazing enterprise.',
-      'Giving each enterprise its own budget lets you see which ones actually make money, instead of only seeing whether the whole farm did.',
-      'Add as many as you need. Income and variable expenses belong to a single enterprise; fixed costs are shared across all of them.',
+      'An enterprise is one crop or activity budgeted on its own: corn, soybeans, silage, a grazing enterprise.',
+      'Budgeting each one separately shows which enterprises make money, instead of only showing whether the whole farm did.',
+      'Add as many as you need. Income and variable expenses belong to a single enterprise. Fixed costs are shared across all of them.',
     ],
   },
 
   grossRevenue: {
-    title: 'Total Crop Revenue / Gross Revenue',
+    title: 'Gross revenue',
     body: [
-      'Everything the enterprise brings in per acre, before any expenses.',
+      'Everything the enterprise brings in per acre, before expenses.',
       'Yield per acre × price per unit, plus any miscellaneous income such as grazing crop residue or selling stalks.',
       'Example: 180 bu/acre × $4.25 = $765/acre.',
     ],
   },
 
   totalVariableExpenses: {
-    title: 'Total Variable Expenses',
+    title: 'Total variable expenses',
     body: [
       'Costs that change with how much you grow, and that you would not have if you did not plant the crop: seed, fertilizer, chemicals, fuel, crop insurance, hauling, drying.',
       'Also called direct or operating costs.',
-      'These are the costs you can most easily change from one year to the next, which is why comparing them between scenarios is so useful.',
+      'These are the costs that change most from one year to the next, which is what makes them worth comparing between scenarios.',
     ],
   },
 
   grossMargin: {
-    title: 'Gross Margin',
+    title: 'Gross margin',
     body: [
-      'Gross revenue minus total variable expenses — what an enterprise contributes before any fixed costs are paid.',
+      'Gross revenue minus total variable expenses. What the enterprise contributes before fixed costs are paid.',
       'Example: $765 revenue − $533.70 variable expenses = $231.30 gross margin per acre.',
-      'Gross margin is the fairest way to compare two enterprises or two practices, because fixed costs like land and equipment usually stay the same either way.',
-      'A positive gross margin means the enterprise is at least paying its own operating costs and helping cover overhead.',
+      'Gross margin is the fairest way to compare two enterprises or two practices, because fixed costs such as land and equipment usually stay the same either way.',
+      'A positive gross margin means the enterprise covers its own operating costs and contributes to overhead.',
     ],
   },
 
   totalGrossMargin: {
-    title: 'Total Gross Margin',
+    title: 'Total gross margin',
     body: [
-      'Every enterprise’s gross margin added together — the whole farm’s contribution toward fixed costs.',
-      'If total gross margin is larger than your total fixed costs, the farm makes a profit. If it is smaller, it does not, no matter how well any single field did.',
+      'Every enterprise gross margin added together. The whole farm contribution toward fixed costs.',
+      'If total gross margin is larger than total fixed costs, the farm makes a profit. If it is smaller, it does not, however well any single field performed.',
     ],
   },
 
   fixedCosts: {
-    title: 'Fixed Costs (Overhead)',
+    title: 'Fixed costs (overhead)',
     body: [
-      'Costs you pay whether or not you plant a single acre: land rent, hired labor, machinery depreciation and interest, buildings, utilities, insurance, dues.',
-      'They belong to the whole operation, not to one crop, so this calculator spreads them across the total acres of every enterprise you have entered.',
-      'This is why acres matter: with no acres entered, there is nothing to spread fixed costs over.',
+      'Costs you pay whether or not you plant an acre: land rent, hired labor, machinery depreciation and interest, buildings, utilities, insurance, dues.',
+      'They belong to the whole operation rather than one crop, so they are spread across the total acres of every enterprise entered.',
+      'With no acres entered there is nothing to spread them over, and no per-acre figure can be calculated.',
     ],
   },
 
   salvageValue: {
-    title: 'Salvage Value',
+    title: 'Salvage value',
     body: [
-      'What a machine will still be worth when you are done with it — its trade-in or resale value at the end of its useful life.',
-      'It is not what you paid, and it is not zero for most farm equipment. A tractor bought for $285,000 might still be worth $95,000 after twelve years.',
-      'Salvage value matters because you only wear out the difference. You are not losing the whole purchase price, only the part that disappears.',
-      'Buildings in this calculator are assumed to depreciate all the way to zero, so they have no salvage value.',
+      'What a machine will still be worth when you are done with it. Its trade-in or resale value at the end of its useful life.',
+      'It is not what you paid, and for most farm equipment it is not zero. A tractor bought for $285,000 might still be worth $95,000 after twelve years.',
+      'It matters because you only wear out the difference. The cost is the part of the purchase price that disappears, not the whole of it.',
+      'Buildings in this calculator depreciate to zero, so they have no salvage value.',
     ],
   },
 
   usefulLife: {
-    title: 'Useful Life',
+    title: 'Useful life',
     body: [
-      'How many years you expect to use the item before replacing it — not how long it will physically last.',
-      'It spreads the cost of a machine over the years that machine actually earns money for you, instead of charging the whole purchase to the year you bought it.',
+      'How many years you expect to use the item before replacing it. Not how long it would physically last.',
+      'It spreads the cost of a machine across the years that machine earns money, instead of charging the whole purchase to the year you bought it.',
     ],
   },
 
   depreciationVsInterest: {
-    title: 'Depreciation vs. Interest — why both?',
+    title: 'Depreciation and interest: why both',
     body: [
-      'They are two different costs, and a machine has both. This is the single most common point of confusion on this page.',
-      'DEPRECIATION is wear-out. The machine loses value every year you use it, and that lost value is a real cost even though no money leaves your account. It is (purchase price − salvage value) ÷ useful life.',
-      'INTEREST is the cost of the money tied up in the machine. If you borrowed, it is what you pay the lender. If you paid cash, it is what that money could have earned elsewhere — still a real cost, called opportunity cost.',
-      'Example: a $285,000 tractor with $95,000 salvage over 12 years depreciates $15,833/year. At 7% on its average value, it also costs $13,300/year in interest. Counting only one of the two understates what that tractor really costs you.',
-      'Interest is charged on the machine’s average value over its life — (purchase price + salvage value) ÷ 2 — because you have less money tied up in it as it depreciates.',
+      'They are two different costs, and a machine has both.',
+      'DEPRECIATION is wear-out. The machine loses value every year you use it. No money leaves your account, but the lost value is a real cost. It is (purchase price − salvage value) ÷ useful life.',
+      'INTEREST is the cost of the money tied up in the machine. If you borrowed, it is what you pay the lender. If you paid cash, it is what that money could have earned elsewhere, which is still a real cost.',
+      'Example: a $285,000 tractor with $95,000 salvage over 12 years depreciates $15,833 a year. At 7% on its average value it also costs $13,300 a year in interest. Counting only one of the two understates what the tractor costs.',
+      'Interest is charged on the average value over the machine life, (purchase price + salvage value) ÷ 2, because less money is tied up in it as it depreciates.',
     ],
   },
 
   equipmentVsBuilding: {
-    title: 'What counts as Equipment vs. a Building?',
+    title: 'Equipment or building?',
     body: [
       'EQUIPMENT is machinery you operate: tractors, combines, planters, drills, tillage tools, grain carts, augers, skid loaders, sprayers, trucks.',
-      'BUILDINGS are permanent structures: machine sheds, grain bins, shops, barns, fencing and permanent water systems.',
-      'The practical difference here: equipment keeps a salvage value, buildings are assumed to depreciate to zero.',
-      'If you are unsure, ask whether it would sell separately at an auction. If yes, enter it as equipment.',
-      'Only include items you actually use for the enterprises in this budget, and enter the share that belongs to this operation.',
+      'BUILDINGS are permanent structures: machine sheds, grain bins, shops, barns, fencing, permanent water systems.',
+      'The practical difference here is salvage value. Equipment keeps one. Buildings depreciate to zero.',
+      'The test for an unclear item: would it sell separately at an auction? If so, enter it as equipment.',
+      'Include only items used for the enterprises in this budget, and enter the share that belongs to this operation.',
     ],
   },
 
   landRent: {
-    title: 'Land Rent (Cash or Equivalent Value)',
+    title: 'Land rent',
     body: [
       'What the land costs you per acre for the year.',
-      'If you rent, use your cash rent. If you own the ground, use what you could rent it out for — owning does not make land free, it means you are giving up the rent someone else would pay you.',
-      'This calculator applies one rate across all your acres. If your rented and owned ground differ a lot, use a weighted average.',
+      'If you rent, use your cash rent. If you own the ground, use what you could rent it out for. Owning land does not make it free: you are giving up the rent someone else would pay.',
+      'This calculator applies one rate across all acres. Where rented and owned ground differ, use a weighted average.',
     ],
   },
 
   preharvestInterest: {
-    title: 'Interest on preharvest variable costs',
+    title: 'Interest on preharvest costs',
     body: [
-      'You pay for seed, fertilizer and chemicals in the spring but do not get paid until after harvest. Interest is the cost of carrying those expenses in between — on an operating loan, or on your own money.',
-      'This calculator works it out for you: the preharvest costs above it, × the interest rate, × the months carried ÷ 12. The spreadsheet this is based on assumed 8 months at 10%.',
-      'Hauling, drying and marketing are not included, because they happen at or after harvest and are not carried through the season.',
-      'Change the rate and months to match your operating note, or switch to entering the figure yourself.',
+      'Seed, fertilizer and chemicals are paid for in the spring. The crop is not paid for until after harvest. Interest is the cost of carrying those expenses in between, either on an operating loan or on your own money.',
+      'It is calculated here: preharvest costs × interest rate × months ÷ 12. The original spreadsheet assumed 8 months at 10%.',
+      'Hauling, drying and marketing are excluded. They happen at or after harvest, so they are not carried through the season.',
+      'Change the rate and months to match your operating note, or switch the line to entering the figure yourself.',
     ],
   },
 
@@ -174,25 +184,25 @@ export const DEFINITIONS = {
     title: 'Labor',
     body: [
       'Hired labor for the whole operation: the hourly wage, and the total hours across the year (number of employees × hours each).',
-      'The calculator divides those hours across your total acres to get a cost per acre.',
-      'Many producers also charge for their own time here. Unpaid operator labour is a genuine cost — if you did not do the work, you would have to pay someone who did.',
+      'The hours are divided across your total acres to give a cost per acre.',
+      'Unpaid operator labor is a real cost and many producers charge for their own time here. If you did not do the work, you would pay someone else to.',
     ],
   },
 
   profitPerAcre: {
-    title: 'Profit per Acre',
+    title: 'Profit per acre',
     body: [
-      'Total profit for the whole farm divided by total acres — what is left after every variable and fixed cost is paid.',
-      'This is acreage-weighted. If corn is on 500 acres and soybeans on 300, the corn figure carries more weight, exactly as it should.',
-      'Note: this is calculated differently from the original spreadsheet, which added the per-acre figures of each enterprise together. That only works if every enterprise has the same acreage. See the note on the results screen.',
+      'Total farm profit divided by total acres. What is left after every variable and fixed cost is paid.',
+      'It is weighted by acreage. With corn on 500 acres and soybeans on 300, the corn figure carries more weight.',
+      'This is calculated differently from the original spreadsheet, which added each enterprise per-acre figure together. That only works when every enterprise has the same acreage. The results screen has a note explaining the difference.',
     ],
   },
 
   totalProfit: {
-    title: 'Total Profit',
+    title: 'Total profit',
     body: [
-      'Total gross margin minus total fixed costs — the bottom line for the whole operation.',
-      'A negative number is not a calculation error. It means the enterprises, as entered, are not covering the full cost of the land, labour and machinery behind them. That is worth knowing, and it is often the most useful thing this calculator tells you.',
+      'Total gross margin minus total fixed costs. The bottom line for the whole operation.',
+      'A negative number is not a calculation error. It means the enterprises as entered are not covering the full cost of the land, labor and machinery behind them.',
     ],
   },
 }

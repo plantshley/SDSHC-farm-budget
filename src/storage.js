@@ -99,6 +99,20 @@ function migrate(scenario) {
     }
   }
 
+  // v2 → v3: a figure taken from the typical-value picker can carry a marker
+  // saying what it was quoted against — `typicalYieldUnit` on a variable expense
+  // line, `fixed.annualTypicalBasis.<key>` on an overhead line.
+  //
+  // Nothing is written here on purpose. The marker is only ever set by the
+  // typical-value picker, so a v2 budget has no lines that carry one, and the
+  // absence is the correct state: a figure the producer typed themselves is
+  // theirs, and clearing it on a unit change would be destroying work the app
+  // has no evidence is wrong. The step exists so the version stays monotonic
+  // and a later migration knows what it is looking at.
+  if (Number(scenario.schemaVersion) < 3) {
+    scenario.schemaVersion = 3
+  }
+
   return scenario
 }
 

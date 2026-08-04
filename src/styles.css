@@ -23,12 +23,14 @@
      Taken from the coalition's own mark, so the tool is recognisably theirs
      rather than generically green. Each has one job and keeps it:
        --brown  headings and structural lines — the mark's darkest colour
-       --sky    explanation: the `?`, definition modals, the preharvest note
-       --olive  the growing/positive accent — section rules, KPI edges
+       --sky    the chrome: the `?` and its modals, the solid buttons, the KPI
+                card edge, the marker on whichever budget is open
+       --olive  the section rules under every sub-title
        --clay   the warm counterweight — overhead, notes, secondary marks
-     --green stays the action/positive colour. Semantics beat brand: a
-     producer reading a red loss and a green profit must not have to work out
-     which of four browns means "bad". */
+     --green is left to mean a positive dollar figure, and --cost a negative
+     one. Semantics beat brand: a producer reading a red loss and a green
+     profit must not have to work out which of four browns means "bad", and
+     that is worth more than having the loudest button on the page be green. */
   --brown: #4e413a;
   --sky: #0fb2e2;
   --olive: #afbf42;
@@ -39,6 +41,10 @@
   --olive-bg: #f4f7e3;
   --clay-bg: #f6ede7;
   --brand-ink: var(--brown);
+  /* Text sitting ON a sky-filled button. White carries on the light theme's
+     saturated #0fb2e2; on the lighter dark-theme blue it does not, so the two
+     are separate tokens rather than a hardcoded #fff. */
+  --on-sky: #ffffff;
 
   /* Typography is one swappable property — see [data-font] below. */
   --font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text",
@@ -76,6 +82,7 @@
   --olive-bg: #232817;
   --clay-bg: #2b201a;
   --brand-ink: #dfe6e2;
+  --on-sky: #0a1d24;
 }
 
 /* "Classic" = the Virtual Fence ROI tool's stack, for producers who prefer it
@@ -199,10 +206,17 @@ main {
   cursor: pointer;
 }
 
+/* Blue, not green. Green on this page means "this writes a value" — the save
+   button, "use typical value". Choosing a typeface writes nothing, and giving it
+   the action colour made it look like one more thing to decide before starting. */
 .seg[aria-pressed="true"] {
-  background: var(--green);
-  color: #fff;
+  background: var(--sky);
+  color: var(--on-sky);
   font-weight: bold;
+}
+
+.seg:hover:not([aria-pressed="true"]) {
+  color: var(--sky);
 }
 
 /* ---- cards ------------------------------------------------------------- */
@@ -233,9 +247,17 @@ main {
 .field-label {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 2px 6px;
+  flex-wrap: wrap;
   margin-bottom: 3px;
   min-height: 22px;
+}
+
+/* "use typical value" sits in the label row now, so in a narrow enterprise
+   column it may wrap under the label rather than squeezing it. It keeps its own
+   line's height off the field either way. */
+.field-label .line-tip {
+  line-height: 1.2;
 }
 
 .field-label > label,
@@ -310,6 +332,13 @@ input.invalid {
   color: var(--green-dark);
 }
 
+/* Duplicate copies a budget rather than changing one, so it takes the blue that
+   everywhere else on this page means "this is about a budget" rather than the
+   green of the action that opens one. */
+.tip.alt {
+  color: var(--sky);
+}
+
 .flash {
   animation: flash 0.7s ease;
 }
@@ -325,20 +354,25 @@ input.invalid {
 
 /* ---- buttons ----------------------------------------------------------- */
 
+/* The one solid button on each screen: Save on the budget, Compare on the saved
+   list. It takes the logo's blue rather than the green, so the page's single
+   loudest object is the mark's own colour and green is left to mean "positive
+   number" wherever it appears — which, on a page whose whole output is money,
+   is the more useful job for it. */
 .btn-main {
   padding: 14px 26px;
   font-size: 17px;
   font-weight: bold;
-  background-color: var(--green);
-  color: #fff;
+  background-color: var(--sky);
+  color: var(--on-sky);
   border: none;
   border-radius: 8px;
   cursor: pointer;
   min-height: 44px;
 }
 
-.btn-main:hover {
-  background-color: var(--green-dark);
+.btn-main:hover:not(:disabled) {
+  filter: brightness(0.92);
 }
 
 .btn-add {
@@ -357,6 +391,17 @@ input.invalid {
 .btn-add:hover {
   border-color: var(--green);
   background: var(--save-bg);
+}
+
+/* Header variant: "+ New budget" sits in the top right of the Saved header, so
+   it is sized to its text instead of spanning the card. */
+.btn-add-inline {
+  width: auto;
+  flex: 0 0 auto;
+  padding: 7px 14px;
+  min-height: 36px;
+  font-size: 13px;
+  white-space: nowrap;
 }
 
 /* 44px like every other control the app expects a thumb to find. This removes an
@@ -400,6 +445,15 @@ input.invalid {
   line-height: 1.45;
 }
 
+/* The min-height is what keeps two of these level side by side. A `?` is 22px
+   tall and a line of 15px text is not, so "Overhead ?" sat taller than "Land &
+   labor" and its underline finished several pixels lower — two rules across one
+   pair of columns, visibly not the same rule.
+
+   The number is 29px, not 22px, and the difference is the whole fix: `*` sets
+   box-sizing: border-box, so min-height covers the 5px padding and the 2px rule
+   as well. At 22px it resolved to 15px of content, under the natural height of
+   BOTH variants, and did nothing at all. 22 + 5 + 2 = 29. */
 .sub-title {
   font-size: 15px;
   text-transform: uppercase;
@@ -412,6 +466,8 @@ input.invalid {
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+  min-height: 29px;
+  line-height: 1.25;
 }
 
 .pos {
@@ -461,9 +517,12 @@ input.invalid {
   font-weight: bold;
   border: 1px solid transparent;
   background: transparent;
-  padding: 6px 8px;
+  /* The right padding is the pencil's room. It sits INSIDE the box, so this is
+     the only thing keeping it off the last letter of the name — at 30px a name
+     ending in a wide character still had the pencil touching it. */
+  padding: 6px 38px 6px 8px;
   width: auto;
-  min-width: 90px;
+  min-width: 108px;
   max-width: 100%;
   min-height: 0;
   color: var(--brand-ink);
@@ -474,6 +533,68 @@ input.invalid {
 .scenario-name:focus {
   border-color: var(--border);
   background: var(--card);
+}
+
+/* ---- the pencil, inside the name box ----------------------------------- */
+
+/* The pencil belongs to the box, not beside it: overlaid at the right edge, and
+   only once the pointer is on the name or the name has focus. Shown all the
+   time it reads as a button you are meant to press, and the name it decorates
+   is the thing you actually click. The reserved right padding above means it
+   never lands on top of a character.
+
+   Nothing here changes the hit area — the input still fills the box, and the
+   header's pencil stays a real button for anyone reaching it by keyboard. */
+.name-edit {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.name-edit > input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.name-edit .edit-name,
+.name-edit .edit-icon {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+}
+
+.name-edit:hover .edit-name,
+.name-edit:hover .edit-icon,
+.name-edit:focus-within .edit-name,
+.name-edit:focus-within .edit-icon {
+  opacity: 1;
+}
+
+/* The header's pencil is a focusable control, so it must be reachable and
+   clickable once it is visible or on screen for a keyboard user. */
+.name-edit:hover .edit-name,
+.name-edit:focus-within .edit-name,
+.edit-name:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* A touch device never hovers, so hover-only would mean never. Show it, quietly. */
+@media (hover: none) {
+  .name-edit .edit-name,
+  .name-edit .edit-icon {
+    opacity: 0.45;
+  }
+
+  .name-edit .edit-name {
+    pointer-events: auto;
+  }
 }
 
 /* Off-screen twin used to measure the text width. Must not be display:none — a
@@ -492,7 +613,7 @@ input.invalid {
   background: none;
   border: none;
   color: var(--muted);
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1;
   padding: 4px;
   cursor: pointer;
@@ -500,7 +621,7 @@ input.invalid {
 }
 
 .edit-name:hover {
-  color: var(--green);
+  color: var(--sky);
 }
 
 .save-state {
@@ -691,14 +812,21 @@ input.invalid {
   display: none;
 }
 
+/* Remove stays available on a folded card. Hiding it meant an enterprise added
+   by mistake — and a new one now arrives folded — had to be opened before it
+   could be taken away again, which is the one card you have no reason to open.
+   It drops onto its own line so it never eats into the name's width. */
 .ent.collapsed .ent-head {
   border-bottom: none;
   padding-bottom: 0;
   margin-bottom: 0;
+  flex-wrap: wrap;
 }
 
 .ent.collapsed .btn-remove {
-  display: none;
+  min-height: 32px;
+  padding: 4px 0;
+  margin-left: auto;
 }
 
 .block-head > .title {
@@ -723,11 +851,18 @@ input.invalid {
   min-height: 44px;
 }
 
+/* The total beside the heading, for a block that is shut. Open, the same figure
+   is on the last row of the block a few inches below, and two copies of one
+   number in one card is a thing to reconcile rather than a thing to read. */
 .fold-sub {
   font-size: 13px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+.fixed-block:not(.collapsed) > .block-head .fold-sub {
+  display: none;
 }
 
 .ent-add {
@@ -737,12 +872,13 @@ input.invalid {
   gap: 8px;
   border: 1px dashed var(--border);
   border-radius: var(--radius);
-  padding: 16px;
+  padding: 12px;
   text-align: center;
 }
 
 .ent-add .hint {
   margin: 0;
+  font-size: 12px;
 }
 
 /* ---- variable expense lines -------------------------------------------- */
@@ -919,6 +1055,24 @@ input.invalid {
   grid-template-columns: 1fr;
 }
 
+/* Land & labor has three inputs, Overhead has four, and the readouts at the foot
+   of each are exactly the figures you read across from one to the other. Left to
+   flow, the labor readouts finished a field and a half above "Overhead / year"
+   and the pair read as two unrelated lists. The column is a flex column so its
+   foot can be pushed to the bottom of the taller of the two.
+   .col-body exists only to hold the fields in ordinary block flow: as direct
+   flex children their 9px margins would stop collapsing and every field in the
+   block would gain a row of space. */
+.fixed-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.col-foot {
+  margin-top: auto;
+}
+
 .item-list {
   display: grid;
   gap: 10px;
@@ -983,11 +1137,13 @@ input.invalid {
 
 /* These four numbers are the answer the whole page exists to produce, and they
    are read across a classroom and at arm's length in a pickup. Centred and
-   large so they carry; the olive top edge ties them to the logo palette. */
+   large so they carry; the blue top edge ties them to the logo palette without
+   competing with the figure itself, which has to stay free to go green or red
+   and mean it. */
 .kpi {
-  background: var(--bg);
+  background: var(--info-bg);
   border: 1px solid var(--border);
-  border-top: 3px solid var(--olive);
+  border-top: 3px solid var(--sky);
   border-radius: 8px;
   padding: 14px 12px 16px;
   text-align: center;
@@ -1008,8 +1164,25 @@ input.invalid {
   font-weight: bold;
   font-variant-numeric: tabular-nums;
   line-height: 1.15;
+  color: var(--green);
   /* Long dollar amounts must shrink rather than spill out of the card. */
   overflow-wrap: anywhere;
+}
+
+/* Money is green when it is there and red when it is not. That is the one piece
+   of colour on this screen carrying meaning rather than brand, and it is not
+   negotiable for a producer reading the card at arm's length in a pickup. The
+   sticky bar shows the same two figures, so it gets the identical rule: the two
+   must never disagree about a colour any more than about a number. Blue is left
+   to the card's edge, where it decorates without claiming to say anything. */
+.kpi-value.pos,
+.sticky-figs b.pos {
+  color: var(--save);
+}
+
+.kpi-value.neg,
+.sticky-figs b.neg {
+  color: var(--cost);
 }
 
 .sub-note {
@@ -1109,12 +1282,27 @@ input.invalid {
   color: var(--cost);
 }
 
+/* Said once, by the render that answers the change. A figure disappearing from a
+   card with nothing on screen to explain it reads as the app losing work, so
+   this is not optional garnish — it is the whole reason clearing the field is
+   safe to do at all. */
+.unit-notice {
+  background: var(--info-bg);
+  border-left: 3px solid var(--sky);
+  border-radius: 0 6px 6px 0;
+  padding: 9px 11px;
+  margin: 8px 0 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text);
+}
+
 .differs-note {
   margin-top: 18px;
   font-size: 12.5px;
   color: var(--muted);
-  background: var(--clay-bg);
-  border-left: 3px solid var(--clay);
+  background: var(--olive-bg);
+  border-left: 3px solid var(--olive);
   border-radius: 0 6px 6px 0;
   padding: 10px 12px;
 }
@@ -1150,9 +1338,15 @@ input.invalid {
   flex-wrap: wrap;
 }
 
+/* Which budget is open is a statement of fact, not an action or a result, so it
+   takes the blue rather than the green that everywhere else on this page means
+   "this button changes something". The left bar carries the marker at a glance
+   down a long list, where a full-width tint reads as noise. */
 .scn.current {
-  border-color: var(--green);
-  background: var(--save-bg);
+  border-color: var(--sky);
+  border-left-width: 4px;
+  padding-left: 7px;
+  background: var(--info-bg);
 }
 
 .scn-pick input {
@@ -1217,10 +1411,34 @@ input.invalid {
   }
 }
 
+/* The row being dragged has to be obviously PICKED UP.
+   A 55% fade was the whole signal before, which on a pale row against a pale
+   page reads as nothing happening — and because the other rows slide out of the
+   way underneath it, "nothing happening" is exactly the wrong impression.
+   Lifting it instead: full opacity, a shadow that says it is off the surface, a
+   slight tilt no static row ever has, and the sky border to tie it to the list
+   it came from. */
 .scn.dragging {
-  opacity: 0.55;
-  border-style: dashed;
-  border-color: var(--olive);
+  opacity: 1;
+  border: 2px solid var(--sky);
+  background: var(--info-bg);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.22);
+  transform: rotate(-0.6deg) scale(1.01);
+  cursor: grabbing;
+}
+
+/* The gap the row will drop into. Applied to the list while a drag is live, so
+   every other row settles back to plain and only the moving one is decorated. */
+.scn-list.dragging-active .scn:not(.dragging) {
+  opacity: 0.72;
+}
+
+.scn-list.dragging-active {
+  cursor: grabbing;
+}
+
+.scn-list:not(.dragging-active) .scn {
+  transition: opacity 0.15s ease;
 }
 
 .scn-main {
@@ -1233,8 +1451,19 @@ input.invalid {
 .scn-name-row {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 6px;
   min-width: 0;
+}
+
+/* Shrink to the name, do not grow to the row. A full-width box put the pencil
+   at the far right of the card and the "open" tag beyond that, so on a short
+   name the three read as three unrelated things scattered across the row
+   instead of one title with its two marks. sizeNameInputs() in main.js measures
+   the text; this stops flex from undoing that. */
+.scn-name-row > .name-edit {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
 }
 
 /* Editable in place. Borderless until touched, so the list still reads as a
@@ -1244,11 +1473,17 @@ input.invalid {
   font-size: 15px;
   border: 1px solid transparent;
   background: transparent;
-  padding: 5px 6px;
+  /* The right padding is the pencil's room, inside the box. */
+  padding: 5px 32px 5px 6px;
   min-height: 36px;
   color: var(--brand-ink);
-  flex: 1 1 auto;
+  flex: 0 1 auto;
+  width: auto;
+  max-width: 100%;
   min-width: 0;
+  /* Where it is supported this does the sizing natively; the JS measurement
+     covers everywhere else and wins when both apply. */
+  field-sizing: content;
 }
 
 .scn-name-input:hover,
@@ -1257,42 +1492,33 @@ input.invalid {
   background: var(--card);
 }
 
+/* Sits immediately after the pencil, as the third mark on one title, rather than
+   at whatever point a full-width name box happened to end. */
 .scn-open-flag {
   font-style: normal;
-  color: var(--green);
+  color: var(--sky);
   font-size: 11px;
   font-weight: bold;
   text-transform: uppercase;
   letter-spacing: 0.4px;
   flex: 0 0 auto;
+  margin-left: -2px;
 }
 
-.scn-open {
-  background: none;
-  border: none;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-  display: grid;
-  gap: 2px;
-  padding: 2px 6px 6px;
-  min-width: 0;
-}
-
+/* The row's one line of substance: how big the farm is and what it made. Sized
+   to be read down a list at a glance rather than as fine print under the name. */
 .scn-meta {
-  font-size: 12px;
+  display: block;
+  font-size: 13.5px;
   color: var(--muted);
-}
-
-.scn-open-cta {
-  font-size: 12px;
-  color: var(--green);
-  text-decoration: underline;
+  padding: 0 6px 4px;
+  min-width: 0;
 }
 
 .scn-btns {
   display: flex;
-  gap: 10px;
+  align-items: center;
+  gap: 12px;
   flex: 0 0 auto;
 }
 
@@ -1340,15 +1566,25 @@ input.invalid {
   min-width: 120px;
 }
 
+/* The figures are the point of this table — everything else is scaffolding for
+   reading them. They are also what gets read off a projector at the front of a
+   classroom, so they run larger than the body text rather than matching it. */
 .compare-tbl td.num {
   text-align: right;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.compare-tbl tr.total td.num {
+  font-size: 18px;
+  font-weight: bold;
 }
 
 .delta {
   display: block;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: normal;
   opacity: 0.85;
 }
@@ -1599,6 +1835,30 @@ body.modal-open {
   margin-top: 16px;
 }
 
+/* ---- searching a long picker ------------------------------------------- */
+
+/* Sticky so it stays reachable while the list under it scrolls — the whole point
+   is not having to scroll back to the top to change the search. */
+.typ-search {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--card);
+  padding: 6px 0 10px;
+  margin-bottom: 2px;
+}
+
+.typ-search-input {
+  min-height: 40px;
+  font-size: 15px;
+}
+
+.typ-search-empty {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 8px 0 0;
+}
+
 .modal-err {
   background: var(--cost-bg);
   color: var(--cost);
@@ -1681,36 +1941,69 @@ body.modal-open {
     min-width: 310px;
   }
 
-  /* Shut: a narrow spine with its name turned on end, like a closed folder in
-     a drawer. Still tappable, still says which enterprise it is. */
+  /* Shut: a fixed-width card that still reads left to right.
+     It was a 58px spine with the name rotated on end, which is compact but has
+     to be read with your head tilted, and a long enterprise name ran off the
+     bottom of it with nothing to say so. Horizontal at a fixed 200px instead:
+     the name truncates with an ellipsis, the acreage stays under it, and four
+     closed enterprises fit across the page beside an open one. */
+  /* align-self: flex-start, NOT stretch. Stretched, a folded card grew to match
+     the tallest open column beside it, so the same card was 90px tall next to a
+     short enterprise and 900px tall next to a full one — a 900px-tall box
+     holding two lines of text and nothing else.
+
+     --fold-h is the ONE number for the row of shut cards: the folded
+     enterprises and "+ Add enterprise" both take it, so the row reads as a rank
+     of equal tiles rather than three cards that nearly line up. Change it here
+     and both follow. Set generously enough for a wrapped name plus the acreage
+     plus Remove; the card clips rather than growing, because a single tall tile
+     is the thing this is here to prevent. */
+  .ent-grid {
+    --fold-h: 124px;
+  }
+
   .ent.collapsed {
-    flex: 0 0 58px;
-    min-width: 0;
-    width: 58px;
-    padding: 12px 6px;
+    flex: 0 0 200px;
+    min-width: 200px;
+    width: 200px;
+    padding: 12px 10px;
+    align-self: flex-start;
+    height: var(--fold-h);
+    overflow: hidden;
   }
 
-  .ent.collapsed .ent-head {
-    flex-direction: column;
-    gap: 10px;
-    align-items: center;
+  .ent-add {
+    align-self: flex-start;
+    height: var(--fold-h);
   }
 
+  /* The toggle takes the full width of the card: chevron and name on the first
+     line, the acreage under the NAME, and Remove on its own line below.
+
+     Two columns rather than a wrapping flex row, and that is the whole reason
+     for the switch. Wrapped, the acreage started at the left edge of the toggle
+     — under the chevron, not under the name it belongs to — so the card had two
+     left margins and read as two separate things. A grid puts the chevron in its
+     own column and both lines of text in the other, so the indent comes from the
+     chevron's actual width instead of a hardcoded guess at it. */
   .ent.collapsed .ent-toggle {
-    flex-direction: column;
+    flex: 1 1 100%;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
     align-items: center;
-    gap: 10px;
-    width: 100%;
+    gap: 2px 8px;
+    min-width: 0;
   }
 
   .ent.collapsed .ent-name,
   .ent.collapsed .ent-sub {
-    writing-mode: vertical-rl;
-    max-height: 260px;
+    grid-column: 2;
+    min-width: 0;
   }
 
-  .ent.collapsed .chev {
-    transform: rotate(-135deg);
+  .ent.collapsed .ent-sub {
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .ent-add {
@@ -1820,13 +2113,38 @@ body.modal-open {
   .tip,
   .help-btn,
   .mode-toggle,
-  .fold-toggle .chev,
+  .chev,
   .scn-grip,
   .edit-name,
   .edit-icon,
   .overlay,
-  .footer button {
+  .footer button,
+  /* On paper there is no app to differ from, and no ? to tap for the detail. */
+  .differs-note {
     display: none !important;
+  }
+
+  /* Browser chrome that only makes sense to a cursor: the up/down spinners on a
+     number box and the ▾ on a select. On screen they say "you can change this";
+     on paper they are ink on top of the producer's figures, and the ▾ in
+     particular reads as part of the value beside it. */
+  input[type="number"] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    appearance: none;
+    margin: 0;
+  }
+
+  select {
+    -webkit-appearance: none;
+    appearance: none;
+    background-image: none !important;
+    padding-right: 8px !important;
   }
 
   body {
@@ -1901,15 +2219,14 @@ body.modal-open {
     display: block !important;
   }
 
-  .ent.collapsed .ent-head,
-  .ent.collapsed .ent-toggle {
-    flex-direction: row !important;
-  }
-
+  /* A folded card is a fixed-width box on screen. On paper it is a full-width
+     card like any other, with its name allowed to run to whatever length it is
+     rather than being cut off with an ellipsis. */
   .ent.collapsed .ent-name,
   .ent.collapsed .ent-sub {
-    writing-mode: horizontal-tb !important;
-    max-height: none !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    white-space: normal !important;
   }
 
   .fixed-grid,

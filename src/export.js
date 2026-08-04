@@ -3,8 +3,11 @@
  * between devices, and the browser's own print dialog for paper or PDF.
  */
 
-import { calcScenario, VARIABLE_LINES } from './calc.js'
+import { calcScenario, VARIABLE_LINES, enterpriseLabel } from './calc.js'
 import { exportScenarioJSON } from './storage.js'
+// The comparison table's own row list, so the CSV cannot list a different set of
+// figures from the screen it was exported from. See the note beside it.
+import { COMPARE_ROWS } from './ui/scenarios.js'
 
 /**
  * RFC-4180 quoting, plus formula neutralisation.
@@ -142,6 +145,65 @@ export function scenarioToCSV(scenario) {
   return csvRows(rows)
 }
 
+/**
+ * The side-by-side comparison, as a spreadsheet.
+ *
+ * Every figure goes out as a raw number, including the differences, so the
+ * recipient can sort, chart and write formulas against it. The first budget is
+ * the baseline, exactly as on screen, and each other column is followed by its
+ * difference from that baseline in its own column — a merged "value (+123)"
+ * cell would read correctly and compute as nothing.
+ */
+export function compareToCSV(scenarios) {
+  const results = scenarios.map((s) => ({ scenario: s, r: calcScenario(s) }))
+  const rows = []
+
+  rows.push(['SDSHC Farm Plan Budget — comparison'])
+  rows.push(['Exported', new Date().toLocaleString()])
+  rows.push(['Baseline', results[0].scenario.name])
+  rows.push([])
+
+  const header = ['Figure']
+  for (const [i, x] of results.entries()) {
+    header.push(x.scenario.name)
+    if (i > 0) header.push(`${x.scenario.name} — difference from baseline`)
+  }
+  rows.push(header)
+
+  for (const row of COMPARE_ROWS) {
+    const baseValue = row.get(results[0].r)
+    const line = [row.label]
+    for (const [i, x] of results.entries()) {
+      const value = row.get(x.r)
+      line.push(round(value))
+      if (i > 0) line.push(round(value - baseValue))
+    }
+    rows.push(line)
+  }
+  rows.push([])
+
+  rows.push(['ENTERPRISES IN EACH BUDGET'])
+  rows.push(['Budget', 'Enterprise', 'Crop', 'Acres', 'Gross margin/acre', 'Gross margin'])
+  for (const x of results) {
+    for (const [i, e] of x.r.enterprises.entries()) {
+      rows.push([
+        x.scenario.name,
+        e.label || enterpriseLabel(x.scenario.enterprises[i], i),
+        e.crop,
+        round(e.acres),
+        round(e.grossMarginPerAcre),
+        round(e.enterpriseGrossMargin),
+      ])
+    }
+  }
+  rows.push([])
+  rows.push([
+    'Note: profit per acre is weighted by acres, and equipment interest is included in total profit.',
+  ])
+
+  return csvRows(rows)
+}
+
 function safeFilename(name, ext) {
   const base =
     String(name || 'farm-budget')
@@ -167,6 +229,15 @@ function download(filename, text, mime) {
 export function downloadCSV(scenario) {
   // The BOM makes Excel open UTF-8 correctly on Windows.
   download(safeFilename(scenario.name, 'csv'), '﻿' + scenarioToCSV(scenario), 'text/csv')
+}
+
+export function downloadCompareCSV(scenarios) {
+  if (!scenarios?.length) return
+  download(
+    safeFilename(`${scenarios[0].name}-comparison`, 'csv'),
+    '﻿' + compareToCSV(scenarios),
+    'text/csv'
+  )
 }
 
 export function downloadJSON(scenario) {

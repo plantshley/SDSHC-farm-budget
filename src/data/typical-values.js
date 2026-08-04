@@ -20,8 +20,67 @@
 const IOWA_2026 =
   'Iowa Farm Custom Rate Survey 2026 (Iowa State University Extension, Ag Decision Maker File A3-10, revised March 2026)'
 
+/**
+ * Overhead, from South Dakota farm records.
+ *
+ * The route to these was not obvious and is worth recording, because the
+ * obvious route produces numbers that are wrong by a factor of three.
+ *
+ * FINBIN's WHOLE FARM income statement reports overhead in whole-farm dollars,
+ * which is the shape these fields want. It cannot be used. Its companion
+ * `Total crop acres` figure is populated for only some of the farms in the
+ * sample while every dollar figure averages over all of them, so the two are not
+ * divisible by each other: dividing gives $316/acre of seed and $516/acre of
+ * land rent, against a NASS county range that tops out at $251.
+ *
+ * The CROP ENTERPRISE report does the per-acre division inside each farm's own
+ * record, where the acreage is attached to the farm that spent the money. Its
+ * subtotals reconcile exactly, its land rent lands at $126.71, and its four
+ * overhead lines agree with a separate Minnesota sample to within 15% on six of
+ * eight figures. That is what is shipped here.
+ */
+const FINBIN_2025 =
+  'FINBIN, Center for Farm Financial Management, University of Minnesota. Crop Enterprise Analysis, South Dakota, 2025 (reports 972802 and 972803, retrieved 4 August 2026). Eight farms: five from the South Dakota Center for Farm/Ranch Management, three from the Southwest Minnesota Farm Business Management Association.'
+
+const FINBIN_NOTE =
+  'Overhead the whole farm carries, spread across its crop acres, taken from farm business records. Choosing a figure multiplies it by the acres you have entered and fills in a yearly total. This is eight farms, so use it to check your own bills rather than in place of them.'
+
+/**
+ * One overhead picker.
+ *
+ * The sentinel multiplies against total farm acres rather than a sibling field,
+ * which is what `acres` resolves to in ui/modals.js. `basis: 'year'` is not
+ * decoration: the figure produced is annual, and a line left set to "$ / month"
+ * would multiply it by twelve on the way into the model.
+ */
+function overhead(title, corn, soybeans) {
+  return {
+    title,
+    unit: '$/acre × your acres',
+    source: FINBIN_2025,
+    note: FINBIN_NOTE,
+    basis: 'year',
+    requires: {
+      field: 'acres',
+      message: 'Enter your acres on an enterprise above first, then pick a figure.',
+    },
+    groups: [
+      {
+        label: 'South Dakota farm records, 2025',
+        // No `desc`. The rate itself is now printed on the button as "$6.11
+        // /acre", so a caption repeating it in words is a second copy of the
+        // same figure to keep in step with the first.
+        options: [
+          { label: 'Corn farms', value: `=${corn}*acres` },
+          { label: 'Soybean farms', value: `=${soybeans}*acres` },
+        ],
+      },
+    ],
+  }
+}
+
 const IOWA_NOTE =
-  'These are Iowa rates, not South Dakota. Iowa publishes an annual survey and South Dakota does not, so producers here often use it as a reference point — but check it against local custom operators.'
+  'These are Iowa rates, not South Dakota. South Dakota does not publish a custom rate survey. Check these against what local custom operators charge.'
 
 /**
  * Build one salvage group per A3-29 Table 1b machine class.
@@ -32,7 +91,8 @@ const IOWA_NOTE =
  */
 function tableOneB(classes) {
   return classes.map(({ label, cats, ten, twelve, fifteen }) => ({
-    label: `${label} — Iowa State Table 1b`,
+    label,
+    table: '1b',
     options: [
       [10, ten],
       [12, twelve],
@@ -141,6 +201,12 @@ export const TYPICAL_VALUES = {
     title: 'Hauling grain',
     unit: '$/bushel',
     appliesTo: 'unit',
+    // These are dollars per BUSHEL, so they only mean anything while the
+    // enterprise is measured in bushels. Applying one records that on the line;
+    // changing the yield unit afterwards clears the figure rather than letting
+    // $0.135 a bushel quietly become $0.135 a ton. See markQuotedUnit() in
+    // ui/modals.js and the yield-unit handler in main.js.
+    quotedPerYieldUnit: 'bu',
     source: IOWA_2026,
     note: IOWA_NOTE,
     groups: [
@@ -167,8 +233,9 @@ export const TYPICAL_VALUES = {
     title: 'Drying corn',
     unit: '$/point per bushel',
     appliesTo: 'unit',
+    quotedPerYieldUnit: 'bu',
     source: IOWA_2026,
-    note: `${IOWA_NOTE} Charged per POINT of moisture removed per bushel — multiply by the points you expect to remove.`,
+    note: `${IOWA_NOTE} Charged per POINT of moisture removed, per bushel. Multiply by the points you expect to remove.`,
     groups: [
       {
         label: 'Drying (includes fuel, electricity, labor)',
@@ -230,13 +297,21 @@ export const TYPICAL_VALUES = {
    * no pasture figure; only nine counties have enough irrigated ground to
    * report. A missing county means NASS had too few responses to publish one.
    */
+  /* ── Overhead ─────────────────────────────────────────────────────────── */
+
+  overheadUtilities: overhead('Utilities', 6.11, 4.79),
+  overheadInsurance: overhead('Farm insurance', 12.49, 9.37),
+  overheadDues: overhead('Dues & professional fees', 4.97, 4.29),
+  overheadMisc: overhead('Miscellaneous overhead', 8.07, 6.98),
+
   landRent: {
     title: 'Land rent — South Dakota county averages',
     unit: '$/acre',
+    searchPlaceholder: 'Search counties',
     source:
       'USDA National Agricultural Statistics Service, 2025 Cash Rent Paid Per Acre, South Dakota county estimates, released 23 August 2025.',
     note:
-      'County averages of what was actually paid in 2025, from the USDA cash rent survey. Your own lease beats any average — use these when you are budgeting ground you have not rented yet, or checking whether an asking rate is in line.',
+      'County averages of what was actually paid for rented ground in 2025. Use your own lease rate where you have one. These are for budgeting ground you have not rented yet, or for checking whether an asking rate is in line.',
     groups: [
       {
         label: 'Cropland, non-irrigated',
@@ -404,7 +479,7 @@ export const TYPICAL_VALUES = {
     unit: 'share of what you paid',
     source:
       'Iowa State University Extension and Outreach, Ag Decision Maker File A3-29 / PM 710, "Estimating Farm Machinery Costs", revised March 2026. Table 1a (tractors, combines) was developed from published reports of used equipment auction values; Table 1b (everything else) is credited to the American Society of Agricultural and Biological Engineers. Tractor and combine percentages are at moderate annual use — 400 hours a year for tractors, 300 for combines.',
-    note: 'These percentages are shares of the NEW LIST PRICE. If you bought the machine new they are also shares of what you paid; if you bought it used at a discount they will understate what it is worth, so lean higher. The class names are Iowa State’s own — pick the one your machine belongs to. And if you know what it would actually trade for, that beats any table.',
+    note: 'These percentages are shares of the NEW LIST PRICE. On a machine bought new they are also shares of what you paid. On a machine bought used at a discount they understate what it is worth, so choose a higher share. Where you know what the machine would actually trade for, enter that instead.',
     requires: {
       field: 'initialCost',
       message: 'Enter the initial cost first, then pick a share of it.',
@@ -414,7 +489,8 @@ export const TYPICAL_VALUES = {
       // two fields can be filled from the same assumption about how long the
       // machine is kept rather than from two unrelated guesses.
       {
-        label: 'Tractor over 150 hp — Iowa State auction data',
+        label: 'Tractor over 150 hp',
+        table: '1a',
         options: [
           { label: 'Kept 10 years — 32%', value: '=0.32*initialCost', desc: '', categories: ['tractor'] },
           { label: 'Kept 12 years — 28%', value: '=0.28*initialCost', desc: '', categories: ['tractor'] },
@@ -422,7 +498,8 @@ export const TYPICAL_VALUES = {
         ],
       },
       {
-        label: 'Tractor 80–149 hp — Iowa State auction data',
+        label: 'Tractor 80–149 hp',
+        table: '1a',
         options: [
           { label: 'Kept 10 years — 37%', value: '=0.37*initialCost', desc: '', categories: ['tractor'] },
           { label: 'Kept 12 years — 34%', value: '=0.34*initialCost', desc: '', categories: ['tractor'] },
@@ -430,7 +507,8 @@ export const TYPICAL_VALUES = {
         ],
       },
       {
-        label: 'Tractor under 80 hp — Iowa State auction data',
+        label: 'Tractor under 80 hp',
+        table: '1a',
         options: [
           { label: 'Kept 10 years — 32%', value: '=0.32*initialCost', desc: '', categories: ['tractor'] },
           { label: 'Kept 12 years — 29%', value: '=0.29*initialCost', desc: '', categories: ['tractor'] },
@@ -438,7 +516,8 @@ export const TYPICAL_VALUES = {
         ],
       },
       {
-        label: 'Combine or forage harvester — Iowa State auction data',
+        label: 'Combine or forage harvester',
+        table: '1a',
         options: [
           { label: 'Kept 10 years — 23%', value: '=0.23*initialCost', desc: '', categories: ['harvest'] },
           { label: 'Kept 12 years — 18%', value: '=0.18*initialCost', desc: '', categories: ['harvest'] },
@@ -474,7 +553,7 @@ export const TYPICAL_VALUES = {
       {
         // Last resort, for a machine that matched no class at all. Uncited, and
         // the modal's source line makes the difference visible.
-        label: 'None of these — common shares of purchase price',
+        label: 'None of these: common shares of purchase price',
         options: [
           { label: '40% — newer machine, short ownership', value: '=0.40*initialCost', desc: 'kept only a few years' },
           { label: '30% — typical for well-kept equipment', value: '=0.30*initialCost', desc: '' },
@@ -510,7 +589,7 @@ export const TYPICAL_VALUES = {
     unit: 'years',
     source:
       'Iowa State University Extension and Outreach, Ag Decision Maker File A3-29 / PM 710, "Estimating Farm Machinery Costs", revised March 2026.',
-    note: 'This is your ECONOMIC life — how long you expect to OWN it, not how long it would last. A3-29 is explicit that the two differ, because most farmers trade before a machine is worn out. If you know you will trade sooner, use that number instead.',
+    note: 'This is ECONOMIC life: how long you expect to own the machine, not how long it would last. The two differ, because most machines are traded before they are worn out. If you know you will trade sooner, enter that number.',
     byCategory: true,
     groups: [
       {
@@ -556,8 +635,8 @@ export const TYPICAL_VALUES = {
     unit: 'years',
     status: 'provisional',
     source:
-      'Conventional depreciation periods for farm structures. No survey source was found for these; see TYPICAL-VALUES.md.',
-    note: 'Buildings are assumed to depreciate all the way to zero in this calculator, so no salvage value is entered. These are ordinary depreciation periods, not measured service lives — a well-kept machine shed outlasts thirty years, and a bin you plan to replace in fifteen should say fifteen.',
+      'Conventional depreciation periods for farm structures. No published survey covers these.',
+    note: 'Buildings depreciate to zero in this calculator, so there is no salvage value to enter. These are ordinary depreciation periods rather than measured service lives. A well-kept machine shed outlasts thirty years, and a bin you plan to replace in fifteen should say fifteen.',
     groups: [
       {
         label: 'Common service lives',

@@ -28,15 +28,15 @@ import {
   reorderScenarios,
 } from './storage.js'
 import { renderEnterprises } from './ui/enterprise.js'
-import { renderFixed } from './ui/fixed.js'
+import { renderFixed, OVERHEAD_LINES } from './ui/fixed.js'
 import { renderResults, showDifferences, renderWarningsInto } from './ui/results.js'
 import { renderScenarioList, renderCompare } from './ui/scenarios.js'
 import { openInfo, openTypical, openGuide } from './ui/modals.js'
 import { usd, usdCents, esc, signClass } from './ui/format.js'
 import { matchCategory, EQUIPMENT_CATALOG, BUILDING_CATALOG } from './data/typical-values.js'
 import { HOW_TO_SECTIONS } from './data/howto.js'
-import { downloadCSV, downloadJSON, printResults } from './export.js'
-import { enterpriseLabel } from './calc.js'
+import { downloadCSV, downloadCompareCSV, downloadJSON, printResults } from './export.js'
+import { enterpriseLabel, VARIABLE_LINES, COST_BASIS } from './calc.js'
 
 initPrefs()
 
@@ -57,21 +57,58 @@ const collapsedEnterprises = new Set()
 let fixedCollapsed = false
 let collapseDefaultsApplied = false
 
+/**
+ * One-shot messages saying why a figure just vanished from a card, by
+ * enterprise index. Each is `{ text, paths }` — the words, and the fields the
+ * words are about, so focusing one of them can dismiss the message.
+ *
+ * Consumed by the render that follows the change and dropped at the end of it,
+ * so it is a notice about something that just happened rather than a piece of
+ * the budget. Same reasoning as collapsedEnterprises: not a fact about the farm,
+ * so not in the scenario and not in storage.
+ */
+const unitNotices = new Map()
+
+/** The same thing for the shared fixed-cost block, which has no index. */
+let fixedNotice = null
+
+/**
+ * Whether the budget on screen was created here rather than read from storage.
+ *
+ * The only thing this decides is whether one enterprise starts open — see
+ * applyCollapseDefaults. A new budget has exactly one and nothing else to look
+ * at; an opened one is a farm you already built and are coming back to.
+ */
+let scenarioIsNew = true
+
 const isNarrow = () => globalThis.matchMedia?.('(max-width: 899px)').matches ?? false
 
 /**
- * On a phone, open the first enterprise and fold the rest.
+ * Every enterprise starts folded, at every width.
  *
- * Fifteen expense lines per enterprise is a very long scroll before the second
- * card even begins. Applied once, on the first budget screen, so it never
- * re-folds a card the producer has just opened.
+ * A card is fifteen expense lines tall. Opening one is a decision to work on
+ * that enterprise, and it should be the producer's, not a side effect of the
+ * budget having loaded. On a phone the alternative is scrolling past a whole
+ * enterprise to reach the second; on a computer it is columns squeezed narrow to
+ * fit contents nobody is reading yet.
+ *
+ * The single exception is the one enterprise a NEW budget starts with. There is
+ * nothing to choose between, nothing to come back to, and no other place to
+ * begin typing — a fresh budget that opens as one shut card and a Save button is
+ * a worse first screen than any amount of scrolling.
+ *
+ * Applied once per budget, so it never re-folds a card the producer just opened.
  */
 function applyCollapseDefaults(scenario) {
   if (collapseDefaultsApplied) return
   collapseDefaultsApplied = true
-  if (!isNarrow()) return
-  scenario.enterprises.slice(1).forEach((e) => collapsedEnterprises.add(e.id))
-  if (scenario.enterprises.length > 1) fixedCollapsed = true
+
+  const keepOpen = scenarioIsNew ? 1 : 0
+  scenario.enterprises.slice(keepOpen).forEach((e) => collapsedEnterprises.add(e.id))
+
+  // Fixed costs still fold on a phone only. It is one block rather than one per
+  // enterprise, and on a wide screen it sits below everything anyway.
+  if (isNarrow() && scenario.enterprises.length > 1) fixedCollapsed = true
 }
 
 /* ─────────────────────────── render ────────────────────────────────────── */
@@ -99,8 +136,8 @@ function render() {
     applyCollapseDefaults(scenario)
     app.innerHTML =
       header() +
-      renderEnterprises(scenario, collapsedEnterprises) +
-      renderFixed(scenario, fixedCollapsed) +
+      renderEnterprises(scenario, collapsedEnterprises, unitNotices) +
+      renderFixed(scenario, fixedCollapsed, fixedNotice) +
       renderResults(calcScenario(scenario)) +
       footer() +
       stickyBar()
@@ -108,8 +145,31 @@ function render() {
 
   updateOutputs()
   updateStatus()
-  if (screen === 'build') sizeNameInput()
+  sizeNameInputs()
+  // Shown once, by the render that answers the change that raised it.
+  unitNotices.clear()
+  fixedNotice = null
 }
+
+/**
+ * A notice is answered by going to the field it is about.
+ *
+ * It explains why a box is empty. The moment the producer taps into that box
+ * they have taken the point and are about to fill it in, and leaving the
+ * paragraph sitting above them while they type turns an explanation into a
+ * standing complaint. Removed from the DOM directly rather than through
+ * render(), which would take the focus they just gave the input.
+ *
+ * Only the fields the notice actually names dismiss it. Tabbing past a
+ * neighbouring box is not reading it.
+ */
+app.addEventListener('focusin', (e) => {
+  const path = e.target.getAttribute?.('data-path')
+  if (!path) return
+  for (const notice of app.querySelectorAll('.unit-notice')) {
+    if (notice.getAttribute('data-notice-for')?.split(' ').includes(path)) notice.remove()
+  }
+})
 
 function header() {
   const scenario = getScenario()
@@ -121,10 +181,12 @@ function header() {
     screen === 'build'
       ? `<div class="name-wrap">
            <label class="sr-only" for="scenarioName">Budget name</label>
-           <input id="scenarioName" class="scenario-name" value="${esc(scenario.name)}"
-             data-path="name" placeholder="Name this budget" />
-           <button type="button" class="edit-name" data-action="focus-name"
-             aria-label="Rename this budget" title="Rename this budget">&#9998;</button>
+           <span class="name-edit">
+             <input id="scenarioName" class="scenario-name" value="${esc(scenario.name)}"
+               data-path="name" placeholder="Name this budget" />
+             <button type="button" class="edit-name" data-action="focus-name"
+               aria-label="Rename this budget" title="Rename this budget">&#9998;</button>
+           </span>
            <span class="save-state" id="saveState"></span>
          </div>`
       : '<div class="name-wrap"><span class="save-state" id="saveState"></span></div>'
@@ -154,8 +216,23 @@ function header() {
  * so the width is measured from a mirror span — the same text in the same font,
  * laid out off-screen.
  */
-function sizeNameInput() {
-  const input = document.getElementById('scenarioName')
+function sizeNameInputs() {
+  // The header name and every row on the Saved tab, which needs the same
+  // treatment for the same reason and additionally so the "open" tag lands
+  // directly after the pencil rather than at the far end of a full-width box.
+  sizeNameInput(document.getElementById('scenarioName'), 50, 118)
+  for (const el of document.querySelectorAll('.scn-name-input')) sizeNameInput(el, 44, 92)
+}
+
+/**
+ * @param {HTMLInputElement|null} input
+ * @param {number} allowance  the box's own horizontal padding plus the pencil,
+ *   which sits INSIDE the right edge rather than beside the box. Too small and
+ *   the last character disappears under the pencil the moment it fades in.
+ * @param {number} floor  keeps an empty name from collapsing to an untappable
+ *   sliver.
+ */
+function sizeNameInput(input, allowance, floor) {
   if (!input) return
   let mirror = document.getElementById('nameMirror')
   if (!mirror) {
@@ -176,8 +253,7 @@ function sizeNameInput() {
   const style = view.getComputedStyle(input)
   mirror.style.font = style.font
   mirror.style.letterSpacing = style.letterSpacing
-  // A floor keeps an empty name from collapsing to an untappable sliver.
-  input.style.width = `${Math.max(mirror.offsetWidth + 26, 90)}px`
+  input.style.width = `${Math.max(mirror.offsetWidth + allowance, floor)}px`
 }
 
 function footer() {
@@ -281,17 +357,28 @@ app.addEventListener('input', (e) => {
   const renameId = el.getAttribute?.('data-scn-name')
   if (renameId) {
     queueRename(renameId, el.value)
+    // The row's name box is sized to its text, so it has to grow as it is typed
+    // in. Without this, typing past the original name runs off the end of a box
+    // that no longer fits it.
+    sizeNameInput(el, 44, 92)
     return
   }
 
   const path = el.getAttribute?.('data-path')
   if (!path) return
 
+  // A keystroke that leaves the value where it was is not an edit. Without this
+  // check, tabbing through a form, or an arrow key on a number box that is
+  // already at its value, marks the budget unsaved — and the browser then asks
+  // "are you sure you want to leave?" on the way out, over nothing. The stored
+  // value may be a number while the box hands back a string, so compare as text.
+  if (String(getPath(getScenario(), path) ?? '') === String(el.value)) return
+
   // Numeric fields keep the raw string while typing ("3." is a legal thing to
   // be in the middle of entering); calc.js coerces with num() anyway.
   setPath(getScenario(), path, el.value)
 
-  if (path === 'name') sizeNameInput()
+  if (path === 'name') sizeNameInput(el, 50, 118)
 
   // The card heading follows whichever of name/crop is providing the label.
   if (/^enterprises\.\d+\.(name|crop)$/.test(path)) {
@@ -339,9 +426,102 @@ app.addEventListener('change', (e) => {
   if (path && e.target.tagName === 'SELECT') {
     setPath(getScenario(), path, e.target.value)
     notify()
+    const changedUnit = /^enterprises\.(\d+)\.yieldUnit$/.exec(path)
+    if (changedUnit) dropStaleTypicalValues(Number(changedUnit[1]), e.target.value)
+
+    const changedPeriod = /^fixed\.annualBasis\.(\w+)$/.exec(path)
+    if (changedPeriod) dropStaleOverheadValue(changedPeriod[1], e.target.value)
   }
   if (e.target.matches('[data-compare-id]')) refreshCompareButton()
 })
+
+/**
+ * Changing an enterprise's yield unit invalidates any figure taken from a table
+ * quoted in the old one.
+ *
+ * Hauling is published in $/bushel. Switch the enterprise from bushels to tons
+ * and that $0.135 is now $0.135 a TON — off by roughly the weight of a ton of
+ * corn, in the flattering direction, with a number on screen that looks exactly
+ * as reasonable as it did a moment ago. Nothing downstream can detect it,
+ * because $0.135 is a perfectly ordinary cost per unit.
+ *
+ * Only figures the PICKER wrote are cleared: those carry `typicalYieldUnit`,
+ * set when the value was applied. A number the producer typed is theirs and is
+ * left alone, however unlikely it looks — the app knows the unit changed, not
+ * what the producer meant by it.
+ */
+function dropStaleTypicalValues(index, unit) {
+  const ent = getScenario().enterprises?.[index]
+  if (!ent?.variable) return
+
+  const cleared = []
+  const paths = []
+  let was = ''
+  for (const [key, line] of Object.entries(ent.variable)) {
+    if (!line || typeof line !== 'object') continue
+    if (!line.typicalYieldUnit || line.typicalYieldUnit === unit) continue
+    cleared.push(VARIABLE_LINES.find((d) => d.key === key)?.label ?? key)
+    paths.push(`enterprises.${index}.variable.${key}.costPerUnit`)
+    was ||= line.typicalYieldUnit // read before the marker is dropped
+    line.costPerUnit = ''
+    delete line.typicalYieldUnit
+  }
+  if (!cleared.length) return
+
+  const one = cleared.length === 1
+  unitNotices.set(index, {
+    paths,
+    text:
+      `${listOf(cleared)} ${one ? 'was' : 'were'} filled in from a table quoted per ${was}. ` +
+      `This enterprise is now measured in ${unit}, so ${one ? 'that figure was' : 'those were'} ` +
+      `cleared. Pick a typical value again or enter your own.`,
+  })
+  notify()
+  render()
+}
+
+function listOf(items) {
+  if (items.length <= 1) return items[0] ?? ''
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`
+}
+
+/**
+ * The same problem one field over: an overhead figure taken from the picker is a
+ * published ANNUAL rate, and the period select is what says so.
+ *
+ * The picker moves the select to "$ / year" when it writes the value, and
+ * records that it did. Move the select to "$ / month" afterwards and calcFixed()
+ * multiplies a figure that is already a year's worth by twelve — $3,055 of
+ * utilities becomes $36,660, which on a 500-acre farm is most of a fixed-cost
+ * line appearing out of nowhere.
+ *
+ * As with the yield unit, only a figure the picker wrote is cleared: a producer
+ * who typed their own number and then changed the period is converting it on
+ * purpose, which is the entire reason the select exists.
+ */
+function dropStaleOverheadValue(key, period) {
+  const fixed = getScenario().fixed
+  const quotedFor = fixed?.annualTypicalBasis?.[key]
+  if (!quotedFor || quotedFor === period) return
+
+  // A hand-edited or very old file can be missing `annual` entirely, and this
+  // must not be the thing that throws on a select change.
+  fixed.annual ??= {}
+  fixed.annual[key] = ''
+  delete fixed.annualTypicalBasis[key]
+
+  const label = OVERHEAD_LINES.find((o) => o.key === key)?.label ?? key
+  const now = COST_BASIS.find((b) => b.key === period)?.label ?? period
+  fixedNotice = {
+    paths: [`fixed.annual.${key}`],
+    text:
+      `${label} was filled in from a figure published for a full ${quotedFor}. ` +
+      `You have moved that line to ${now}, so it was cleared. ` +
+      `Enter the amount for the period you have chosen, or pick a typical value again.`,
+  }
+  notify()
+  render()
+}
 
 /* ─────────────────── inline rename on the Saved tab ────────────────────── */
 
@@ -431,6 +611,9 @@ app.addEventListener('dragstart', (e) => {
   if (!row) return
   draggingId = row.getAttribute('data-scn-id')
   row.classList.add('dragging')
+  // Dims the rows that are NOT moving, so the lifted one is the only thing at
+  // full strength. Removed on dragend whichever way the drag ends.
+  row.closest('[data-scn-list]')?.classList.add('dragging-active')
   // Optional: a synthetic dragstart carries no dataTransfer, and a missing
   // clipboard is no reason to abandon the drag.
   if (e.dataTransfer) {
@@ -461,6 +644,7 @@ app.addEventListener('drop', (e) => {
 app.addEventListener('dragend', (e) => {
   const list = app.querySelector('[data-scn-list]')
   app.querySelector('.scn.dragging')?.classList.remove('dragging')
+  list?.classList.remove('dragging-active')
   if (!list || !draggingId) return
   draggingId = null
 
@@ -508,11 +692,21 @@ document.addEventListener('click', (e) => {
           unitTarget: btn.getAttribute('data-target-unit'),
         }
       : null
+    // An overhead line also passes the path of its period select, so a figure
+    // that is annual by construction cannot land in a line set to "$ / month",
+    // plus where to record which period it was published for.
+    const basisPath = btn.getAttribute('data-basis-path')
     openTypical(
       typical,
       btn.getAttribute('data-target'),
       btn.getAttribute('data-category') || '',
-      line
+      line,
+      basisPath
+        ? {
+            path: basisPath,
+            provenancePath: btn.getAttribute('data-typical-basis-path') || '',
+          }
+        : null
     )
     return
   }
@@ -526,11 +720,18 @@ function handleAction(action, btn) {
   const scenario = getScenario()
 
   switch (action) {
-    case 'add-enterprise':
-      scenario.enterprises.push(newEnterprise())
+    case 'add-enterprise': {
+      // Added folded shut. On a phone the alternative is fifteen blank expense
+      // rows appearing below an already-long page; on a computer it is every
+      // open column being squeezed narrower to make room for an empty one. The
+      // new card arrives as a closed spine you open when you are ready for it.
+      const added = newEnterprise()
+      scenario.enterprises.push(added)
+      collapsedEnterprises.add(added.id)
       notify()
       render()
       break
+    }
 
     case 'remove-enterprise': {
       const i = Number(btn.getAttribute('data-index'))
@@ -666,6 +867,8 @@ function handleAction(action, btn) {
       dirty = false
       screen = 'build'
       collapsedEnterprises.clear()
+      collapseDefaultsApplied = false
+      scenarioIsNew = true
       render()
       break
 
@@ -679,6 +882,7 @@ function handleAction(action, btn) {
         screen = 'build'
         collapsedEnterprises.clear()
         collapseDefaultsApplied = false
+        scenarioIsNew = false
         render()
       }
       break
@@ -693,9 +897,14 @@ function handleAction(action, btn) {
         alert('Could not save the copy — this browser is out of storage space.')
         return
       }
+      // A copy is a farm somebody already built, so it opens folded like any
+      // other saved budget rather than like a blank one.
       setScenario(copy)
       dirty = false
       screen = 'build'
+      collapsedEnterprises.clear()
+      collapseDefaultsApplied = false
+      scenarioIsNew = false
       render()
       break
     }
@@ -765,6 +974,10 @@ function handleAction(action, btn) {
 
     case 'export-csv':
       downloadCSV(scenario)
+      break
+
+    case 'export-compare-csv':
+      downloadCompareCSV(compareIds.map((id) => getScenarioById(id)).filter(Boolean))
       break
 
     case 'export-json':
@@ -854,6 +1067,7 @@ function importFromFile() {
     screen = 'build'
     collapsedEnterprises.clear()
     collapseDefaultsApplied = false
+    scenarioIsNew = false
     render()
   })
   input.click()
@@ -895,7 +1109,9 @@ window.addEventListener('beforeunload', (e) => {
 clearListeners()
 
 const last = getLastOpened()
-setScenario((last && getScenarioById(last)) || newScenario())
+const reopened = last ? getScenarioById(last) : null
+scenarioIsNew = !reopened
+setScenario(reopened || newScenario())
 render()
 
 subscribe(() => {

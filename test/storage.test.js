@@ -48,6 +48,7 @@ const {
   renameScenario,
   reorderScenarios,
 } = await import('../src/storage.js')
+const { SCHEMA_VERSION } = await import('../src/calc.js')
 
 const KEY = 'sdshc-fb-scenarios'
 
@@ -74,7 +75,7 @@ describe('saving and reading', () => {
     const all = listScenarios()
     assert.equal(all.length, 1)
     assert.equal(all[0].name, 'Corn')
-    assert.equal(all[0].schemaVersion, 2)
+    assert.equal(all[0].schemaVersion, SCHEMA_VERSION)
   })
 
   test('replaces by id rather than accumulating duplicates', () => {
@@ -171,7 +172,7 @@ describe('migration', () => {
     )
     const all = listScenarios()
     assert.equal(all.length, 1, 'an old scenario is migrated, never dropped')
-    assert.equal(all[0].schemaVersion, 2)
+    assert.equal(all[0].schemaVersion, SCHEMA_VERSION)
     assert.ok(Array.isArray(all[0].fixed.equipment))
     assert.ok(Array.isArray(all[0].fixed.buildings))
   })
@@ -206,7 +207,7 @@ describe('v2 migration', () => {
       ])
     )
     const [s] = listScenarios()
-    assert.equal(s.schemaVersion, 2)
+    assert.equal(s.schemaVersion, SCHEMA_VERSION)
     // Blank, not copied from the crop: enterpriseLabel() falls back to the crop,
     // so the column reads exactly as it did before, and a producer who renames
     // it isn't fighting a value they never typed.
@@ -250,6 +251,49 @@ describe('v2 migration', () => {
     for (const key of ['utilities', 'farmInsurance', 'duesFees', 'misc']) {
       assert.equal(s.fixed.annualBasis[key], 'year')
     }
+  })
+})
+
+describe('v3 migration', () => {
+  // v3 added `typicalYieldUnit` on a variable expense line: the yield unit a
+  // figure taken from the picker was quoted against. A v2 budget has none, and
+  // that absence is the correct state, not a gap to fill in — every number in an
+  // old budget is one the producer either typed or accepted, and marking them
+  // would make a later unit change delete work the app has no evidence is wrong.
+  function v2Budget(line) {
+    return [
+      {
+        schemaVersion: 2,
+        id: 'a',
+        name: 'Existing',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        enterprises: [
+          { id: 'e1', name: '', crop: 'Corn', acres: 500, yieldUnit: 'bu', variable: { hauling: line } },
+        ],
+        fixed: { labor: {}, annual: {}, annualBasis: {}, equipment: [], buildings: [] },
+      },
+    ]
+  }
+
+  test('a v2 budget comes forward without its figures being touched', () => {
+    store.setItem(KEY, JSON.stringify(v2Budget({ mode: 'unit', costPerUnit: 0.2, unitsPerAcre: 180 })))
+    const [s] = listScenarios()
+    assert.equal(s.schemaVersion, SCHEMA_VERSION)
+    assert.equal(s.enterprises[0].variable.hauling.costPerUnit, 0.2)
+    assert.equal(
+      s.enterprises[0].variable.hauling.typicalYieldUnit,
+      undefined,
+      'a figure with no recorded provenance is left with none'
+    )
+  })
+
+  test('a marker already on a line survives being read back', () => {
+    store.setItem(
+      KEY,
+      JSON.stringify(v2Budget({ mode: 'unit', costPerUnit: 0.135, typicalYieldUnit: 'bu' }))
+    )
+    const [s] = listScenarios()
+    assert.equal(s.enterprises[0].variable.hauling.typicalYieldUnit, 'bu')
   })
 })
 

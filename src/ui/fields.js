@@ -29,18 +29,37 @@ export function moneyField(o) {
 }
 
 /**
- * The label and its `?`, side by side but NOT nested.
+ * The label, its `?`, and its "use typical value" link, side by side but NOT
+ * nested.
  *
  * A `<button>` is a labelable element, and a `<label>` may not contain one other
  * than the control it labels — the `?` inside the label made every field with a
  * definition invalid HTML, and left it to each browser to decide what clicking
  * the label should do. The row wraps them instead.
+ *
+ * The typical-value link sits here rather than under the input, for the same
+ * reason it does on a variable-expense line: below the box it reads as a caption
+ * belonging to the next field down, and it adds a row of height to every field
+ * that has one. Beside the label it reads as an offer about this field.
  */
 function labelRow(id, o) {
   return `
     <div class="field-label">
       <label for="${id}">${esc(o.label)}</label>
       ${o.info ? infoButton(o.info, o.label) : ''}
+      ${
+        o.typical
+          ? `<button type="button" class="tip line-tip" data-typical="${esc(o.typical)}"
+               data-target="${esc(o.path)}" data-category="${esc(o.category || '')}"
+               ${o.basisPath ? `data-basis-path="${esc(o.basisPath)}"` : ''}
+               ${
+                 o.typicalBasisPath
+                   ? `data-typical-basis-path="${esc(o.typicalBasisPath)}"`
+                   : ''
+               }
+             >use typical value</button>`
+          : ''
+      }
     </div>`
 }
 
@@ -81,13 +100,6 @@ export function field(o) {
         />
         ${o.suffix ? `<span class="affix suffix">${esc(o.suffix)}</span>` : ''}
       </div>
-      ${
-        o.typical
-          ? `<button type="button" class="tip" data-typical="${esc(o.typical)}"
-               data-target="${esc(o.path)}" data-category="${esc(o.category || '')}"
-             >use typical value</button>`
-          : ''
-      }
     </div>`
 }
 
@@ -105,6 +117,10 @@ export function field(o) {
  * @param {string} o.basisPath   scenario path for the period key
  * @param {string} o.basisValue  currently selected period key
  * @param {Array}  o.options     HOURS_BASIS or COST_BASIS from calc.js
+ * @param {string} [o.typicalBasisPath]  where to record the period a figure
+ *   taken from the picker was published for. Kept separate from basisPath
+ *   because the producer may move the select afterwards, and the difference
+ *   between the two is exactly what says the figure no longer means what it did.
  */
 export function periodField(o) {
   const id = `f-${o.path.replace(/\./g, '-')}`
@@ -140,6 +156,22 @@ export function periodField(o) {
         </select>
       </div>
     </div>`
+}
+
+/**
+ * A one-shot message explaining why a figure was just cleared.
+ *
+ * `data-notice-for` carries the paths of the fields it is about, space
+ * separated. A focusin listener in main.js removes the paragraph when the
+ * producer taps into one of them: the notice exists to explain an empty box, and
+ * once they are filling that box in it has said everything it has to say.
+ *
+ * @param {{text: string, paths: string[]}|null|undefined} notice
+ */
+export function unitNotice(notice) {
+  if (!notice?.text) return ''
+  return `<p class="unit-notice" role="status"
+    data-notice-for="${esc((notice.paths ?? []).join(' '))}">${esc(notice.text)}</p>`
 }
 
 /** The round `?`. Read-only by contract — it opens a definition, nothing else. */

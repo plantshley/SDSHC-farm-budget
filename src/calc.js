@@ -73,9 +73,18 @@ export const COST_BASIS = [
 
 /**
  * v2 added: enterprise.name (previously the crop doubled as the label),
- * fixed.labor.hoursBasis, and fixed.annualBasis. See migrate() in storage.js.
+ * fixed.labor.hoursBasis, and fixed.annualBasis.
+ *
+ * v3 added two provenance markers, both ignored by the model. They record what a
+ * figure taken from the typical-value picker was quoted against, so that later
+ * changing the thing it was quoted against can clear it rather than silently
+ * reinterpreting it:
+ *   - `typicalYieldUnit` on a variable expense line ($/bushel is not $/ton)
+ *   - `fixed.annualTypicalBasis.<key>` on an overhead line (an annual figure
+ *     left on "$ / month" is multiplied by twelve)
+ * See migrate() in storage.js.
  */
-export const SCHEMA_VERSION = 2
+export const SCHEMA_VERSION = 3
 
 /* ────────────────────────────── helpers ────────────────────────────────── */
 

@@ -15,11 +15,26 @@
  */
 
 import { esc } from './format.js'
-import { field, moneyField, readout, sectionInfo, infoButton, periodField } from './fields.js'
+import {
+  field,
+  moneyField,
+  readout,
+  sectionInfo,
+  infoButton,
+  periodField,
+  unitNotice,
+} from './fields.js'
 import { EQUIPMENT_CATALOG, BUILDING_CATALOG } from '../data/typical-values.js'
 import { HOURS_BASIS, COST_BASIS } from '../calc.js'
 
-export function renderFixed(scenario, collapsed = false) {
+/**
+ * @param {object} scenario
+ * @param {boolean} collapsed
+ * @param {{text:string,paths:string[]}} [notice]  a one-shot message saying why
+ *   a figure was just cleared, with the fields it is about. Owned by main.js and
+ *   dropped after the render that shows it.
+ */
+export function renderFixed(scenario, collapsed = false, notice = null) {
   const f = scenario.fixed ?? {}
 
   return `
@@ -47,9 +62,11 @@ export function renderFixed(scenario, collapsed = false) {
         Costs you pay whether or not you plant: land, labor, machinery, buildings, overhead.
         They are spread across the total acres of every enterprise above.
       </p>
+      ${unitNotice(notice)}
 
       <div class="fixed-grid">
         <div class="fixed-col">
+          <div class="col-body">
           <h3 class="sub-title">Land &amp; labor</h3>
           ${moneyField({
             label: 'Land rent / acre',
@@ -80,11 +97,19 @@ export function renderFixed(scenario, collapsed = false) {
             placeholder: '0',
             info: 'laborHours',
           })}
-          ${readout('Labor hours / year', 'fixed.totalHoursPerYear', { fmt: 'plain' })}
-          ${readout('Labor cost / acre', 'fixed.laborPerAcre')}
+          </div>
+          <!-- Pushed to the foot of the column so the two columns' readouts sit
+               on the same line however many fields are above them. Overhead has
+               four period fields against this column's three, so left to flow
+               these landed halfway up the page beside nothing. -->
+          <div class="col-foot">
+            ${readout('Labor hours / year', 'fixed.totalHoursPerYear', { fmt: 'plain' })}
+            ${readout('Labor cost / acre', 'fixed.laborPerAcre')}
+          </div>
         </div>
 
         <div class="fixed-col">
+          <div class="col-body">
           <h3 class="sub-title">Overhead ${infoButton('overheadPeriod', 'overhead')}</h3>
           ${OVERHEAD_LINES.map((o) =>
             periodField({
@@ -93,12 +118,17 @@ export function renderFixed(scenario, collapsed = false) {
               value: f.annual?.[o.key],
               basisPath: `fixed.annualBasis.${o.key}`,
               basisValue: f.annualBasis?.[o.key],
+              typicalBasisPath: `fixed.annualTypicalBasis.${o.key}`,
               options: COST_BASIS,
               prefix: '$',
               placeholder: '0',
+              typical: o.typical,
             })
           ).join('')}
-          ${readout('Overhead / year', 'fixed.annualTotal', { fmt: 'usd' })}
+          </div>
+          <div class="col-foot">
+            ${readout('Overhead / year', 'fixed.annualTotal', { fmt: 'usd' })}
+          </div>
         </div>
       </div>
 
@@ -119,7 +149,7 @@ export function renderFixed(scenario, collapsed = false) {
         Buildings &amp; improvements
         ${infoButton('equipmentVsBuilding', 'buildings')}
       </h3>
-      <p class="hint">Permanent structures — sheds, bins, shops, fencing, water systems. No salvage value.</p>
+      <p class="hint">Permanent structures: sheds, bins, shops, fencing, water systems. No salvage value.</p>
       <div class="item-list">
         ${(f.buildings ?? []).map((item, i) => renderBuilding(item, i)).join('')}
       </div>
@@ -140,11 +170,17 @@ export function renderFixed(scenario, collapsed = false) {
     </section>`
 }
 
-const OVERHEAD_LINES = [
-  { key: 'utilities', label: 'Utilities' },
-  { key: 'farmInsurance', label: 'Farm insurance' },
-  { key: 'duesFees', label: 'Dues & professional fees' },
-  { key: 'misc', label: 'Miscellaneous' },
+// Each line's typical figure is published PER ACRE and entered here as a
+// whole-farm total, so the picker multiplies by the acres already entered and
+// forces the line's period to yearly. See `overhead()` in data/typical-values.js.
+//
+// Exported so main.js can name a line in the message it shows when a period
+// change clears one, rather than keeping a second copy of these labels.
+export const OVERHEAD_LINES = [
+  { key: 'utilities', label: 'Utilities', typical: 'overheadUtilities' },
+  { key: 'farmInsurance', label: 'Farm insurance', typical: 'overheadInsurance' },
+  { key: 'duesFees', label: 'Dues & professional fees', typical: 'overheadDues' },
+  { key: 'misc', label: 'Miscellaneous', typical: 'overheadMisc' },
 ]
 
 function renderEquipment(item, i) {

@@ -174,54 +174,51 @@ export function showDifferences() {
     'How this differs from the spreadsheet',
     [
     {
-      heading: 'Why there are differences at all',
-      body: [
-        'This calculator follows the SimpleFarmPlanBudget spreadsheet formula for formula, with a small number of deliberate corrections. If you compare the two side by side, these are the places the numbers will not match — and in each case the spreadsheet is the one that is wrong.',
-      ],
-    },
-    {
       heading: '1. Equipment interest is included in total profit',
       body: [
-        'The spreadsheet leaves equipment interest out of its Total Profit, even though its own Total Fixed Costs line includes it. The two totals in the sheet therefore disagree with each other.',
-        'Equipment interest is a real cost, so it is counted here — in both figures. On a farm with a few hundred thousand dollars of machinery this can easily be the difference between showing a profit and showing a loss.',
+        'The spreadsheet leaves equipment interest out of its Total Profit, even though its own Total Fixed Costs line includes it. The two totals in the spreadsheet disagree with each other by that amount.',
+        'Equipment interest is a real cost, so it is counted here, in both figures. On a farm with a few hundred thousand dollars of machinery, this is often the difference between showing a profit and showing a loss.',
       ],
     },
     {
       heading: '2. Per-acre figures are weighted by acres',
       body: [
-        'For the whole farm, the spreadsheet adds together the per-acre figures of each enterprise. That only works if every enterprise has exactly the same acreage.',
-        'If corn is on 500 acres and soybeans on 300, adding "$533 per acre" and "$288 per acre" produces a number that does not describe any acre on the farm.',
-        'This calculator divides whole-farm dollars by whole-farm acres instead, so Profit per acre × total acres always equals Total profit. Each enterprise still shows its own gross margin per acre exactly as the spreadsheet calculates it.',
+        'For the whole farm, the spreadsheet adds together the per-acre figures of each enterprise. That only works when every enterprise has exactly the same acreage.',
+        'With corn on 500 acres and soybeans on 300, adding $533 per acre to $288 per acre gives a number that describes no acre on the farm.',
+        'This calculator divides whole-farm dollars by whole-farm acres, so profit per acre × total acres always equals total profit. Each enterprise still shows its own gross margin per acre exactly as the spreadsheet calculates it.',
       ],
     },
     {
       heading: '3. Interest on preharvest costs is calculated',
       body: [
         'The spreadsheet labels this line "8 months at 10%" but still expects you to type the answer in yourself, so it is often left blank.',
-        'Here it is worked out from the preharvest costs above it. You can change the rate and the number of months, or switch the line back to entering the figure yourself.',
+        'Here it is worked out from the preharvest costs above it. Change the rate and the number of months, or switch the line back to entering the figure yourself.',
       ],
     },
     {
       heading: '4. Blank rows stay blank',
       body: [
-        'In the spreadsheet, leaving an equipment or building row empty makes it divide by zero, and that error spreads into every total — no profit figure can be produced at all unless all six equipment rows and all six building rows are filled in.',
-        'Here you add only the items you actually have, and empty means zero.',
+        'In the spreadsheet, an empty equipment or building row divides by zero, and that error spreads into every total. No profit figure can be produced at all until all six equipment rows and all six building rows are filled in.',
+        'Here you add only the items you have, and empty means zero.',
       ],
     },
     {
       heading: '5. A whole-farm gross margin was added',
       body: [
-        'The spreadsheet has a "Total Gross Margin" label but no cell that actually adds the enterprises together. That total is calculated here.',
+        'The spreadsheet has a Total Gross Margin label but no cell that adds the enterprises together. That total is calculated here.',
       ],
     },
     {
-      heading: 'What was deliberately left alone',
+      heading: 'What was left alone',
       body: [
-        'Interest on equipment is charged on its average value — (purchase price + salvage) ÷ 2 — while buildings are charged on half their purchase price. The spreadsheet treats the two differently and so does this calculator, because both approaches are defensible and changing it would move your numbers for no clear gain.',
-        'Land rent is still a single rate applied across all your acres.',
+        'Interest on equipment is charged on its average value, (purchase price + salvage) ÷ 2. Buildings are charged on half their purchase price. The spreadsheet treats the two differently and so does this calculator: both are defensible, and changing it would move your numbers for no clear gain.',
+        'Land rent is still one rate applied across all your acres.',
       ],
     },
     ],
-    { collapsible: true, firstOpen: true }
+    // All shut. Six sections opened flat is more scrolling than reading, and the
+    // list of headings is itself the answer to "what changed?" — you open the
+    // one you want the detail on.
+    { collapsible: true }
   )
 }

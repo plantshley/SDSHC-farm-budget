@@ -118,14 +118,28 @@ export function openInfo(keys, title) {
   const entries = list.map((k) => DEFINITIONS[k]).filter(Boolean)
   if (!entries.length) return
 
+  // A card's `?` opens several definitions at once — the fixed-costs one opens
+  // seven. Flat, that is four screens of prose to scroll past to reach the term
+  // you actually tapped for. Folded, it is a list of terms you pick from, and
+  // all of them start shut so the list is the first thing you see.
+  //
+  // A single definition is not a list, so it stays open: folding one heading
+  // would mean tapping `?` and then tapping again to read the answer.
+  const fold = entries.length > 1
+
   const html = entries
-    .map(
-      (d) => `
-      <section class="def">
-        <h3>${esc(d.title)}</h3>
-        ${d.body.map((p) => `<p>${esc(p)}</p>`).join('')}
-      </section>`
-    )
+    .map((d) => {
+      const paras = d.body.map((p) => `<p>${esc(p)}</p>`).join('')
+      return fold
+        ? `<details class="def def-fold">
+             <summary>${esc(d.title)}</summary>
+             <div class="def-fold-body">${paras}</div>
+           </details>`
+        : `<section class="def">
+             <h3>${esc(d.title)}</h3>
+             ${paras}
+           </section>`
+    })
     .join('')
 
   openModal(title || entries[0].title, html)
@@ -185,14 +199,42 @@ function resolveValue(raw, targetPath) {
   if (!match) return { ok: false, error: 'That typical value could not be applied.' }
 
   const [, factor, fieldName] = match
-  const parentPath = targetPath.split('.').slice(0, -1).join('.')
-  const siblingPath = parentPath ? `${parentPath}.${fieldName}` : fieldName
-  const sibling = Number(getPath(getScenario(), siblingPath))
+  const base = fieldName === 'acres' ? totalAcres() : sibling(targetPath, fieldName)
 
-  if (!Number.isFinite(sibling) || sibling === 0) {
+  if (!Number.isFinite(base) || base === 0) {
     return { ok: false, error: null } // caller shows the field's own `requires` message
   }
-  return { ok: true, value: Number((Number(factor) * sibling).toFixed(2)) }
+  return { ok: true, value: Number((Number(factor) * base).toFixed(2)), base }
+}
+
+function sibling(targetPath, fieldName) {
+  const parentPath = targetPath.split('.').slice(0, -1).join('.')
+  const path = parentPath ? `${parentPath}.${fieldName}` : fieldName
+  return Number(getPath(getScenario(), path))
+}
+
+/**
+ * `acres` is the one sentinel base that is NOT a sibling field.
+ *
+ * Overhead is published per acre but entered here as a whole-farm amount, so a
+ * $6.11/acre utilities figure has to be multiplied by the farm before it means
+ * anything. The multiplier lives across every enterprise rather than next to the
+ * field, which is why it cannot go through sibling().
+ *
+ * Summed with Number() and a finite guard rather than calc.js's num(), because
+ * this module must not import the model — the same rule that keeps calc.js free
+ * of the DOM. A blank or nonsense acreage contributes nothing, and a farm with
+ * no acres at all falls through to the field's own `requires` message.
+ */
+function totalAcres() {
+  const list = getScenario()?.enterprises
+  if (!Array.isArray(list)) return 0
+  let total = 0
+  for (const e of list) {
+    const acres = Number(String(e?.acres ?? '').replace(/[$\s,]/g, ''))
+    if (Number.isFinite(acres) && acres > 0) total += acres
+  }
+  return total
 }
 
 /**
@@ -206,8 +248,13 @@ function resolveValue(raw, targetPath) {
  *                             $/acre and a list quoted in $/bushel disagree
  *                             about what the number means, and applying one to
  *                             the other silently produces a wrong budget.
+ * @param {object} [basis]     for an overhead line: `{ path, provenancePath }`.
+ *                             `path` is the period select, moved to match the
+ *                             spec; `provenancePath` records what it was moved
+ *                             to, so main.js can clear the figure if the period
+ *                             is later changed to something the figure is not.
  */
-export function openTypical(typicalKey, targetPath, category = '', line = null) {
+export function openTypical(typicalKey, targetPath, category = '', line = null, basis = null) {
   const spec = TYPICAL_VALUES[typicalKey]
   if (!spec) return
 
@@ -252,20 +299,49 @@ export function openTypical(typicalKey, targetPath, category = '', line = null) 
   // Custom Hire list has four. Fold them; leave a short list alone.
   const fold = shown.length > 2
 
+  // A list long enough to need scrolling needs a way to skip the scrolling.
+  // Land rent is 137 counties across three groups; finding yours by eye means
+  // opening each fold and reading down it.
+  const search = spec.searchPlaceholder
+    ? `<div class="typ-search">
+         <label class="sr-only" for="typSearch">${esc(spec.searchPlaceholder)}</label>
+         <input id="typSearch" type="search" class="typ-search-input" autocomplete="off"
+           placeholder="${esc(spec.searchPlaceholder)}" />
+         <p class="typ-search-empty" hidden>Nothing matches that.</p>
+       </div>`
+    : ''
+
+  // A figure that is about to be multiplied by the farm must say so BEFORE it is
+  // chosen. "$6.11" and "$4,203 a year" are the same decision, but only the
+  // second one is the number that lands in the box, and a producer who sees
+  // $6.11 on the button and $4,203 in the field is entitled to think something
+  // went wrong.
+  const acresNote = /\*acres$/.test(String(shown[0]?.options?.[0]?.value ?? ''))
+    ? totalAcres() > 0
+      ? `<p class="modal-note">Your acres: <b>${totalAcres()}</b>. Whichever figure you pick is
+           multiplied by that and entered as a total for the year.</p>`
+      : `<p class="modal-warn">${esc(
+          spec.requires?.message || 'Enter your acres first.'
+        )}</p>`
+    : ''
+
   const body = `
     ${spec.unit ? `<p class="modal-unit">Figures below are <b>${esc(spec.unit)}</b></p>` : ''}
+    ${acresNote}
     ${modeNote}
     ${spec.note ? `<p class="modal-note">${esc(spec.note)}</p>` : ''}
     ${provisional}
+    ${search}
     ${shown.map((g, i) => renderGroup(g, spec, fold, i === 0)).join('')}
     ${
       spec.source
         ? `<p class="modal-source">Source: ${esc(spec.source)}</p>`
-        : `<p class="modal-source">No published source — see the note above.</p>`
+        : `<p class="modal-source">No published source. See the note above.</p>`
     }
     <p class="modal-err" hidden></p>`
 
   openModal(spec.title, body)
+  if (search) wireSearch()
 
   overlay.querySelectorAll('.typ-option').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -280,6 +356,8 @@ export function openTypical(typicalKey, targetPath, category = '', line = null) 
         err.hidden = false
         return
       }
+
+      markQuotedUnit(destination, spec)
 
       if (needsMode) {
         setPath(getScenario(), line.modePath, spec.appliesTo)
@@ -299,9 +377,81 @@ export function openTypical(typicalKey, targetPath, category = '', line = null) 
         return
       }
 
+      // An annualised figure landing in a line still set to "$ / month" would be
+      // multiplied by twelve by calcFixed(). The spec says what period its
+      // figures are for, and the line is moved to match — and the move is
+      // recorded, because moving it BACK afterwards reopens the same hole.
+      if (spec.basis && basis?.path) {
+        setPath(getScenario(), basis.path, spec.basis)
+        const select = document.querySelector(`[data-path="${basis.path}"]`)
+        if (select) select.value = spec.basis
+        if (basis.provenancePath) setPath(getScenario(), basis.provenancePath, spec.basis)
+      }
+
       applyValue(destination, resolved.value)
       closeModal()
     })
+  })
+}
+
+/**
+ * Remember which yield unit a chosen figure was quoted against.
+ *
+ * Hauling is published in $/bushel and drying in $/point per bushel. Both are
+ * only that figure while the enterprise is measured in bushels: switch the unit
+ * to tons and $0.14 a bushel silently becomes $0.14 a ton, off by roughly the
+ * weight of a ton of corn, with a perfectly ordinary-looking number on screen.
+ *
+ * The marker is stored on the line rather than held in memory because the
+ * mismatch outlives the session — a budget saved in bushels and reopened a week
+ * later can still have its unit changed. main.js clears the figure when that
+ * happens; without this it has no way to know the number came from a table
+ * quoted in something else.
+ */
+function markQuotedUnit(destination, spec) {
+  if (!spec.quotedPerYieldUnit || !destination) return
+  const linePath = destination.split('.').slice(0, -1).join('.')
+  if (!linePath) return
+  setPath(getScenario(), `${linePath}.typicalYieldUnit`, spec.quotedPerYieldUnit)
+}
+
+/**
+ * Filter the open picker as the producer types.
+ *
+ * Matching is on the option's own label, which is the county name here. A group
+ * with no matches is hidden entirely rather than left as an empty heading, and a
+ * folded group holding a match is forced open — otherwise a search for "Brown"
+ * would appear to find nothing while the row sat inside a closed fold.
+ *
+ * Clearing the box restores the original open/shut state, so a search that turns
+ * up nothing useful does not leave all three hundred rows unfolded.
+ */
+function wireSearch() {
+  const box = overlay.querySelector('.typ-search-input')
+  const empty = overlay.querySelector('.typ-search-empty')
+  const groups = [...overlay.querySelectorAll('.typ-group')]
+  const wasOpen = new Map(groups.map((g) => [g, g.open]))
+
+  box.addEventListener('input', () => {
+    const q = box.value.trim().toLowerCase()
+    let hits = 0
+
+    for (const group of groups) {
+      let shown = 0
+      for (const opt of group.querySelectorAll('.typ-option')) {
+        const label = opt.querySelector('.typ-label')?.textContent ?? ''
+        const match = !q || label.toLowerCase().includes(q)
+        opt.hidden = !match
+        if (match) shown += 1
+      }
+      group.hidden = shown === 0
+      hits += shown
+      // `open` only exists on <details>; on a plain div it is simply ignored.
+      if (q) group.open = shown > 0
+      else group.open = wasOpen.get(group)
+    }
+
+    empty.hidden = hits > 0
   })
 }
 
@@ -336,9 +486,19 @@ function renderGroup(g, spec, fold, openFirst) {
  */
 function formatOption(value, unit) {
   if (typeof value === 'string' && value.startsWith('=')) {
-    const m = /^=([\d.]+)\*/.exec(value)
-    return m ? `${Math.round(Number(m[1]) * 100)}%` : value
+    const m = /^=([\d.]+)\*(\w+)$/.exec(value)
+    if (!m) return value
+    // A SHARE of a sibling field reads as a percentage: 0.25 of what you paid
+    // for a tractor is "25%". A RATE multiplied by acres does not. $6.11 an
+    // acre of utilities rendered as "611%" is not a small cosmetic slip; it is
+    // a different quantity, and there is nothing on the button to say so.
+    if (m[2] === 'acres') return formatFigure(Number(m[1]), unit)
+    return `${Math.round(Number(m[1]) * 100)}%`
   }
+  return formatFigure(value, unit)
+}
+
+function formatFigure(value, unit) {
   if (unit === 'years') return `${value} yr`
   if (unit && unit.startsWith('$')) {
     const money = value < 1 ? `$${value.toFixed(3)}` : `$${value.toFixed(2)}`

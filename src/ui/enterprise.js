@@ -8,31 +8,42 @@
  */
 
 import { esc } from './format.js'
-import { field, moneyField, readout, sectionInfo } from './fields.js'
+import { field, moneyField, readout, sectionInfo, unitNotice } from './fields.js'
 import { VARIABLE_LINES, enterpriseLabel } from '../calc.js'
 
-const YIELD_UNITS = ['bu', 'ton', 'cwt', 'lb', 'bale', 'AUM']
+/**
+ * Exported so the typical-value tests can check that a spec declaring which
+ * yield unit its figures are quoted against (`quotedPerYieldUnit`) names one the
+ * producer can actually pick. A spec pointing at a unit not on this list would
+ * never match, and its figure would be cleared the moment the unit was touched.
+ */
+export const YIELD_UNITS = ['bu', 'ton', 'cwt', 'lb', 'bale', 'AUM']
 
 /**
  * @param {object} scenario
  * @param {Set<string>} collapsed  ids of the cards currently folded shut
+ * @param {Map<number,{text:string,paths:string[]}>} [notices]  one-shot messages
+ *   by enterprise index, saying why a figure was just cleared, with the fields
+ *   they are about. Owned by main.js and dropped after the render that shows it.
  */
-export function renderEnterprises(scenario, collapsed = new Set()) {
+export function renderEnterprises(scenario, collapsed = new Set(), notices = new Map()) {
   return `
     <div class="ent-scroller">
       <div class="ent-grid">
-        ${scenario.enterprises.map((e, i) => renderEnterprise(e, i, collapsed)).join('')}
+        ${scenario.enterprises
+          .map((e, i) => renderEnterprise(e, i, collapsed, notices.get(i)))
+          .join('')}
         <div class="ent-add">
           <button type="button" class="btn-add" data-action="add-enterprise">
             + Add enterprise
           </button>
-          <p class="hint">A separate crop or activity to budget — corn, silage, soybeans, grazing.</p>
+          <p class="hint">One crop or activity to budget on its own (corn, silage, soybeans, grazing, etc.)</p>
         </div>
       </div>
     </div>`
 }
 
-function renderEnterprise(e, i, collapsed) {
+function renderEnterprise(e, i, collapsed, notice) {
   const p = `enterprises.${i}`
   const heading = enterpriseLabel(e, i)
   const isShut = collapsed.has(e.id)
@@ -70,6 +81,7 @@ function renderEnterprise(e, i, collapsed) {
           ${moneyField({ label: 'Yield / acre', path: `${p}.yieldPerAcre`, value: e.yieldPerAcre, placeholder: '0' })}
           ${unitSelect(`${p}.yieldUnit`, e.yieldUnit)}
         </div>
+        ${unitNotice(notice)}
         ${moneyField({ label: 'Price / unit', path: `${p}.pricePerUnit`, value: e.pricePerUnit, prefix: '$', placeholder: '0.00' })}
         ${moneyField({
           label: 'Miscellaneous income / acre',
@@ -101,11 +113,19 @@ function renderEnterprise(e, i, collapsed) {
     </section>`
 }
 
+/**
+ * The unit picker beside Yield / acre.
+ *
+ * It wraps its label in `.field-label` like every other field, rather than
+ * emitting a bare <label>. That row carries a min-height and a bottom margin, so
+ * without it this select's caption occupied less vertical space than the one
+ * next to it and the two boxes started at different heights.
+ */
 function unitSelect(path, value) {
   const id = `f-${path.replace(/\./g, '-')}`
   return `
     <div class="field">
-      <label for="${id}">Unit</label>
+      <div class="field-label"><label for="${id}">Unit</label></div>
       <div class="input-wrap">
         <select id="${id}" data-path="${esc(path)}">
           ${YIELD_UNITS.map(
@@ -219,7 +239,7 @@ function renderPreharvest(e, entPath) {
       </div>
       ${
         auto
-          ? `<p class="hint">Worked out from the preharvest costs above. Hauling, drying and marketing are not included.</p>`
+          ? `<p class="hint">Calculated from the preharvest costs above. Hauling, drying and marketing are excluded.</p>`
           : ''
       }
     </div>`

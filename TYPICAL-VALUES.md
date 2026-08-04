@@ -78,6 +78,96 @@ and the extracted range matches the map legend bands printed on the PDF.
 
 ---
 
+## Shipped — South Dakota overhead (FINBIN)
+
+**Utilities, farm insurance, dues & professional fees, miscellaneous.**
+
+**Source:** FINBIN, Center for Farm Financial Management, University of
+Minnesota. *Crop Enterprise Analysis*, South Dakota, 2025 — report **972802**
+(corn) and **972803** (soybeans), retrieved 4 August 2026. Eight farms: five from
+the **South Dakota Center for Farm/Ranch Management**, three from the Southwest
+Minnesota Farm Business Management Association.
+
+FINBIN aggregates completed FINPACK analyses from the state Farm Business
+Management programmes; SDCFRM (Mitchell Technical College) is a contributing
+programme, so this is South Dakota farm-record data rather than a convention or
+an Iowa proxy.
+
+| Line | Corn $/acre | Soybeans $/acre |
+|---|---|---|
+| Farm insurance | 12.49 | 9.37 |
+| Utilities | 6.11 | 4.79 |
+| Dues & professional fees | 4.97 | 4.29 |
+| Miscellaneous | 8.07 | 6.98 |
+
+### Why these come from the crop report and not the whole-farm one
+
+This matters, because the whole-farm report is the one whose *units* match the
+app's fields, and using it produces figures wrong by a factor of three.
+
+FINBIN's **whole farm income statement** (report 972799, South Dakota / 2025 /
+farm type Crop, 28 farms) gives overhead in whole-farm dollars, which is exactly
+the shape `fixed.annual.<key>` wants. But converting it to a rate needs the
+companion `Total crop acres` figure (report 972801, **457 acres**), and the two
+are not divisible by each other. Dividing every line by 457 gives:
+
+| Line | ÷ 457 acres | Plausible |
+|---|---|---|
+| Seed $144,568 | $316/ac | ~$120 |
+| Fertilizer $133,882 | $293/ac | ~$120 |
+| Crop insurance $47,168 | $103/ac | ~$35 |
+| Land rent $195,942 (on 380 rented ac) | $516/ac | NASS tops out at $251 |
+| Gross cash farm income $1,090,892 | $2,387/ac | corn ≈ $765 |
+
+Five lines, all about three times too high, all in the same direction. Run
+backwards, each independently implies **1,100–1,600 crop acres**. The acreage
+field is under-reported in the South Dakota records — the same fault visible in
+the acreage *sort*, which binned 18 of 28 farms as "less than 100 total acres"
+while they averaged $944k in crop sales. The dollar lines average over all 28
+farms; the acreage line averages over only those that recorded one.
+
+The **crop enterprise report** does its per-acre division inside each farm's own
+record, where the acreage belongs to the farm that spent the money. That failure
+mode cannot occur. Three checks were run before shipping:
+
+1. **Internal reconciliation.** Direct expenses summed to 511.08 against a
+   printed 511.09 (corn) and 358.90 against 358.88 (soybeans); overhead summed
+   to 111.54 and 93.02, both exact. Yield × price × operator share reproduced
+   total product return on both.
+2. **Land rent sanity.** $126.71 and $126.99/acre, comfortably inside the NASS
+   county range of $24–251 shipped elsewhere in this file.
+3. **Independent corroboration.** Against Minnesota crop enterprise reports
+   (2022–24), six of the eight figures agree within 15%, all eight within 35%,
+   and South Dakota is consistently the higher of the two — which is what a 2025
+   figure should look like against a 2022–24 average.
+
+### How they are applied
+
+Published per acre, entered as a whole-farm total. The sentinel is
+`=6.11*acres`, and **`acres` is the one sentinel base that is not a sibling
+field** — `totalAcres()` in `ui/modals.js` sums every enterprise. The picker
+prints the acreage before anything is chosen, so the producer sees the
+multiplication rather than being surprised by the result.
+
+Each spec also carries `basis: 'year'`, and choosing a figure moves the line's
+period select to yearly. The published figure is annual; a line left on "$ /
+month" would have it multiplied by twelve by `calcFixed()`.
+
+### What is disclosed in the app
+
+**Eight farms.** That is thin, and the modal and the citation both say so
+outright rather than letting "University of Minnesota" carry more weight than
+the sample deserves. The note tells producers to use these to check their own
+bills rather than in place of them. FBM participants are also not a random draw
+of South Dakota farms.
+
+**Real estate and property taxes** ($4.75/acre corn, $3.25 soybeans) are a
+separate FINBIN line with no field in this app. The overhead definition now says
+to fold them into Miscellaneous, since land rent covers rented acres only. Worth
+revisiting if a dedicated row is ever wanted.
+
+---
+
 ## Shipped — Iowa State A3-29 (useful life and salvage value)
 
 **Source:** Iowa State University Extension and Outreach, Ag Decision Maker
@@ -243,6 +333,10 @@ actually get.
 
 **Now shipped** — see *Shipped — South Dakota, fully sourced* above.
 
+### Overhead — utilities, farm insurance, dues & professional fees, miscellaneous
+
+**Now shipped** — see *Shipped — South Dakota overhead* above.
+
 ---
 
 ## Source documents
@@ -265,6 +359,11 @@ Read during the research pass and worth keeping alongside them:
 
 `extension.iastate.edu` returns HTTP 403 to automated fetches; the two Iowa State
 files above were downloaded through a browser.
+
+- FINBIN reports `972802` (corn) and `972803` (soybeans) — Crop Enterprise
+  Analysis, South Dakota 2025, the overhead figures
+- FINBIN reports `972799` / `972801` — the whole-farm route that was rejected;
+  keep them, they are the evidence for why
 
 ---
 

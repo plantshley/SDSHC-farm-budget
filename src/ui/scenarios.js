@@ -17,7 +17,7 @@ export function renderScenarioList(currentId) {
 
   const openFile = `
     <span class="open-file">
-      <button type="button" class="tip" data-action="import-scenario">Open a budget file</button>
+      <button type="button" class="tip" data-action="import-scenario">Upload a budget file</button>
       ${infoButton('budgetFile', 'a budget file')}
     </span>`
 
@@ -25,13 +25,18 @@ export function renderScenarioList(currentId) {
     <section class="box">
       <header class="block-head">
         <h2 class="title">Saved budgets</h2>
-        <button type="button" class="btn-add" data-action="new-scenario">+ New budget</button>
+        <!-- Sized to its own text rather than the full width .btn-add normally
+             takes. Full width it read as the primary thing to do on a page whose
+             actual subject is the list underneath it. -->
+        <button type="button" class="btn-add btn-add-inline" data-action="new-scenario">
+          + New budget
+        </button>
       </header>
 
       ${
         all.length
           ? `<p class="hint">
-               Saved on this device only. Tap a name to rename it — renames save straight away.
+               Saved on this device only. Tap a name to rename it. Renames save immediately.
                Reorder the list with the ▲▼ arrows, or by dragging the handle.
              </p>
              <div class="scn-list" data-scn-list>
@@ -39,7 +44,7 @@ export function renderScenarioList(currentId) {
              </div>
              <p class="hint baseline-note">
                Tick two or more to compare them. <b>The first one you tick becomes the
-               baseline</b> — every other budget is shown as a difference from it.
+               baseline.</b> Every other budget is shown as a difference from it.
              </p>
              <div class="scn-actions">
                <button type="button" class="btn-main" data-action="compare-selected" disabled>
@@ -48,8 +53,8 @@ export function renderScenarioList(currentId) {
                ${openFile}
              </div>`
           : `<p class="hint">
-               No saved budgets yet. Build one, give it a name, and save it — then duplicate it
-               to compare a different set of assumptions.
+               No saved budgets yet. Build one, name it, and save it. Then duplicate it to
+               compare a different set of assumptions.
              </p>
              ${openFile}`
       }
@@ -82,23 +87,29 @@ function renderScenarioRow(s, currentId, index, total) {
       </label>
       <div class="scn-main">
         <div class="scn-name-row">
-          <input class="scn-name-input" value="${esc(s.name)}" data-scn-name="${esc(s.id)}"
-            aria-label="Budget name" />
-          <span class="edit-icon" aria-hidden="true">&#9998;</span>
+          <!-- The pencil sits inside the name box, at its right edge, and only
+               appears on hover or focus. It is a hint that the name is editable,
+               not a control of its own — the input is what you click. -->
+          <span class="name-edit">
+            <input class="scn-name-input" value="${esc(s.name)}" data-scn-name="${esc(s.id)}"
+              aria-label="Budget name" />
+            <span class="edit-icon" aria-hidden="true">&#9998;</span>
+          </span>
           ${isCurrent ? '<em class="scn-open-flag">open</em>' : ''}
         </div>
-        <button type="button" class="scn-open" data-action="open-scenario" data-id="${esc(s.id)}">
-          <span class="scn-meta">
-            ${r.enterprises.length} enterprise${r.enterprises.length === 1 ? '' : 's'} ·
-            ${Math.round(r.totalAcres * 100) / 100} acres ·
-            <b class="${signClass(r.totals.totalProfit)}">${usd(r.totals.totalProfit)}</b> profit
-            ${isNaN(when) ? '' : `· ${when.toLocaleDateString()}`}
-          </span>
-          <span class="scn-open-cta">Open this budget</span>
-        </button>
+        <!-- A summary, not a control. Opening is one of three things you can do
+             to a row, so it sits with the other two rather than being hidden
+             behind the whole block of text being secretly tappable. -->
+        <span class="scn-meta">
+          ${r.enterprises.length} enterprise${r.enterprises.length === 1 ? '' : 's'} ·
+          ${Math.round(r.totalAcres * 100) / 100} acres ·
+          <b class="${signClass(r.totals.totalProfit)}">${usd(r.totals.totalProfit)}</b> profit
+          ${isNaN(when) ? '' : `· ${when.toLocaleDateString()}`}
+        </span>
       </div>
       <div class="scn-btns">
-        <button type="button" class="tip" data-action="duplicate-scenario" data-id="${esc(s.id)}">Duplicate</button>
+        <button type="button" class="tip" data-action="open-scenario" data-id="${esc(s.id)}">Open Budget</button>
+        <button type="button" class="tip alt" data-action="duplicate-scenario" data-id="${esc(s.id)}">Duplicate</button>
         <button type="button" class="tip danger" data-action="delete-scenario" data-id="${esc(s.id)}">Delete</button>
       </div>
     </div>`
@@ -109,7 +120,12 @@ function renderScenarioRow(s, currentId, index, total) {
 // `money: false` marks the one row whose values are a plain count rather than
 // dollars. Only money is right-aligned in the compare table — everything else
 // reads better flush left, next to the label it belongs to.
-const COMPARE_ROWS = [
+//
+// Exported because export.js builds the comparison CSV from this same list. A
+// second list would be two things to keep in step, and the failure mode is a
+// producer handing an instructor a file that quietly disagrees with the screen
+// it was exported from. The CSV ignores `fmt` and writes the raw numbers.
+export const COMPARE_ROWS = [
   {
     label: 'Total acres',
     get: (r) => r.totalAcres,
@@ -136,6 +152,12 @@ export function renderCompare(scenarios) {
     <section class="box compare">
       <header class="block-head">
         <h2 class="title">Comparing ${results.length} budgets</h2>
+        <!-- A comparison is the thing worth handing to somebody: it is the
+             answer to the question the class was asked. Getting it out was
+             possible only by exporting each budget separately and rebuilding
+             the table by hand. -->
+        <button type="button" class="tip" data-action="export-compare-csv">Export CSV</button>
+        <button type="button" class="tip" data-action="print">Print</button>
         <button type="button" class="tip" data-action="back-to-scenarios">Back to saved budgets</button>
       </header>
 
