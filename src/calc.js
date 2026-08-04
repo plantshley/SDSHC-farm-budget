@@ -47,7 +47,35 @@ export const VARIABLE_LINES = [
 /** The sheet's stated assumption: "8 months at 10%" (row 23 label). */
 export const PREHARVEST_DEFAULTS = { rate: 10, months: 8 }
 
-export const SCHEMA_VERSION = 1
+/**
+ * How a labour figure is entered, and what it multiplies by to reach a year.
+ *
+ * The sheet has one cell, M35, labelled "total hours" — annual. Producers do not
+ * think in annual hours; they think "about ten hours a week through the season"
+ * or "two days a month". Entering that as an annual figure means doing the
+ * arithmetic in your head before you get to the box, which is exactly the kind
+ * of silent error a budget tool should absorb. The stored number is whatever was
+ * typed; the basis says what it means.
+ */
+export const HOURS_BASIS = [
+  { key: 'year', label: 'hours / year', short: 'hrs/yr', perYear: 1 },
+  { key: 'month', label: 'hours / month', short: 'hrs/mo', perYear: 12 },
+  { key: 'week', label: 'hours / week', short: 'hrs/wk', perYear: 52 },
+]
+
+/** The same idea for overhead bills, which arrive monthly far more often than annually. */
+export const COST_BASIS = [
+  { key: 'year', label: '$ / year', short: '/yr', perYear: 1 },
+  { key: 'quarter', label: '$ / quarter', short: '/qtr', perYear: 4 },
+  { key: 'month', label: '$ / month', short: '/mo', perYear: 12 },
+  { key: 'week', label: '$ / week', short: '/wk', perYear: 52 },
+]
+
+/**
+ * v2 added: enterprise.name (previously the crop doubled as the label),
+ * fixed.labor.hoursBasis, and fixed.annualBasis. See migrate() in storage.js.
+ */
+export const SCHEMA_VERSION = 2
 
 /* ────────────────────────────── helpers ────────────────────────────────── */
 
@@ -98,12 +126,63 @@ function asArray(v) {
 }
 
 /**
+ * A cost or rate that a minus sign would turn upside down.
+ *
+ * This is the same bug the useful-life clamp exists for, and it is open on every
+ * other rate in the model until it is closed here. A "-7" typed for a 7% equipment
+ * interest rate produces a NEGATIVE cost, which is subtracted from total fixed
+ * costs and therefore *inflates* profit — on a farm with $500,000 of machinery
+ * that is a swing of tens of thousands of dollars, in the flattering direction,
+ * with a perfectly finite number on screen and nothing to suggest anything is
+ * wrong. Every adversarial finiteness check in the suite passes straight over it.
+ *
+ * Negative acres are treated differently on purpose: those are warned about but
+ * left alone, because the per-acre arithmetic still has to be shown to explain
+ * what went wrong. A negative *rate* has no such reading — it is only ever a typo.
+ */
+function nonNegative(value, label, warnings) {
+  const n = num(value)
+  if (n >= 0) return n
+  warnings?.push(
+    `${label} is negative. A cost cannot be below zero — it is counted as $0 here. Check for a stray minus sign.`
+  )
+  return 0
+}
+
+/**
  * Blank means "use the documented default"; an explicit 0 means zero.
  * Without this, clearing the preharvest rate mid-edit silently drops the
  * spreadsheet's stated 8-months-at-10% assumption to nothing.
  */
 function orDefault(value, fallback) {
   return value === '' || value == null ? num(fallback) : num(value)
+}
+
+/**
+ * Annualising multiplier for a basis key, defaulting to 'year' (multiplier 1).
+ *
+ * An unrecognised key — an old budget, a hand-edited file — must fall back to
+ * the identity, never to 0. Falling back to 0 would erase a real cost silently.
+ */
+function perYearFactor(table, key) {
+  const row = table.find((b) => b.key === key)
+  return row ? row.perYear : 1
+}
+
+/**
+ * The display label for whatever entry name an enterprise ends up with.
+ *
+ * DIFFERS FROM SHEET: the sheet's column heading IS the crop (D2). Here the two
+ * are separate, because "No-till, east half" and "Corn" are different facts and
+ * a producer comparing two tillage systems needs to tell the columns apart while
+ * both are still growing corn. The crop is the fallback so nothing is lost.
+ */
+export function enterpriseLabel(ent, index) {
+  const name = String(ent?.name ?? '').trim()
+  if (name) return name
+  const crop = String(ent?.crop ?? '').trim()
+  if (crop) return crop
+  return `Enterprise ${Number(index) >= 0 ? Number(index) + 1 : ''}`.trim()
 }
 
 /**
@@ -126,11 +205,16 @@ export function linePerAcre(line) {
  * copies). Unlike the sheet, which hard-codes exactly four, any number of
  * these may exist.
  */
-export function calcEnterprise(ent) {
+export function calcEnterprise(ent, index, warnings) {
   const acres = num(ent?.acres)
+  const named = enterpriseLabel(ent, index)
 
-  // Income
-  const cropRevPerAcre = finite(num(ent?.yieldPerAcre) * num(ent?.pricePerUnit)) // D7
+  // Income. A negative yield or price is a typo with the same shape as a
+  // negative interest rate — see nonNegative(). Misc income is left alone: a
+  // producer may legitimately be recording a net figure there.
+  const yieldPerAcre = nonNegative(ent?.yieldPerAcre, `"${named}" yield per acre`, warnings)
+  const pricePerUnit = nonNegative(ent?.pricePerUnit, `"${named}" price per unit`, warnings)
+  const cropRevPerAcre = finite(yieldPerAcre * pricePerUnit) // D7
   const miscIncomePerAcre = num(ent?.miscIncomePerAcre) // D8
   const grossRevPerAcre = finite(cropRevPerAcre + miscIncomePerAcre) // D9
   const totalRevenue = finite(grossRevPerAcre * acres) // D10
@@ -139,7 +223,13 @@ export function calcEnterprise(ent) {
   const lines = {}
   let preharvestBasis = 0
   for (const def of VARIABLE_LINES) {
-    const value = linePerAcre(ent?.variable?.[def.key])
+    // A negative expense would ADD to gross margin. Same class of typo, same
+    // treatment: counted as $0, and said out loud.
+    const value = nonNegative(
+      linePerAcre(ent?.variable?.[def.key]),
+      `"${named}" ${def.label.toLowerCase()}`,
+      warnings
+    )
     lines[def.key] = value
     if (def.preharvest) preharvestBasis = finite(preharvestBasis + value)
   }
@@ -168,7 +258,9 @@ export function calcEnterprise(ent) {
 
   return {
     id: ent?.id,
+    name: ent?.name || '',
     crop: ent?.crop || '',
+    label: enterpriseLabel(ent, index),
     acres,
     cropRevPerAcre,
     miscIncomePerAcre,
@@ -195,10 +287,11 @@ export function calcEnterprise(ent) {
  * The formulas are unchanged — only the data entry is unified.
  */
 function calcEquipment(item, totalAcres, warnings) {
-  const initialCost = num(item?.initialCost)
-  const salvageValue = num(item?.salvageValue)
+  const named = item?.name || 'Equipment'
+  const initialCost = nonNegative(item?.initialCost, `"${named}" initial cost`, warnings)
+  const salvageValue = nonNegative(item?.salvageValue, `"${named}" salvage value`, warnings)
   const usefulLife = num(item?.usefulLife)
-  const rate = num(item?.interestRate) / 100
+  const rate = nonNegative(item?.interestRate, `"${named}" interest rate`, warnings) / 100
 
   if (initialCost > 0 && usefulLife <= 0) {
     warnings.push(
@@ -242,9 +335,10 @@ function calcEquipment(item, totalAcres, warnings) {
  * numbers for no clear gain.
  */
 function calcBuilding(item, totalAcres, warnings) {
-  const initialCost = num(item?.initialCost)
+  const named = item?.name || 'Building'
+  const initialCost = nonNegative(item?.initialCost, `"${named}" initial cost`, warnings)
   const usefulLife = num(item?.usefulLife)
-  const rate = num(item?.interestRate) / 100
+  const rate = nonNegative(item?.interestRate, `"${named}" interest rate`, warnings) / 100
 
   if (initialCost > 0 && usefulLife <= 0) {
     warnings.push(
@@ -273,16 +367,33 @@ function calcBuilding(item, totalAcres, warnings) {
 
 const ANNUAL_KEYS = ['utilities', 'farmInsurance', 'duesFees', 'misc'] // rows 71–74
 
+/** Only for warning text, so a producer is told which box to look at. */
+const ANNUAL_LABELS = {
+  utilities: 'utilities',
+  farmInsurance: 'farm insurance',
+  duesFees: 'dues and fees',
+  misc: 'miscellaneous',
+}
+
 /**
  * Fixed costs belong to the whole farm, not to any one enterprise, and are
  * spread across the TOTAL acreage of every enterprise.
  */
 export function calcFixed(fixed, totalAcres, warnings) {
-  const landRentPerAcre = num(fixed?.landRentPerAcre) // M33
+  const landRentPerAcre = nonNegative(fixed?.landRentPerAcre, 'Land rent per acre', warnings) // M33
   const landRentTotal = finite(landRentPerAcre * totalAcres) // O33
 
-  const ratePerHour = num(fixed?.labor?.ratePerHour) // L35
-  const totalHoursPerYear = num(fixed?.labor?.totalHoursPerYear) // M35
+  const ratePerHour = nonNegative(fixed?.labor?.ratePerHour, 'Labor rate', warnings) // L35
+  // `hours` is whatever the producer typed; `hoursBasis` says what it means.
+  // Pre-v2 budgets stored an annual figure under totalHoursPerYear and had no
+  // basis, so reading both keys keeps them working untouched.
+  const laborHours = nonNegative(
+    fixed?.labor?.hours ?? fixed?.labor?.totalHoursPerYear,
+    'Labor hours',
+    warnings
+  )
+  const hoursBasis = fixed?.labor?.hoursBasis || 'year'
+  const totalHoursPerYear = finite(laborHours * perYearFactor(HOURS_BASIS, hoursBasis)) // M35
   const laborHrsPerAcre = safeDiv(totalHoursPerYear, totalAcres) // N35
   const laborPerAcre = finite(ratePerHour * laborHrsPerAcre) // O35
   const laborTotal = finite(ratePerHour * totalHoursPerYear) // P35
@@ -304,8 +415,10 @@ export function calcFixed(fixed, totalAcres, warnings) {
   const annual = {}
   let annualTotal = 0
   for (const key of ANNUAL_KEYS) {
-    const total = num(fixed?.annual?.[key])
-    annual[key] = { total, perAcre: safeDiv(total, totalAcres) } // O71–O74
+    const entered = nonNegative(fixed?.annual?.[key], `Overhead — ${ANNUAL_LABELS[key]}`, warnings)
+    const basis = fixed?.annualBasis?.[key] || 'year'
+    const total = finite(entered * perYearFactor(COST_BASIS, basis)) // O71–O74
+    annual[key] = { entered, basis, total, perAcre: safeDiv(total, totalAcres) }
     annualTotal = finite(annualTotal + total)
   }
 
@@ -323,6 +436,8 @@ export function calcFixed(fixed, totalAcres, warnings) {
     landRentPerAcre,
     landRentTotal,
     ratePerHour,
+    laborHours,
+    hoursBasis,
     totalHoursPerYear,
     laborHrsPerAcre,
     laborPerAcre,
@@ -352,14 +467,18 @@ export function calcFixed(fixed, totalAcres, warnings) {
  */
 export function calcScenario(scenario) {
   const warnings = []
-  const enterprises = asArray(scenario?.enterprises).map(calcEnterprise)
+  // Explicit arrow, not a bare reference: map's third argument would otherwise
+  // land in the warnings parameter.
+  const enterprises = asArray(scenario?.enterprises).map((e, i) =>
+    calcEnterprise(e, i, warnings)
+  )
   const totalAcres = enterprises.reduce((a, e) => finite(a + e.acres), 0) // SUM(D3,H3,L3,P3)
 
   const negative = enterprises.filter((e) => e.acres < 0)
   if (negative.length) {
     warnings.push(
       `${negative
-        .map((e) => `"${e.crop || 'An enterprise'}"`)
+        .map((e) => `"${e.label}"`)
         .join(', ')} has negative acres. Check for a stray minus sign — it turns every per-acre figure upside down.`
     )
   }

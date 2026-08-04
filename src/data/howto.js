@@ -20,20 +20,31 @@ export const HOW_TO_SECTIONS = [
     heading: 'Building a budget',
     steps: [
       'Name the crop and enter the acres. Acres matter more than anything else here — fixed costs are spread across them, so nothing per-acre works until they are entered.',
+      'Give the enterprise its own name if you want one. It is separate from the crop, which matters as soon as you are comparing two ways of growing the same thing — call them "No-till corn" and "Conventional corn" and the columns stay straight. Leave it blank and the crop is used.',
       'Enter your yield per acre and the price you expect. Add any other income the enterprise brings in, such as grazing residue.',
       'Work down the variable expenses: seed, fertilizer, chemicals, fuel, insurance, hauling. Each line can be entered as a cost per unit times units per acre, or as a straight cost per acre — tap the small button on the line to switch.',
       'Interest on preharvest costs is worked out for you. Adjust the rate and months to match your operating note if you like.',
       'Add another enterprise for each crop you want to budget. There is no limit — the original spreadsheet stopped at four.',
       'Fill in the shared fixed costs below: land rent, hired labor, each machine, each building, and your annual overhead.',
+      'For labor and overhead, enter the figure the way you actually know it. If the power bill is $180 a month, put in 180 and choose "$ / month" — the calculator turns it into a yearly figure. Same for hired help: ten hours a week is ten hours a week, not 520.',
       'Read the results. Gross margin per acre tells you how each enterprise is doing; total profit tells you how the farm is doing.',
+    ],
+  },
+  {
+    heading: 'Keeping a long budget manageable',
+    body: [
+      'Tap an enterprise heading to fold it shut. On a phone the ones you are not working on collapse out of the way; on a computer they shrink to a narrow spine beside the ones you are still reading, so four enterprises fit on screen instead of two.',
+      'The shared fixed costs block folds the same way, with its yearly total still showing on the closed header.',
+      'Folding is only about what you can see. It changes no number, and it is not saved with the budget.',
     ],
   },
   {
     heading: 'Where the typical values come from',
     body: [
-      'Some fields offer a "use typical value" link. It fills that one field, and only when you ask it to — nothing is ever filled in automatically.',
-      'Each list says where its figures came from. Most are from the Iowa State custom rate survey, which is the nearest published survey to South Dakota; check them against what local operators actually charge.',
-      'Where there is no trustworthy published figure, there is no link. That is deliberate.',
+      'Some fields offer a "use typical value" link beside the label. It fills that one field, and only when you ask it to — nothing is ever filled in automatically.',
+      'Each list says at the top what unit its figures are in, and where they came from. Land rent is real South Dakota data: county averages of what was actually paid, from the USDA cash rent survey. Most of the rest are from the Iowa State custom rate survey, which is the nearest published survey to South Dakota — check those against what local operators actually charge.',
+      'If a list is quoted per bushel and the line you are filling is set to dollars per acre, the calculator tells you so and switches the line for you rather than putting the number in the wrong box.',
+      'Where there is no trustworthy published figure, there is no link. That is deliberate. There is no typical value for what a tractor costs or for the price you will get for your grain — the first depends far too much on the machine, and the second changes every week.',
     ],
   },
   {
@@ -47,7 +58,15 @@ export const HOW_TO_SECTIONS = [
       'Save it. It appears in Saved budgets.',
       'Duplicate it. You now have two identical budgets.',
       'Open the copy, rename it, and change ONE thing — the crop, a tillage pass, a seed rate.',
-      'Go to Saved budgets, tick both, and choose Compare. You will see them side by side with the difference on every line.',
+      'Go to Saved budgets, tick both, and choose Compare. You will see them side by side with the difference on every line. The FIRST one you tick is the baseline — every other budget is shown as a difference from it, so tick the one you are comparing against first.',
+    ],
+  },
+  {
+    heading: 'Housekeeping on the Saved tab',
+    body: [
+      'Tap any budget name in the list to rename it. Renames save straight away — there is no separate save step for them, and renaming a budget in the list does not open it or disturb whatever you have half-finished on the Budget tab.',
+      'Use the ▲ and ▼ arrows to move a budget up or down the list, so the ones you are working with sit at the top. On a computer you can drag the handle between the arrows instead. The order sticks.',
+      'Duplicate makes a copy under a new name, which is how every comparison starts. Delete cannot be undone — export the budget to a file first if you might want it back.',
     ],
   },
   {

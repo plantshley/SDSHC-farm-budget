@@ -8,13 +8,24 @@
  * it looks broken. Every divergence gets a `?`.
  */
 
-import { usd, usdCents, esc, signClass } from './format.js'
+import { esc } from './format.js'
 import { openGuide } from './modals.js'
 import { infoButton } from './fields.js'
 
+/**
+ * Every figure below is emitted as a `data-out` placeholder, NOT as a literal.
+ *
+ * This whole section used to interpolate its numbers directly from the result
+ * object. That made it a snapshot of the last STRUCTURAL render: typing a price
+ * ran updateOutputs(), which only refreshes [data-out] elements, so the sticky
+ * bar (which had them) moved while the KPI cards and every table below them
+ * stayed frozen at whatever the farm looked like when an enterprise was last
+ * added. The two disagreed on screen — the sticky bar was right.
+ *
+ * The rule for this file: if a number can change without the DOM changing
+ * shape, it must be a data-out, never a template literal.
+ */
 export function renderResults(r) {
-  const t = r.totals
-
   return `
     <section class="box results">
       <header class="block-head">
@@ -24,13 +35,13 @@ export function renderResults(r) {
           title="How this differs from the spreadsheet">?</button>
       </header>
 
-      ${r.warnings.length ? renderWarnings(r.warnings) : ''}
+      <div data-warnings>${r.warnings.length ? renderWarnings(r.warnings) : ''}</div>
 
       <div class="kpi-row">
-        ${kpi('Total profit', usd(t.totalProfit), signClass(t.totalProfit), 'totalProfit')}
-        ${kpi('Profit / acre', usdCents(t.profitPerAcre), signClass(t.profitPerAcre), 'profitPerAcre')}
-        ${kpi('Total gross margin', usd(t.totalGrossMargin), '', 'totalGrossMargin')}
-        ${kpi('Total acres', String(Math.round(r.totalAcres * 100) / 100), '')}
+        ${kpi('Total profit', 'totals.totalProfit', 'usd', 'totalProfit')}
+        ${kpi('Profit / acre', 'totals.profitPerAcre', 'usdCents', 'profitPerAcre')}
+        ${kpi('Total gross margin', 'totals.totalGrossMargin', 'usd', 'totalGrossMargin')}
+        ${kpi('Total acres', 'totalAcres', 'plain')}
       </div>
 
       <div class="results-grid">
@@ -38,22 +49,25 @@ export function renderResults(r) {
           <h3 class="sub-title">Whole farm</h3>
           <table class="tbl">
             <tbody>
-              ${row('Total revenue', usd(t.totalRevenue))}
-              ${row('Total variable expenses', usd(t.totalVariable), 'minus')}
-              ${row('Total gross margin', usd(t.totalGrossMargin), 'subtotal')}
-              ${row('Total fixed costs', usd(t.totalFixed), 'minus')}
-              ${row('Total profit', usd(t.totalProfit), `total ${signClass(t.totalProfit)}`)}
+              ${row('Total revenue', 'totals.totalRevenue', 'usd')}
+              ${row('Total variable expenses', 'totals.totalVariable', 'usd', 'minus')}
+              ${row('Total gross margin', 'totals.totalGrossMargin', 'usd', 'subtotal')}
+              ${row('Total fixed costs', 'totals.totalFixed', 'usd', 'minus')}
+              ${row('Total profit', 'totals.totalProfit', 'usd', 'total', true)}
             </tbody>
           </table>
 
-          <h3 class="sub-title">Per acre (weighted across ${Math.round(r.totalAcres * 100) / 100} acres)</h3>
+          <h3 class="sub-title">
+            Per acre <span class="sub-note">weighted across
+              <span data-out="totalAcres" data-fmt="plain">—</span> acres</span>
+          </h3>
           <table class="tbl">
             <tbody>
-              ${row('Revenue / acre', usdCents(t.revenuePerAcre))}
-              ${row('Variable expenses / acre', usdCents(t.variablePerAcre), 'minus')}
-              ${row('Gross margin / acre', usdCents(t.grossMarginPerAcre), 'subtotal')}
-              ${row('Fixed costs / acre', usdCents(r.fixed.totalFixedPerAcre), 'minus')}
-              ${row('Profit / acre', usdCents(t.profitPerAcre), `total ${signClass(t.profitPerAcre)}`)}
+              ${row('Revenue / acre', 'totals.revenuePerAcre', 'usdCents')}
+              ${row('Variable expenses / acre', 'totals.variablePerAcre', 'usdCents', 'minus')}
+              ${row('Gross margin / acre', 'totals.grossMarginPerAcre', 'usdCents', 'subtotal')}
+              ${row('Fixed costs / acre', 'fixed.totalFixedPerAcre', 'usdCents', 'minus')}
+              ${row('Profit / acre', 'totals.profitPerAcre', 'usdCents', 'total', true)}
             </tbody>
           </table>
         </div>
@@ -72,12 +86,14 @@ export function renderResults(r) {
                   <tbody>
                     ${r.enterprises
                       .map(
-                        (e) => `
+                        (e, i) => `
                       <tr>
-                        <td>${esc(e.crop || 'Unnamed')}</td>
-                        <td>${e.acres}</td>
-                        <td class="${signClass(e.grossMarginPerAcre)}">${usdCents(e.grossMarginPerAcre)}</td>
-                        <td class="${signClass(e.enterpriseGrossMargin)}">${usd(e.enterpriseGrossMargin)}</td>
+                        <td data-ent-label="${i}">${esc(e.label)}</td>
+                        <td data-out="enterprises.${i}.acres" data-fmt="plain">—</td>
+                        <td data-out="enterprises.${i}.grossMarginPerAcre"
+                            data-fmt="usdCents" data-tone="1">—</td>
+                        <td data-out="enterprises.${i}.enterpriseGrossMargin"
+                            data-fmt="usd" data-tone="1">—</td>
                       </tr>`
                       )
                       .join('')}
@@ -90,17 +106,17 @@ export function renderResults(r) {
           <div class="tbl-scroll"><table class="tbl">
             <thead><tr><th>Item</th><th>Per acre</th><th>Per year</th></tr></thead>
             <tbody>
-              ${fixedRow('Land rent', r.fixed.landRentPerAcre, r.fixed.landRentTotal)}
-              ${fixedRow('Labor', r.fixed.laborPerAcre, r.fixed.laborTotal)}
-              ${fixedRow('Equipment depreciation', r.fixed.equipDepPerAcre, r.fixed.equipDepTotal)}
-              ${fixedRow('Equipment interest', r.fixed.equipIntPerAcre, r.fixed.equipIntTotal)}
-              ${fixedRow('Building depreciation', r.fixed.bldgDepPerAcre, r.fixed.bldgDepTotal)}
-              ${fixedRow('Building interest', r.fixed.bldgIntPerAcre, r.fixed.bldgIntTotal)}
-              ${fixedRow('Annual overhead', r.fixed.annualPerAcre, r.fixed.annualTotal)}
+              ${fixedRow('Land rent', 'landRentPerAcre', 'landRentTotal')}
+              ${fixedRow('Labor', 'laborPerAcre', 'laborTotal')}
+              ${fixedRow('Equipment depreciation', 'equipDepPerAcre', 'equipDepTotal')}
+              ${fixedRow('Equipment interest', 'equipIntPerAcre', 'equipIntTotal')}
+              ${fixedRow('Building depreciation', 'bldgDepPerAcre', 'bldgDepTotal')}
+              ${fixedRow('Building interest', 'bldgIntPerAcre', 'bldgIntTotal')}
+              ${fixedRow('Annual overhead', 'annualPerAcre', 'annualTotal')}
               <tr class="total">
                 <td>Total fixed costs</td>
-                <td>${usdCents(r.fixed.totalFixedPerAcre)}</td>
-                <td>${usd(r.fixed.totalFixedAnnual)}</td>
+                <td data-out="fixed.totalFixedPerAcre" data-fmt="usdCents">—</td>
+                <td data-out="fixed.totalFixedAnnual" data-fmt="usd">—</td>
               </tr>
             </tbody>
           </table></div>
@@ -114,20 +130,32 @@ export function renderResults(r) {
     </section>`
 }
 
-function kpi(label, value, tone, info) {
+function kpi(label, path, fmt, info) {
   return `
     <div class="kpi">
       <div class="kpi-label">${esc(label)}${info ? infoButton(info, label) : ''}</div>
-      <div class="kpi-value ${tone}">${esc(value)}</div>
+      <div class="kpi-value" data-out="${esc(path)}" data-fmt="${esc(fmt)}"
+        ${info ? 'data-tone="1"' : ''}>—</div>
     </div>`
 }
 
-function row(label, value, cls = '') {
-  return `<tr class="${cls}"><td>${esc(label)}</td><td>${esc(value)}</td></tr>`
+function row(label, path, fmt, cls = '', tone = false) {
+  return `<tr class="${cls}"><td>${esc(label)}</td><td data-out="${esc(path)}"
+    data-fmt="${esc(fmt)}"${tone ? ' data-tone="1"' : ''}>—</td></tr>`
 }
 
-function fixedRow(label, perAcre, perYear) {
-  return `<tr><td>${esc(label)}</td><td>${usdCents(perAcre)}</td><td>${usd(perYear)}</td></tr>`
+function fixedRow(label, perAcreKey, perYearKey) {
+  return `<tr><td>${esc(label)}</td>
+    <td data-out="fixed.${perAcreKey}" data-fmt="usdCents">—</td>
+    <td data-out="fixed.${perYearKey}" data-fmt="usd">—</td></tr>`
+}
+
+/**
+ * Warnings appear and disappear as acres are typed, so they cannot be baked in
+ * at render time either. updateOutputs() rewrites this container in place.
+ */
+export function renderWarningsInto(container, warnings) {
+  container.innerHTML = warnings.length ? renderWarnings(warnings) : ''
 }
 
 function renderWarnings(warnings) {
@@ -142,7 +170,9 @@ function renderWarnings(warnings) {
  * cannot drift apart.
  */
 export function showDifferences() {
-  openGuide('How this differs from the spreadsheet', [
+  openGuide(
+    'How this differs from the spreadsheet',
+    [
     {
       heading: 'Why there are differences at all',
       body: [
@@ -191,5 +221,7 @@ export function showDifferences() {
         'Land rent is still a single rate applied across all your acres.',
       ],
     },
-  ])
+    ],
+    { collapsible: true, firstOpen: true }
+  )
 }

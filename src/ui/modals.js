@@ -41,18 +41,61 @@ function ensureOverlay() {
     if (e.target === overlay || e.target.closest('.modal-close')) closeModal()
   })
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && overlay.classList.contains('open')) closeModal()
+    if (!overlay.classList.contains('open')) return
+    if (e.key === 'Escape') {
+      closeModal()
+      return
+    }
+    if (e.key === 'Tab') trapFocus(e)
   })
   document.body.appendChild(overlay)
   return overlay
+}
+
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])'
+
+/**
+ * Keep Tab inside the dialog while it is open.
+ *
+ * The overlay claims `aria-modal="true"`, and without this that claim is simply
+ * false: Tab walks straight out of the panel into the budget form behind it,
+ * which is still live and still announced. A producer using a screen reader
+ * would be told they are in a dialog and then find themselves editing seed cost.
+ */
+function trapFocus(e) {
+  const focusable = [...overlay.querySelectorAll(FOCUSABLE)].filter(
+    (el) => el.offsetParent !== null || el === document.activeElement
+  )
+  if (!focusable.length) return
+  const first = focusable[0]
+  const last = focusable[focusable.length - 1]
+
+  if (e.shiftKey && document.activeElement === first) {
+    e.preventDefault()
+    last.focus()
+  } else if (!e.shiftKey && document.activeElement === last) {
+    e.preventDefault()
+    first.focus()
+  } else if (!overlay.contains(document.activeElement)) {
+    // Focus escaped some other way — a click on the page behind, say. Pull it back.
+    e.preventDefault()
+    first.focus()
+  }
 }
 
 function openModal(title, bodyHtml) {
   const el = ensureOverlay()
   lastFocused = document.activeElement
   el.querySelector('.modal-title').textContent = title
-  el.querySelector('.modal-body').innerHTML = bodyHtml
+  const body = el.querySelector('.modal-body')
+  body.innerHTML = bodyHtml
+  body.scrollTop = 0
   el.classList.add('open')
+  // The modal scrolls its own body (see .modal-body in styles.css). Freezing the
+  // page underneath stops a scroll gesture that runs past the end of the modal
+  // from carrying on into the budget behind it and losing the producer's place.
+  document.body.classList.add('modal-open')
   el.querySelector('.modal-close').focus()
 }
 
@@ -60,6 +103,7 @@ export function closeModal() {
   if (!overlay) return
   overlay.classList.remove('open')
   overlay.querySelector('.modal-body').innerHTML = ''
+  document.body.classList.remove('modal-open')
   // Return focus to whatever opened the modal, so keyboard users don't get
   // dumped back at the top of the document.
   if (lastFocused?.isConnected) lastFocused.focus()
@@ -90,21 +134,36 @@ export function openInfo(keys, title) {
 /**
  * Free-form explanatory content — same read-only modal component.
  * A section may carry prose, a numbered list, or both; all three are valid.
+ *
+ * `collapsible` renders each section as a native <details>, closed by default.
+ * A long guide opened on a phone is otherwise a wall of text you have to scroll
+ * past to find the one heading you wanted. <details> is used rather than a
+ * hand-rolled accordion because the browser already gives it keyboard support,
+ * the right ARIA semantics, and — importantly for the Print action — the
+ * ability to be forced open by CSS.
  */
-export function openGuide(title, sections) {
+export function openGuide(title, sections, { collapsible = false, firstOpen = false } = {}) {
   const html = sections
-    .map(
-      (s) => `
-      <section class="def">
-        ${s.heading ? `<h3>${esc(s.heading)}</h3>` : ''}
+    .map((s, i) => {
+      const inner = `
         ${(s.body ?? []).map((p) => `<p>${esc(p)}</p>`).join('')}
         ${
           s.steps?.length
             ? `<ol>${s.steps.map((li) => `<li>${esc(li)}</li>`).join('')}</ol>`
             : ''
-        }
-      </section>`
-    )
+        }`
+
+      if (!collapsible || !s.heading) {
+        return `<section class="def">
+          ${s.heading ? `<h3>${esc(s.heading)}</h3>` : ''}${inner}
+        </section>`
+      }
+
+      return `<details class="def def-fold"${firstOpen && i === 0 ? ' open' : ''}>
+        <summary>${esc(s.heading)}</summary>
+        <div class="def-fold-body">${inner}</div>
+      </details>`
+    })
     .join('')
   openModal(title, html)
 }
@@ -142,8 +201,13 @@ function resolveValue(raw, targetPath) {
  * @param {string} typicalKey  key into TYPICAL_VALUES
  * @param {string} targetPath  scenario path the chosen value is written to
  * @param {string} category    optional item category, to filter the options
+ * @param {object} [line]      for a variable expense line: its entry mode and
+ *                             the two paths it could write to. A line set to
+ *                             $/acre and a list quoted in $/bushel disagree
+ *                             about what the number means, and applying one to
+ *                             the other silently produces a wrong budget.
  */
-export function openTypical(typicalKey, targetPath, category = '') {
+export function openTypical(typicalKey, targetPath, category = '', line = null) {
   const spec = TYPICAL_VALUES[typicalKey]
   if (!spec) return
 
@@ -165,27 +229,35 @@ export function openTypical(typicalKey, targetPath, category = '') {
       ? `<p class="modal-warn">These are commonly used figures, not survey data. Treat them as a starting point.</p>`
       : ''
 
+  // A $/bushel figure belongs in the "cost per unit" box, a $/acre figure in
+  // the "$ per acre" box. Rather than hide the link or write to the wrong box,
+  // say so plainly and switch the line's mode when a value is chosen.
+  const needsMode = line && spec.appliesTo && spec.appliesTo !== line.mode
+  const modeNote = needsMode
+    ? `<p class="modal-warn">These figures are <b>${esc(spec.unit)}</b>. This line is set to
+         <b>${esc(line.mode === 'perAcre' ? '$/acre' : '$/unit × units')}</b> — picking one
+         below will switch the line to <b>${esc(
+           spec.appliesTo === 'perAcre' ? '$/acre' : '$/unit × units'
+         )}</b> and fill it in.</p>`
+    : ''
+
+  // Where the value lands, once the mode question is settled.
+  const destination = line
+    ? (spec.appliesTo || line.mode) === 'perAcre'
+      ? line.perAcreTarget
+      : line.unitTarget
+    : targetPath
+
+  // More than a handful of groups is a scrolling problem on a phone, and the
+  // Custom Hire list has four. Fold them; leave a short list alone.
+  const fold = shown.length > 2
+
   const body = `
+    ${spec.unit ? `<p class="modal-unit">Figures below are <b>${esc(spec.unit)}</b></p>` : ''}
+    ${modeNote}
     ${spec.note ? `<p class="modal-note">${esc(spec.note)}</p>` : ''}
     ${provisional}
-    ${shown
-      .map(
-        (g) => `
-      <div class="typ-group">
-        <div class="typ-group-label">${esc(g.label)}</div>
-        ${g.options
-          .map(
-            (o) => `
-          <button type="button" class="typ-option" data-value="${esc(o.value)}">
-            <span class="typ-value">${esc(formatOption(o.value, spec.unit))}</span>
-            <span class="typ-label">${esc(o.label)}</span>
-            ${o.desc ? `<small>${esc(o.desc)}</small>` : ''}
-          </button>`
-          )
-          .join('')}
-      </div>`
-      )
-      .join('')}
+    ${shown.map((g, i) => renderGroup(g, spec, fold, i === 0)).join('')}
     ${
       spec.source
         ? `<p class="modal-source">Source: ${esc(spec.source)}</p>`
@@ -199,7 +271,7 @@ export function openTypical(typicalKey, targetPath, category = '') {
     btn.addEventListener('click', () => {
       const raw = btn.getAttribute('data-value')
       const parsed = /^=/.test(raw) ? raw : Number(raw)
-      const resolved = resolveValue(parsed, targetPath)
+      const resolved = resolveValue(parsed, destination)
 
       if (!resolved.ok) {
         const err = overlay.querySelector('.modal-err')
@@ -209,12 +281,59 @@ export function openTypical(typicalKey, targetPath, category = '') {
         return
       }
 
-      applyValue(targetPath, resolved.value)
+      if (needsMode) {
+        setPath(getScenario(), line.modePath, spec.appliesTo)
+        setPath(getScenario(), destination, resolved.value)
+        closeModal()
+        // Switching modes swaps which inputs exist, so this needs a structural
+        // re-render. Announced rather than called directly, to keep this module
+        // free of any dependency on main.js.
+        //
+        // The constructor comes from the document's own window, not the global.
+        // Node has its own CustomEvent, and a synthetic document will reject an
+        // event built from a different realm's class.
+        const View = document.defaultView ?? globalThis
+        document.dispatchEvent(
+          new View.CustomEvent('fb:rerender', { detail: { flash: destination } })
+        )
+        return
+      }
+
+      applyValue(destination, resolved.value)
       closeModal()
     })
   })
 }
 
+function renderGroup(g, spec, fold, openFirst) {
+  const options = g.options
+    .map(
+      (o) => `
+    <button type="button" class="typ-option" data-value="${esc(o.value)}">
+      <span class="typ-value">${esc(formatOption(o.value, spec.unit))}</span>
+      <span class="typ-label">${esc(o.label)}</span>
+      ${o.desc ? `<small>${esc(o.desc)}</small>` : ''}
+    </button>`
+    )
+    .join('')
+
+  if (!fold) {
+    return `<div class="typ-group">
+      <div class="typ-group-label">${esc(g.label)}</div>${options}
+    </div>`
+  }
+  return `<details class="typ-group typ-fold"${openFirst ? ' open' : ''}>
+    <summary class="typ-group-label">${esc(g.label)}</summary>${options}
+  </details>`
+}
+
+/**
+ * The number as it will read on the button.
+ *
+ * The unit suffix matters: "$0.14" and "$0.14 /bu" are the same number but only
+ * the second one tells a producer whether it is about to be multiplied by their
+ * bushels or by their acres.
+ */
 function formatOption(value, unit) {
   if (typeof value === 'string' && value.startsWith('=')) {
     const m = /^=([\d.]+)\*/.exec(value)
@@ -222,7 +341,9 @@ function formatOption(value, unit) {
   }
   if (unit === 'years') return `${value} yr`
   if (unit && unit.startsWith('$')) {
-    return value < 1 ? `$${value.toFixed(3)}` : `$${value.toFixed(2)}`
+    const money = value < 1 ? `$${value.toFixed(3)}` : `$${value.toFixed(2)}`
+    const per = /^\$\s*\/\s*([^\s(]+)/.exec(unit)
+    return per ? `${money} /${per[1]}` : money
   }
   return String(value)
 }

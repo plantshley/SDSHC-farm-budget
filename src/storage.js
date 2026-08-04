@@ -74,12 +74,90 @@ function migrate(scenario) {
     scenario.updatedAt ??= scenario.createdAt
   }
 
-  // Future: if (scenario.schemaVersion < 2) { ... scenario.schemaVersion = 2 }
+  // v1 → v2: enterprises gained a name distinct from the crop; labour hours and
+  // overhead amounts gained a period basis; the list gained a manual order.
+  if (Number(scenario.schemaVersion) < 2) {
+    scenario.schemaVersion = 2
+    for (const ent of scenario.enterprises ?? []) {
+      // The crop was the label before v2. Leaving `name` blank keeps that
+      // behaviour exactly — enterpriseLabel() falls back to the crop — so an
+      // old budget looks identical until someone chooses to rename a column.
+      if (ent && typeof ent === 'object') ent.name ??= ''
+    }
+    scenario.fixed ??= {}
+    scenario.fixed.labor ??= {}
+    const labor = scenario.fixed.labor
+    // v1 stored an annual figure. Carry it across under the new key with the
+    // basis that makes it mean the same number of hours it meant before.
+    if (labor.hours == null && labor.totalHoursPerYear != null) {
+      labor.hours = labor.totalHoursPerYear
+    }
+    labor.hoursBasis ??= 'year'
+    scenario.fixed.annualBasis ??= {}
+    for (const key of ['utilities', 'farmInsurance', 'duesFees', 'misc']) {
+      scenario.fixed.annualBasis[key] ??= 'year'
+    }
+  }
 
   return scenario
 }
 
-/** All saved scenarios, newest first. Unreadable records are skipped. */
+/**
+ * Compare two scenarios for list order.
+ *
+ * `sortIndex` is set only by an explicit drag; until then it is absent and the
+ * list falls back to newest-first, which is what a producer who has never
+ * reordered anything expects. Mixed lists put dragged records first, because a
+ * deliberate arrangement outranks a timestamp.
+ */
+function byListOrder(a, b) {
+  const ai = Number.isFinite(Number(a.sortIndex)) ? Number(a.sortIndex) : null
+  const bi = Number.isFinite(Number(b.sortIndex)) ? Number(b.sortIndex) : null
+  if (ai !== null && bi !== null) return ai - bi
+  if (ai !== null) return -1
+  if (bi !== null) return 1
+  return String(b.updatedAt).localeCompare(String(a.updatedAt))
+}
+
+/**
+ * Persist a producer's drag-and-drop arrangement.
+ *
+ * Ids not present in `idsInOrder` keep whatever order they had, appended after
+ * the arranged ones — a reorder must never make a budget disappear from the
+ * list, including one saved by another tab a moment ago.
+ */
+export function reorderScenarios(idsInOrder) {
+  const all = listScenarios()
+  const rank = new Map(idsInOrder.map((id, i) => [id, i]))
+  const arranged = [
+    ...all.filter((s) => rank.has(s.id)).sort((a, b) => rank.get(a.id) - rank.get(b.id)),
+    ...all.filter((s) => !rank.has(s.id)),
+  ]
+  arranged.forEach((s, i) => {
+    s.sortIndex = i
+  })
+  return writeRaw(JSON.stringify(arranged))
+}
+
+/**
+ * Rename in place without touching anything else.
+ *
+ * The Saved tab edits names inline and autosaves on every keystroke. Routing
+ * that through saveScenario() would write the whole working scenario over the
+ * stored one — including edits the producer has not saved from the Budget tab.
+ */
+export function renameScenario(id, name) {
+  const all = listScenarios()
+  const found = all.find((s) => s.id === id)
+  if (!found) return { ok: false, error: 'NotFound' }
+  found.name = String(name)
+  found.updatedAt = new Date().toISOString()
+  const result = writeRaw(JSON.stringify(all))
+  if (result.ok) lastKnownUpdatedAt.set(id, found.updatedAt)
+  return result
+}
+
+/** All saved scenarios in list order. Unreadable records are skipped. */
 export function listScenarios() {
   const raw = readRaw()
   if (!raw) return []
@@ -100,7 +178,7 @@ export function listScenarios() {
       /* skip this one, keep the rest */
     }
   }
-  return out.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))
+  return out.sort(byListOrder)
 }
 
 export function getScenarioById(id) {
@@ -142,8 +220,18 @@ export function saveScenario(scenario, { force = false } = {}) {
   }
   record.updatedAt = new Date().toISOString()
 
-  if (index >= 0) all[index] = record
-  else all.push(record)
+  if (index >= 0) {
+    // The working scenario in memory has no idea where the producer dragged it
+    // to; the stored record does. Saving must not undo a manual arrangement.
+    if (existing.sortIndex != null) record.sortIndex = existing.sortIndex
+    all[index] = record
+  } else {
+    // A brand-new budget belongs at the top, alongside where the newest-first
+    // fallback would have put it. Only meaningful once something was dragged.
+    const indices = all.map((s) => Number(s.sortIndex)).filter(Number.isFinite)
+    if (indices.length) record.sortIndex = Math.min(...indices) - 1
+    all.push(record)
+  }
 
   const result = writeRaw(JSON.stringify(all))
   if (result.ok) {

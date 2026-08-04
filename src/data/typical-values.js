@@ -23,12 +23,36 @@ const IOWA_2026 =
 const IOWA_NOTE =
   'These are Iowa rates, not South Dakota. Iowa publishes an annual survey and South Dakota does not, so producers here often use it as a reference point — but check it against local custom operators.'
 
+/**
+ * Build one salvage group per A3-29 Table 1b machine class.
+ *
+ * The three ages are the same ones the useful-life picker offers, so a producer
+ * who has said "I keep a planter twelve years" can answer both questions from
+ * that one decision instead of guessing a percentage separately.
+ */
+function tableOneB(classes) {
+  return classes.map(({ label, cats, ten, twelve, fifteen }) => ({
+    label: `${label} — Iowa State Table 1b`,
+    options: [
+      [10, ten],
+      [12, twelve],
+      [15, fifteen],
+    ].map(([years, share]) => ({
+      label: `Kept ${years} years — ${Math.round(share * 100)}%`,
+      value: `=${share.toFixed(2)}*initialCost`,
+      desc: '',
+      categories: cats,
+    })),
+  }))
+}
+
 export const TYPICAL_VALUES = {
   /* ── Variable expenses ────────────────────────────────────────────────── */
 
   customHire: {
     title: 'Custom Hire',
     unit: '$/acre',
+    appliesTo: 'perAcre',
     source: IOWA_2026,
     note: IOWA_NOTE,
     groups: [
@@ -76,6 +100,7 @@ export const TYPICAL_VALUES = {
   herbicide: {
     title: 'Herbicide application',
     unit: '$/acre (application only — materials not included)',
+    appliesTo: 'perAcre',
     source: IOWA_2026,
     note: `${IOWA_NOTE} These cover the APPLICATION only; the chemical itself is extra.`,
     groups: [
@@ -95,6 +120,7 @@ export const TYPICAL_VALUES = {
   nitrogen: {
     title: 'Nitrogen application',
     unit: '$/acre (application only — materials not included)',
+    appliesTo: 'perAcre',
     source: IOWA_2026,
     note: `${IOWA_NOTE} These cover the APPLICATION only; the fertilizer itself is extra.`,
     groups: [
@@ -114,6 +140,7 @@ export const TYPICAL_VALUES = {
   hauling: {
     title: 'Hauling grain',
     unit: '$/bushel',
+    appliesTo: 'unit',
     source: IOWA_2026,
     note: IOWA_NOTE,
     groups: [
@@ -139,6 +166,7 @@ export const TYPICAL_VALUES = {
   drying: {
     title: 'Drying corn',
     unit: '$/point per bushel',
+    appliesTo: 'unit',
     source: IOWA_2026,
     note: `${IOWA_NOTE} Charged per POINT of moisture removed per bushel — multiply by the points you expect to remove.`,
     groups: [
@@ -155,6 +183,7 @@ export const TYPICAL_VALUES = {
   miscellaneous: {
     title: 'Miscellaneous field services',
     unit: '$/acre',
+    appliesTo: 'perAcre',
     source: IOWA_2026,
     note: IOWA_NOTE,
     groups: [
@@ -189,6 +218,182 @@ export const TYPICAL_VALUES = {
   },
 
   /**
+   * The one typical value in this file that is actually South Dakota data.
+   *
+   * NASS publishes these as county maps rather than a table, so the figures
+   * were read out of the PDF programmatically rather than typed in by hand:
+   * 137 dollar amounts transcribed by eye would eventually carry a wrong one
+   * with a USDA citation attached to it.
+   *
+   * Counties NASS did not publish are absent, not guessed. Fall River and
+   * Oglala Lakota have no non-irrigated cropland figure; Clark and Union have
+   * no pasture figure; only nine counties have enough irrigated ground to
+   * report. A missing county means NASS had too few responses to publish one.
+   */
+  landRent: {
+    title: 'Land rent — South Dakota county averages',
+    unit: '$/acre',
+    source:
+      'USDA National Agricultural Statistics Service, 2025 Cash Rent Paid Per Acre, South Dakota county estimates, released 23 August 2025.',
+    note:
+      'County averages of what was actually paid in 2025, from the USDA cash rent survey. Your own lease beats any average — use these when you are budgeting ground you have not rented yet, or checking whether an asking rate is in line.',
+    groups: [
+      {
+        label: 'Cropland, non-irrigated',
+        options: [
+          { label: 'Aurora County', value: 127 },
+          { label: 'Beadle County', value: 128 },
+          { label: 'Bennett County', value: 34 },
+          { label: 'Bon Homme County', value: 164 },
+          { label: 'Brookings County', value: 207 },
+          { label: 'Brown County', value: 165 },
+          { label: 'Brule County', value: 114 },
+          { label: 'Buffalo County', value: 75 },
+          { label: 'Butte County', value: 56.5 },
+          { label: 'Campbell County', value: 85 },
+          { label: 'Charles Mix County', value: 145 },
+          { label: 'Clark County', value: 151 },
+          { label: 'Clay County', value: 213 },
+          { label: 'Codington County', value: 176 },
+          { label: 'Corson County', value: 46 },
+          { label: 'Custer County', value: 24 },
+          { label: 'Davison County', value: 159 },
+          { label: 'Day County', value: 149 },
+          { label: 'Deuel County', value: 182 },
+          { label: 'Dewey County', value: 50 },
+          { label: 'Douglas County', value: 144 },
+          { label: 'Edmunds County', value: 119 },
+          { label: 'Faulk County', value: 111 },
+          { label: 'Grant County', value: 157 },
+          { label: 'Gregory County', value: 80 },
+          { label: 'Haakon County', value: 50 },
+          { label: 'Hamlin County', value: 194 },
+          { label: 'Hand County', value: 103 },
+          { label: 'Hanson County', value: 184 },
+          { label: 'Harding County', value: 32.5 },
+          { label: 'Hughes County', value: 77 },
+          { label: 'Hutchinson County', value: 172 },
+          { label: 'Hyde County', value: 76.5 },
+          { label: 'Jackson County', value: 47.5 },
+          { label: 'Jerauld County', value: 112 },
+          { label: 'Jones County', value: 33 },
+          { label: 'Kingsbury County', value: 162 },
+          { label: 'Lake County', value: 183 },
+          { label: 'Lawrence County', value: 29 },
+          { label: 'Lincoln County', value: 232 },
+          { label: 'Lyman County', value: 94 },
+          { label: 'Marshall County', value: 149 },
+          { label: 'McCook County', value: 193 },
+          { label: 'McPherson County', value: 105 },
+          { label: 'Meade County', value: 34 },
+          { label: 'Mellette County', value: 43 },
+          { label: 'Miner County', value: 146 },
+          { label: 'Minnehaha County', value: 212 },
+          { label: 'Moody County', value: 251 },
+          { label: 'Pennington County', value: 37.5 },
+          { label: 'Perkins County', value: 41.5 },
+          { label: 'Potter County', value: 97.5 },
+          { label: 'Roberts County', value: 174 },
+          { label: 'Sanborn County', value: 129 },
+          { label: 'Spink County', value: 126 },
+          { label: 'Stanley County', value: 42.5 },
+          { label: 'Sully County', value: 97 },
+          { label: 'Todd County', value: 35.5 },
+          { label: 'Tripp County', value: 72 },
+          { label: 'Turner County', value: 198 },
+          { label: 'Union County', value: 235 },
+          { label: 'Walworth County', value: 97.5 },
+          { label: 'Yankton County', value: 194 },
+          { label: 'Ziebach County', value: 45.5 },
+        ],
+      },
+      {
+        label: 'Pasture',
+        options: [
+          { label: 'Aurora County', value: 59 },
+          { label: 'Beadle County', value: 55.5 },
+          { label: 'Bennett County', value: 12.5 },
+          { label: 'Bon Homme County', value: 53.5 },
+          { label: 'Brookings County', value: 65 },
+          { label: 'Brown County', value: 49.5 },
+          { label: 'Brule County', value: 40 },
+          { label: 'Buffalo County', value: 41.5 },
+          { label: 'Butte County', value: 13.5 },
+          { label: 'Campbell County', value: 37.5 },
+          { label: 'Charles Mix County', value: 52 },
+          { label: 'Clay County', value: 61 },
+          { label: 'Codington County', value: 61.5 },
+          { label: 'Corson County', value: 18 },
+          { label: 'Custer County', value: 13 },
+          { label: 'Davison County', value: 63.5 },
+          { label: 'Day County', value: 51 },
+          { label: 'Deuel County', value: 62 },
+          { label: 'Dewey County', value: 11.5 },
+          { label: 'Douglas County', value: 52 },
+          { label: 'Edmunds County', value: 50.5 },
+          { label: 'Fall River County', value: 13.5 },
+          { label: 'Faulk County', value: 44 },
+          { label: 'Grant County', value: 58.5 },
+          { label: 'Gregory County', value: 37 },
+          { label: 'Haakon County', value: 16.5 },
+          { label: 'Hamlin County', value: 63.5 },
+          { label: 'Hand County', value: 54 },
+          { label: 'Hanson County', value: 58.5 },
+          { label: 'Harding County', value: 11.5 },
+          { label: 'Hughes County', value: 38.5 },
+          { label: 'Hutchinson County', value: 55 },
+          { label: 'Hyde County', value: 45 },
+          { label: 'Jackson County', value: 18.5 },
+          { label: 'Jerauld County', value: 50.5 },
+          { label: 'Jones County', value: 20 },
+          { label: 'Kingsbury County', value: 60.5 },
+          { label: 'Lake County', value: 73 },
+          { label: 'Lawrence County', value: 15 },
+          { label: 'Lincoln County', value: 66.5 },
+          { label: 'Lyman County', value: 30.5 },
+          { label: 'Marshall County', value: 45.5 },
+          { label: 'McCook County', value: 64.5 },
+          { label: 'McPherson County', value: 46 },
+          { label: 'Meade County', value: 18 },
+          { label: 'Mellette County', value: 20.5 },
+          { label: 'Miner County', value: 69.5 },
+          { label: 'Minnehaha County', value: 64 },
+          { label: 'Moody County', value: 65.5 },
+          { label: 'Oglala Lakota County', value: 6.8 },
+          { label: 'Pennington County', value: 16.5 },
+          { label: 'Perkins County', value: 15 },
+          { label: 'Potter County', value: 38.5 },
+          { label: 'Roberts County', value: 42 },
+          { label: 'Sanborn County', value: 61 },
+          { label: 'Spink County', value: 55 },
+          { label: 'Stanley County', value: 25.5 },
+          { label: 'Sully County', value: 27 },
+          { label: 'Todd County', value: 17 },
+          { label: 'Tripp County', value: 36 },
+          { label: 'Turner County', value: 59 },
+          { label: 'Walworth County', value: 31 },
+          { label: 'Yankton County', value: 60.5 },
+          { label: 'Ziebach County', value: 12 },
+        ],
+      },
+      {
+        label: 'Cropland, irrigated',
+        options: [
+          { label: 'Beadle County', value: 255 },
+          { label: 'Brookings County', value: 231 },
+          { label: 'Butte County', value: 115 },
+          { label: 'Clay County', value: 281 },
+          { label: 'Lake County', value: 232 },
+          { label: 'Lincoln County', value: 260 },
+          { label: 'Spink County', value: 179 },
+          { label: 'Turner County', value: 267 },
+          { label: 'Union County', value: 252 },
+        ],
+      },
+    ],
+  },
+
+  /**
    * Salvage value is offered as a SHARE of the purchase price the producer has
    * already entered, resolved from the sentinel at apply time. These are common
    * choices for splitting up a purchase price, not a claim about any particular
@@ -197,12 +402,79 @@ export const TYPICAL_VALUES = {
   salvageValue: {
     title: 'Salvage value',
     unit: 'share of what you paid',
-    source: null,
-    note: 'Salvage value is usually estimated as a share of the purchase price. These are common starting points, not market data — if you know what your machine would actually trade for, use that instead.',
-    requires: { field: 'initialCost', message: 'Enter the initial cost first, then pick a share of it.' },
+    source:
+      'Iowa State University Extension and Outreach, Ag Decision Maker File A3-29 / PM 710, "Estimating Farm Machinery Costs", revised March 2026. Table 1a (tractors, combines) was developed from published reports of used equipment auction values; Table 1b (everything else) is credited to the American Society of Agricultural and Biological Engineers. Tractor and combine percentages are at moderate annual use — 400 hours a year for tractors, 300 for combines.',
+    note: 'These percentages are shares of the NEW LIST PRICE. If you bought the machine new they are also shares of what you paid; if you bought it used at a discount they will understate what it is worth, so lean higher. The class names are Iowa State’s own — pick the one your machine belongs to. And if you know what it would actually trade for, that beats any table.',
+    requires: {
+      field: 'initialCost',
+      message: 'Enter the initial cost first, then pick a share of it.',
+    },
     groups: [
+      // Ages match the economic lives offered on the useful-life picker, so the
+      // two fields can be filled from the same assumption about how long the
+      // machine is kept rather than from two unrelated guesses.
       {
-        label: 'Share of purchase price',
+        label: 'Tractor over 150 hp — Iowa State auction data',
+        options: [
+          { label: 'Kept 10 years — 32%', value: '=0.32*initialCost', desc: '', categories: ['tractor'] },
+          { label: 'Kept 12 years — 28%', value: '=0.28*initialCost', desc: '', categories: ['tractor'] },
+          { label: 'Kept 15 years — 23%', value: '=0.23*initialCost', desc: '', categories: ['tractor'] },
+        ],
+      },
+      {
+        label: 'Tractor 80–149 hp — Iowa State auction data',
+        options: [
+          { label: 'Kept 10 years — 37%', value: '=0.37*initialCost', desc: '', categories: ['tractor'] },
+          { label: 'Kept 12 years — 34%', value: '=0.34*initialCost', desc: '', categories: ['tractor'] },
+          { label: 'Kept 15 years — 29%', value: '=0.29*initialCost', desc: '', categories: ['tractor'] },
+        ],
+      },
+      {
+        label: 'Tractor under 80 hp — Iowa State auction data',
+        options: [
+          { label: 'Kept 10 years — 32%', value: '=0.32*initialCost', desc: '', categories: ['tractor'] },
+          { label: 'Kept 12 years — 29%', value: '=0.29*initialCost', desc: '', categories: ['tractor'] },
+          { label: 'Kept 15 years — 25%', value: '=0.25*initialCost', desc: '', categories: ['tractor'] },
+        ],
+      },
+      {
+        label: 'Combine or forage harvester — Iowa State auction data',
+        options: [
+          { label: 'Kept 10 years — 23%', value: '=0.23*initialCost', desc: '', categories: ['harvest'] },
+          { label: 'Kept 12 years — 18%', value: '=0.18*initialCost', desc: '', categories: ['harvest'] },
+          { label: 'Kept 15 years — 13%', value: '=0.13*initialCost', desc: '', categories: ['harvest'] },
+        ],
+      },
+      // ── Table 1b ─────────────────────────────────────────────────────────
+      // Eight machine classes, ASABE-credited. The class names below are A3-29's
+      // own column headings, kept verbatim so a producer can see which class
+      // they are being offered rather than trusting our mapping of it.
+      //
+      // Where a category spans two of A3-29's columns, BOTH are offered rather
+      // than one being picked silently: a chisel plow belongs to "Plows" and a
+      // disk to "Other tillage", but this app files both under `tillage`, and
+      // guessing between a 32% and a 26% for the producer would be inventing an
+      // answer the source does not give.
+      ...tableOneB([
+        { label: 'Plows and subsoilers', cats: ['tillage'], ten: 0.33, twelve: 0.32, fifteen: 0.29 },
+        { label: 'Other tillage', cats: ['tillage'], ten: 0.3, twelve: 0.26, fifteen: 0.22 },
+        {
+          label: 'Planter, drill or sprayer',
+          cats: ['planting', 'spraying'],
+          ten: 0.4,
+          twelve: 0.38,
+          fifteen: 0.34,
+        },
+        { label: 'Mower or chopper', cats: ['hay', 'harvest'], ten: 0.3, twelve: 0.27, fifteen: 0.25 },
+        { label: 'Baler', cats: ['hay'], ten: 0.28, twelve: 0.25, fifteen: 0.21 },
+        { label: 'Swather or rake', cats: ['hay'], ten: 0.25, twelve: 0.23, fifteen: 0.19 },
+        { label: 'Vehicle', cats: ['transport', 'loader'], ten: 0.26, twelve: 0.24, fifteen: 0.22 },
+        { label: 'Other machinery', cats: ['grain', 'other'], ten: 0.35, twelve: 0.31, fifteen: 0.26 },
+      ]),
+      {
+        // Last resort, for a machine that matched no class at all. Uncited, and
+        // the modal's source line makes the difference visible.
+        label: 'None of these — common shares of purchase price',
         options: [
           { label: '40% — newer machine, short ownership', value: '=0.40*initialCost', desc: 'kept only a few years' },
           { label: '30% — typical for well-kept equipment', value: '=0.30*initialCost', desc: '' },
@@ -216,34 +488,64 @@ export const TYPICAL_VALUES = {
   },
 
   /**
-   * PROVISIONAL. Service lives of this kind are long-standing conventions in
-   * machinery cost work (ASABE D497 / Iowa State AgDM A3-29), but the exact
-   * figures below have not been checked line by line against a current edition.
-   * Flagged for verification in TYPICAL-VALUES.md and shown with a caution.
+   * NO LONGER PROVISIONAL. A3-29 states the rule directly, in one sentence:
+   *
+   *   "A good rule of thumb is to use an economic life of 10 to 12 years for
+   *    most farm machines and a 15-year life for tractors, unless you know you
+   *    will trade sooner."
+   *
+   * That is the whole published position, and it corrects what shipped before:
+   * planters, tillage tools, grain handling and trucks all carried 15 years
+   * here, which the source reserves for tractors alone.
+   *
+   * Note what the source is careful to say and this modal repeats: ECONOMIC life
+   * is the ownership period, deliberately shorter than service life, "because
+   * most farmers trade a machine for a different one before it is completely
+   * worn out". The figures are not a claim about when a machine wears out —
+   * A3-29 keeps that separate, in hours, as the wear-out life used for repair
+   * costs. Nothing here should be read as "your planter dies at twelve".
    */
   usefulLifeEquipment: {
     title: 'Useful life — equipment',
     unit: 'years',
-    status: 'provisional',
     source:
-      'Conventional service lives used in farm machinery cost estimation (see Iowa State AgDM A3-29, Estimating Farm Machinery Costs). Pending line-by-line verification.',
-    note: 'How long you expect to USE it, not how long it could last. Your own replacement pattern beats any published figure.',
+      'Iowa State University Extension and Outreach, Ag Decision Maker File A3-29 / PM 710, "Estimating Farm Machinery Costs", revised March 2026.',
+    note: 'This is your ECONOMIC life — how long you expect to OWN it, not how long it would last. A3-29 is explicit that the two differ, because most farmers trade before a machine is worn out. If you know you will trade sooner, use that number instead.',
     byCategory: true,
     groups: [
       {
-        label: 'Common service lives',
+        label: 'Iowa State rule of thumb',
         options: [
-          { label: 'Tractor — 15 years', value: 15, desc: 'commonly 12–15', categories: ['tractor'] },
-          { label: 'Tractor — 12 years', value: 12, desc: 'heavier annual use', categories: ['tractor'] },
-          { label: 'Combine — 10 years', value: 10, desc: 'commonly 10–12', categories: ['harvest'] },
-          { label: 'Combine head — 12 years', value: 12, desc: '', categories: ['harvest'] },
-          { label: 'Planter or drill — 15 years', value: 15, desc: '', categories: ['planting'] },
-          { label: 'Tillage tool — 15 years', value: 15, desc: '', categories: ['tillage'] },
+          {
+            label: 'Tractor — 15 years',
+            value: 15,
+            desc: 'A3-29 gives tractors their own, longer figure',
+            categories: ['tractor'],
+          },
+          {
+            label: 'Tractor, traded sooner — 12 years',
+            value: 12,
+            desc: 'if you replace on a shorter cycle',
+            categories: ['tractor'],
+          },
+          {
+            label: 'Combine — 12 years',
+            value: 12,
+            desc: '"most farm machines": 10 to 12',
+            categories: ['harvest'],
+          },
+          { label: 'Combine — 10 years', value: 10, desc: 'heavier annual use', categories: ['harvest'] },
+          { label: 'Planter or drill — 12 years', value: 12, desc: '', categories: ['planting'] },
+          { label: 'Planter or drill — 10 years', value: 10, desc: '', categories: ['planting'] },
+          { label: 'Tillage tool — 12 years', value: 12, desc: '', categories: ['tillage'] },
+          { label: 'Tillage tool — 10 years', value: 10, desc: '', categories: ['tillage'] },
           { label: 'Sprayer — 12 years', value: 12, desc: '', categories: ['spraying'] },
-          { label: 'Grain cart, auger, handling — 15 years', value: 15, desc: '', categories: ['grain'] },
-          { label: 'Truck or trailer — 15 years', value: 15, desc: '', categories: ['transport'] },
-          { label: 'Skid loader — 12 years', value: 12, desc: '', categories: ['loader'] },
+          { label: 'Sprayer — 10 years', value: 10, desc: '', categories: ['spraying'] },
+          { label: 'Grain cart, auger, handling — 12 years', value: 12, desc: '', categories: ['grain'] },
+          { label: 'Truck or trailer — 12 years', value: 12, desc: '', categories: ['transport'] },
+          { label: 'Skid loader — 10 years', value: 10, desc: '', categories: ['loader'] },
           { label: 'Haying equipment — 12 years', value: 12, desc: '', categories: ['hay'] },
+          { label: 'Haying equipment — 10 years', value: 10, desc: '', categories: ['hay'] },
         ],
       },
     ],
@@ -254,8 +556,8 @@ export const TYPICAL_VALUES = {
     unit: 'years',
     status: 'provisional',
     source:
-      'Conventional service lives used in farm building cost estimation. Pending line-by-line verification.',
-    note: 'Buildings are assumed to depreciate all the way to zero in this calculator, so no salvage value is entered.',
+      'Conventional depreciation periods for farm structures. No survey source was found for these; see TYPICAL-VALUES.md.',
+    note: 'Buildings are assumed to depreciate all the way to zero in this calculator, so no salvage value is entered. These are ordinary depreciation periods, not measured service lives — a well-kept machine shed outlasts thirty years, and a bin you plan to replace in fifteen should say fifteen.',
     groups: [
       {
         label: 'Common service lives',

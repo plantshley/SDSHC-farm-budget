@@ -9,15 +9,19 @@
 
 import { esc } from './format.js'
 import { field, moneyField, readout, sectionInfo } from './fields.js'
-import { VARIABLE_LINES } from '../calc.js'
+import { VARIABLE_LINES, enterpriseLabel } from '../calc.js'
 
 const YIELD_UNITS = ['bu', 'ton', 'cwt', 'lb', 'bale', 'AUM']
 
-export function renderEnterprises(scenario) {
+/**
+ * @param {object} scenario
+ * @param {Set<string>} collapsed  ids of the cards currently folded shut
+ */
+export function renderEnterprises(scenario, collapsed = new Set()) {
   return `
     <div class="ent-scroller">
       <div class="ent-grid">
-        ${scenario.enterprises.map((e, i) => renderEnterprise(e, i)).join('')}
+        ${scenario.enterprises.map((e, i) => renderEnterprise(e, i, collapsed)).join('')}
         <div class="ent-add">
           <button type="button" class="btn-add" data-action="add-enterprise">
             + Add enterprise
@@ -28,28 +32,34 @@ export function renderEnterprises(scenario) {
     </div>`
 }
 
-function renderEnterprise(e, i) {
+function renderEnterprise(e, i, collapsed) {
   const p = `enterprises.${i}`
-  const heading = e.crop?.trim() || `Enterprise ${i + 1}`
+  const heading = enterpriseLabel(e, i)
+  const isShut = collapsed.has(e.id)
 
   return `
-    <section class="box ent" data-ent-index="${i}">
+    <section class="box ent ${isShut ? 'collapsed' : ''}" data-ent-index="${i}"
+      data-ent-id="${esc(e.id ?? '')}">
       <header class="ent-head">
         <button type="button" class="ent-toggle" data-action="toggle-enterprise"
-          aria-expanded="true">
+          aria-expanded="${!isShut}"
+          aria-label="${isShut ? 'Expand' : 'Collapse'} ${esc(heading)}">
+          <span class="chev" aria-hidden="true"></span>
           <span class="ent-name">${esc(heading)}</span>
           <span class="ent-sub" data-out="${p}.acres" data-fmt="acres">—</span>
-          <span class="chev" aria-hidden="true"></span>
         </button>
-        ${
-          i > 0 || true
-            ? `<button type="button" class="btn-remove" data-action="remove-enterprise"
-                 data-index="${i}" aria-label="Remove ${esc(heading)}">Remove</button>`
-            : ''
-        }
+        <button type="button" class="btn-remove" data-action="remove-enterprise"
+          data-index="${i}" aria-label="Remove ${esc(heading)}">Remove</button>
       </header>
 
       <div class="ent-body">
+        ${field({
+          label: 'Enterprise name',
+          path: `${p}.name`,
+          value: e.name,
+          placeholder: heading,
+          info: 'enterpriseName',
+        })}
         <div class="row-2">
           ${field({ label: 'Crop', path: `${p}.crop`, value: e.crop, placeholder: 'Corn' })}
           ${moneyField({ label: 'Acres', path: `${p}.acres`, value: e.acres, placeholder: '0' })}
@@ -83,7 +93,10 @@ function renderEnterprise(e, i) {
           strong: true,
           info: 'grossMargin',
         })}
-        ${readout('Enterprise gross margin', `${p}.enterpriseGrossMargin`, { fmt: 'usd' })}
+        ${readout('Enterprise gross margin', `${p}.enterpriseGrossMargin`, {
+          fmt: 'usd',
+          info: 'enterpriseGrossMargin',
+        })}
       </div>
     </section>`
 }
@@ -116,10 +129,23 @@ function renderLine(def, e, entPath) {
   const perAcreMode = line.mode === 'perAcre'
   const typical = def.key
 
+  // The typical-value link sits beside the label rather than under the inputs.
+  // Below, it read as a caption belonging to the row above it and pushed every
+  // line taller; beside the label it reads as an offer about THIS line, and the
+  // fifteen lines of a variable-expense list stay compact enough to scan.
   return `
     <div class="line" data-line="${esc(def.key)}">
       <div class="line-head">
         <span class="line-label">${esc(def.label)}</span>
+        ${
+          typicalAvailable(typical)
+            ? `<button type="button" class="tip line-tip" data-typical="${esc(typical)}"
+                 data-target="${esc(p)}.${perAcreMode ? 'perAcre' : 'costPerUnit'}"
+                 data-mode-path="${esc(p)}.mode" data-line-mode="${perAcreMode ? 'perAcre' : 'unit'}"
+                 data-target-per-acre="${esc(p)}.perAcre" data-target-unit="${esc(p)}.costPerUnit"
+               >use typical value</button>`
+            : ''
+        }
         <button type="button" class="mode-toggle" data-action="toggle-line-mode"
           data-path="${esc(p)}.mode" data-mode="${perAcreMode ? 'perAcre' : 'unit'}"
           title="Switch entry mode">${perAcreMode ? '$/acre' : '$/unit × units'}</button>
@@ -140,13 +166,6 @@ function renderLine(def, e, entPath) {
         }
         <span class="line-total" data-out="${entPath}.lines.${def.key}" data-fmt="usdCents">—</span>
       </div>
-      ${
-        typicalAvailable(typical)
-          ? `<button type="button" class="tip" data-typical="${esc(typical)}"
-               data-target="${esc(p)}.${perAcreMode ? 'perAcre' : 'costPerUnit'}"
-             >use typical value</button>`
-          : ''
-      }
     </div>`
 }
 

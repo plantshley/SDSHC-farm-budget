@@ -17,13 +17,32 @@
   --save-bg: #e8f5e9;
   --cost: #c0392b;
   --cost-bg: #fdecea;
-  --info: #1565c0;
-  --info-bg: #e7f0fb;
   --overlay: rgba(0, 0, 0, 0.45);
 
+  /* ---- SDSHC logo palette ---------------------------------------------
+     Taken from the coalition's own mark, so the tool is recognisably theirs
+     rather than generically green. Each has one job and keeps it:
+       --brown  headings and structural lines — the mark's darkest colour
+       --sky    explanation: the `?`, definition modals, the preharvest note
+       --olive  the growing/positive accent — section rules, KPI edges
+       --clay   the warm counterweight — overhead, notes, secondary marks
+     --green stays the action/positive colour. Semantics beat brand: a
+     producer reading a red loss and a green profit must not have to work out
+     which of four browns means "bad". */
+  --brown: #4e413a;
+  --sky: #0fb2e2;
+  --olive: #afbf42;
+  --clay: #8d5c3e;
+
+  --info: var(--sky);
+  --info-bg: #e6f7fd;
+  --olive-bg: #f4f7e3;
+  --clay-bg: #f6ede7;
+  --brand-ink: var(--brown);
+
   /* Typography is one swappable property — see [data-font] below. */
-  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
-    Arial, sans-serif;
+  --font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text",
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 
   --maxw: 1400px;
   --radius: 10px;
@@ -42,9 +61,21 @@
   --save-bg: #1c2a1e;
   --cost: #e57368;
   --cost-bg: #2c1c1a;
-  --info: #6ea8e6;
-  --info-bg: #16222e;
   --overlay: rgba(0, 0, 0, 0.6);
+
+  /* Lightened so they still carry on a dark card. The brown is the one that
+     cannot survive as-is — at #4e413a it disappears into the background — so
+     in dark mode it hands its heading job to a warm off-white. */
+  --brown: #b9a894;
+  --sky: #4fc9ef;
+  --olive: #c3d456;
+  --clay: #c08a68;
+
+  --info: var(--sky);
+  --info-bg: #10262e;
+  --olive-bg: #232817;
+  --clay-bg: #2b201a;
+  --brand-ink: #dfe6e2;
 }
 
 /* "Classic" = the Virtual Fence ROI tool's stack, for producers who prefer it
@@ -85,29 +116,57 @@ main {
   flex-wrap: wrap;
 }
 
+/* height:auto with an explicit aspect ratio: fixing only the height lets a
+   flex parent squash the box while the image inside keeps its proportions,
+   which is what was clipping the logo top and bottom on a phone. */
 .toplogo {
-  height: 44px;
+  height: auto;
   width: auto;
-  max-width: 60%;
+  max-height: 44px;
+  max-width: min(60%, 300px);
+  object-fit: contain;
+  flex: 0 1 auto;
+}
+
+/* The mark is dark ink on transparent, so on a dark card it is nearly
+   invisible. Lifting it back out is better than shipping a second file. */
+[data-theme="dark"] .toplogo {
+  filter: brightness(0) invert(1) opacity(0.92);
 }
 
 .topbar-controls {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex: 0 0 auto;
 }
 
-.toggle {
-  background: var(--card);
-  color: var(--text);
+/* Matches SDSHC-tracker's .theme-toggle so the two tools' chrome is the same. */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
   border: 1px solid var(--border);
-  border-radius: 20px;
-  padding: 9px 14px;
-  font-family: inherit;
-  font-size: 13px;
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--muted);
   cursor: pointer;
   box-shadow: var(--shadow);
-  white-space: nowrap;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.theme-toggle:hover {
+  border-color: var(--green);
+  color: var(--green);
+}
+
+.theme-toggle-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* Both font choices stay visible so it's obvious a choice exists and which one
@@ -169,11 +228,22 @@ main {
   margin: 9px 0;
 }
 
+/* The `?` is a sibling of the label, not inside it — see labelRow() in
+   ui/fields.js. This row is what puts them back on one line. */
+.field-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 3px;
+  min-height: 22px;
+}
+
+.field-label > label,
 .field > label {
   display: block;
   font-size: 13.5px;
   color: var(--muted);
-  margin-bottom: 3px;
+  margin: 0;
 }
 
 input,
@@ -216,9 +286,12 @@ input.invalid {
   flex: 0 0 auto;
 }
 
+/* `?` is explanation, so it takes the sky accent — the same colour as the
+   definition panels it opens. "use typical value" keeps green, because green
+   means something is about to change. */
 .help-btn:hover {
-  color: var(--green);
-  border-color: var(--green);
+  color: var(--sky);
+  border-color: var(--sky);
 }
 
 /* `use typical value` ACTS — it writes into the field. Deliberately styled as a
@@ -286,6 +359,9 @@ input.invalid {
   background: var(--save-bg);
 }
 
+/* 44px like every other control the app expects a thumb to find. This removes an
+   enterprise or a filled-in machine, so a mis-tap is expensive; it stays visually
+   quiet but is a full-size target. */
 .btn-remove {
   background: transparent;
   border: none;
@@ -293,7 +369,8 @@ input.invalid {
   font-size: 12px;
   cursor: pointer;
   text-decoration: underline;
-  padding: 6px;
+  padding: 6px 10px;
+  min-height: 44px;
   flex: 0 0 auto;
 }
 
@@ -327,13 +404,14 @@ input.invalid {
   font-size: 15px;
   text-transform: uppercase;
   letter-spacing: 0.4px;
-  color: var(--muted);
+  color: var(--brand-ink);
   margin: 18px 0 4px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 2px solid var(--olive);
   padding-bottom: 5px;
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-wrap: wrap;
 }
 
 .pos {
@@ -354,30 +432,42 @@ input.invalid {
 
 /* ---- app header -------------------------------------------------------- */
 
+/* The tabs sit ON this line, the way a folder tab sits on the top of a folder.
+   align-items:flex-end is what makes the active tab able to break through it. */
 .app-head {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
-  gap: 12px;
+  gap: 12px 16px;
   flex-wrap: wrap;
-  margin: 8px 0 14px;
+  margin: 8px 0 0;
+  border-bottom: 1px solid var(--border);
 }
 
 .name-wrap {
   display: flex;
   align-items: center;
-  gap: 10px;
-  flex: 1 1 260px;
+  gap: 4px;
   min-width: 0;
+  padding-bottom: 8px;
+  flex: 0 1 auto;
 }
 
+/* Sized to its own text by sizeNameInput() in main.js — a title you may rename,
+   not a form field demanding to be filled in. field-sizing does this natively
+   where it exists and the JS then agrees with it rather than fighting. */
 .scenario-name {
   font-size: 19px;
   font-weight: bold;
   border: 1px solid transparent;
   background: transparent;
-  padding: 8px 10px;
-  min-width: 0;
+  padding: 6px 8px;
+  width: auto;
+  min-width: 90px;
+  max-width: 100%;
+  min-height: 0;
+  color: var(--brand-ink);
+  field-sizing: content;
 }
 
 .scenario-name:hover,
@@ -386,11 +476,39 @@ input.invalid {
   background: var(--card);
 }
 
+/* Off-screen twin used to measure the text width. Must not be display:none — a
+   hidden element has no offsetWidth to read. */
+.name-mirror {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  white-space: pre;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.edit-name,
+.edit-icon {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+  padding: 4px;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.edit-name:hover {
+  color: var(--green);
+}
+
 .save-state {
   font-size: 12px;
   color: var(--muted);
   white-space: nowrap;
   flex: 0 0 auto;
+  margin-left: 6px;
 }
 
 .save-state.dirty {
@@ -400,28 +518,58 @@ input.invalid {
   color: var(--cost);
 }
 
+/* ---- folder tabs ------------------------------------------------------- */
+
+/* File-folder tabs rather than free-floating pills: the tab and the content
+   under it are visibly one object, so "Saved" reads as another drawer of the
+   same thing rather than a separate button that might do something. */
 .app-nav {
   display: flex;
-  gap: 6px;
-  align-items: center;
+  gap: 4px;
+  align-items: flex-end;
+  margin-bottom: -1px;
+  flex: 0 0 auto;
 }
 
-.nav-btn {
-  background: var(--card);
-  border: 1px solid var(--border);
-  color: var(--text);
-  border-radius: 20px;
-  padding: 8px 16px;
-  font-size: 14px;
+.tab {
+  position: relative;
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: none;
+  color: var(--muted);
+  border-radius: 9px 9px 0 0;
+  padding: 10px 20px 11px;
+  font-size: 14.5px;
   cursor: pointer;
   min-height: 44px;
 }
 
-.nav-btn.active {
-  background: var(--green);
-  border-color: var(--green);
-  color: #fff;
+.tab:hover {
+  color: var(--brand-ink);
+  background: var(--olive-bg);
+}
+
+/* The active tab pulls the page background up over the head's bottom border,
+   joining tab and content into one shape. */
+.tab.active {
+  background: var(--card);
+  border-color: var(--border);
+  color: var(--green);
   font-weight: bold;
+}
+
+.tab.active::after {
+  content: '';
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  bottom: -1px;
+  height: 2px;
+  background: var(--card);
+}
+
+.app-nav .help-btn {
+  margin: 0 0 10px 8px;
 }
 
 /* ---- input frames ------------------------------------------------------ */
@@ -465,6 +613,11 @@ input.invalid {
    enterprise budgets. MOBILE: the same cards stacked as accordions. This media
    query is the ONLY difference between the two — never fork the components. */
 
+/* The first block after the tabs needs to clear the head's bottom border. */
+.app-head + * {
+  margin-top: 14px;
+}
+
 .ent-scroller {
   margin-bottom: 16px;
 }
@@ -486,7 +639,7 @@ input.invalid {
 .ent-toggle {
   flex: 1;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   background: none;
   border: none;
@@ -512,8 +665,69 @@ input.invalid {
   white-space: nowrap;
 }
 
+/* ---- folding (enterprises and the fixed-cost block) -------------------- */
+
+/* One chevron rule for both, at every width. Collapsing used to be a mobile-only
+   affordance; on desktop a farm with six enterprises is exactly where being able
+   to shut four of them matters most. */
 .chev {
+  display: inline-block;
+  flex: 0 0 auto;
+  border: solid var(--muted);
+  border-width: 0 2px 2px 0;
+  padding: 3px;
+  margin-right: 2px;
+  transform: rotate(45deg);
+  transition: transform 0.15s ease;
+}
+
+.collapsed > .ent-head .chev,
+.collapsed > .block-head .chev {
+  transform: rotate(-45deg);
+}
+
+.ent.collapsed .ent-body,
+.fixed-block.collapsed .fixed-body {
   display: none;
+}
+
+.ent.collapsed .ent-head {
+  border-bottom: none;
+  padding-bottom: 0;
+  margin-bottom: 0;
+}
+
+.ent.collapsed .btn-remove {
+  display: none;
+}
+
+.block-head > .title {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.fold-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  padding: 4px 0;
+  min-width: 0;
+  min-height: 44px;
+}
+
+.fold-sub {
+  font-size: 13px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .ent-add {
@@ -545,7 +759,6 @@ input.invalid {
 .line-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
   margin-bottom: 4px;
 }
@@ -558,16 +771,46 @@ input.invalid {
   gap: 5px;
 }
 
+/* Inline, immediately right of the label it belongs to. The mode toggle is
+   pushed to the far end so the row reads label → offer → current mode. */
+.line-tip {
+  font-size: 11.5px;
+  padding: 0;
+  white-space: nowrap;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.line-head .mode-toggle {
+  margin-left: auto;
+}
+
+/* There are fifteen of these per enterprise, so a 44px-tall pill would double
+   the height of the expense list. The button stays small and an invisible
+   pseudo-element carries the touch target instead — full size to the thumb,
+   unchanged to the eye and to the layout. */
 .mode-toggle {
+  position: relative;
   background: transparent;
   border: 1px solid var(--border);
   color: var(--muted);
   border-radius: 12px;
   font-size: 11px;
-  padding: 3px 9px;
+  padding: 4px 9px;
   cursor: pointer;
   white-space: nowrap;
   flex: 0 0 auto;
+}
+
+.mode-toggle::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 44px;
+  transform: translateY(-50%);
 }
 
 .mode-toggle:hover {
@@ -733,31 +976,70 @@ input.invalid {
 
 .kpi-row {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: 10px;
   margin: 14px 0 18px;
 }
 
+/* These four numbers are the answer the whole page exists to produce, and they
+   are read across a classroom and at arm's length in a pickup. Centred and
+   large so they carry; the olive top edge ties them to the logo palette. */
 .kpi {
   background: var(--bg);
   border: 1px solid var(--border);
+  border-top: 3px solid var(--olive);
   border-radius: 8px;
-  padding: 12px;
+  padding: 14px 12px 16px;
+  text-align: center;
 }
 
 .kpi-label {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 5px;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
 .kpi-value {
-  font-size: 22px;
+  font-size: 30px;
   font-weight: bold;
   font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+  /* Long dollar amounts must shrink rather than spill out of the card. */
+  overflow-wrap: anywhere;
+}
+
+.sub-note {
+  font-size: 11.5px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--muted);
+  font-weight: normal;
+}
+
+/* ---- amount + period ---------------------------------------------------- */
+
+.period-row {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.period-row .input-wrap {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.period-select {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 108px;
+  font-size: 13px;
+  padding: 8px 6px;
+  color: var(--muted);
 }
 
 .results-grid {
@@ -831,8 +1113,23 @@ input.invalid {
   margin-top: 18px;
   font-size: 12.5px;
   color: var(--muted);
-  border-top: 1px solid var(--border);
-  padding-top: 10px;
+  background: var(--clay-bg);
+  border-left: 3px solid var(--clay);
+  border-radius: 0 6px 6px 0;
+  padding: 10px 12px;
+}
+
+.preharvest {
+  border-left: 3px solid var(--sky);
+}
+
+.modal-note {
+  border-left: 3px solid var(--sky);
+}
+
+.block-head .title,
+.modal-title {
+  color: var(--brand-ink);
 }
 
 /* ---- saved scenarios & compare ----------------------------------------- */
@@ -864,8 +1161,113 @@ input.invalid {
   min-height: 0;
 }
 
-.scn-open {
+.scn-order {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  flex: 0 0 auto;
+}
+
+.scn-grip {
+  cursor: grab;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+  padding: 1px 2px;
+  user-select: none;
+}
+
+.scn-grip:active {
+  cursor: grabbing;
+}
+
+.scn-move {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1;
+  padding: 5px 6px;
+  cursor: pointer;
+}
+
+.scn-move:hover:not(:disabled) {
+  color: var(--green);
+}
+
+.scn-move:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
+/* Touch has no drag-and-drop, so the handle is decoration there — the arrows
+   above and below it are the control that actually works, and on touch they are
+   the ONLY way to reorder, so they get the full 44px. Dropping the grip makes
+   room for that without the row growing. */
+@media (hover: none) {
+  .scn-grip {
+    display: none;
+  }
+
+  .scn-move {
+    min-height: 44px;
+    min-width: 44px;
+    font-size: 13px;
+  }
+}
+
+.scn.dragging {
+  opacity: 0.55;
+  border-style: dashed;
+  border-color: var(--olive);
+}
+
+.scn-main {
   flex: 1 1 220px;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.scn-name-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* Editable in place. Borderless until touched, so the list still reads as a
+   list of names rather than a form. */
+.scn-name-input {
+  font-weight: bold;
+  font-size: 15px;
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 5px 6px;
+  min-height: 36px;
+  color: var(--brand-ink);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.scn-name-input:hover,
+.scn-name-input:focus {
+  border-color: var(--border);
+  background: var(--card);
+}
+
+.scn-open-flag {
+  font-style: normal;
+  color: var(--green);
+  font-size: 11px;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  flex: 0 0 auto;
+}
+
+.scn-open {
   background: none;
   border: none;
   color: inherit;
@@ -873,25 +1275,19 @@ input.invalid {
   cursor: pointer;
   display: grid;
   gap: 2px;
-  padding: 6px 0;
+  padding: 2px 6px 6px;
   min-width: 0;
 }
 
-.scn-name {
-  font-weight: bold;
-  font-size: 15px;
-}
-
-.scn-name em {
-  font-weight: normal;
-  color: var(--green);
-  font-size: 12px;
-}
-
-.scn-meta,
-.scn-date {
+.scn-meta {
   font-size: 12px;
   color: var(--muted);
+}
+
+.scn-open-cta {
+  font-size: 12px;
+  color: var(--green);
+  text-decoration: underline;
 }
 
 .scn-btns {
@@ -908,18 +1304,46 @@ input.invalid {
   margin-top: 12px;
 }
 
+.open-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.baseline-note {
+  background: var(--olive-bg);
+  border-left: 3px solid var(--olive);
+  border-radius: 0 6px 6px 0;
+  padding: 9px 11px;
+  margin: 14px 0 0;
+}
+
 .btn-main:disabled {
   background: var(--border);
   color: var(--muted);
   cursor: not-allowed;
 }
 
+/* ---- compare table ------------------------------------------------------ */
+
+/* Left-aligned by default so labels and budget names read as text; only the
+   money columns get the right-aligned tabular treatment, where lining up the
+   decimal points is what makes two budgets comparable at a glance. */
 .compare-tbl th {
-  vertical-align: bottom;
+  vertical-align: middle;
+  text-align: left;
 }
 
 .compare-tbl td:not(:first-child) {
+  text-align: left;
+  white-space: normal;
   min-width: 120px;
+}
+
+.compare-tbl td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .delta {
@@ -975,6 +1399,10 @@ input.invalid {
 
 /* ---- modals ------------------------------------------------------------ */
 
+/* The OVERLAY does not scroll — the modal body does. Scrolling the overlay let
+   the panel travel up out of the viewport, taking its close button with it, and
+   a gesture that ran past the end of the content carried on into the budget
+   underneath. Fixed height plus an internal scroller keeps the frame still. */
 .overlay {
   display: none;
   position: fixed;
@@ -982,12 +1410,12 @@ input.invalid {
   background: var(--overlay);
   z-index: 100;
   padding: 16px;
-  overflow-y: auto;
+  overflow: hidden;
 }
 
 .overlay.open {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
 }
 
@@ -998,7 +1426,12 @@ input.invalid {
   box-shadow: var(--shadow);
   max-width: 620px;
   width: 100%;
-  margin: auto;
+  /* dvh, not vh: on mobile Safari and Chrome, vh is the tallest the viewport
+     ever gets, so the bottom of a full-height modal sits under the URL bar. */
+  max-height: calc(100dvh - 32px);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .modal-head {
@@ -1007,10 +1440,9 @@ input.invalid {
   gap: 10px;
   padding: 14px 16px;
   border-bottom: 1px solid var(--border);
-  position: sticky;
-  top: 0;
   background: var(--card);
   border-radius: var(--radius) var(--radius) 0 0;
+  flex: 0 0 auto;
 }
 
 .modal-title {
@@ -1034,6 +1466,93 @@ input.invalid {
 
 .modal-body {
   padding: 6px 16px 18px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* Freeze the page while a modal is up, so closing it returns the producer to
+   exactly the field they were looking at. */
+body.modal-open {
+  overflow: hidden;
+}
+
+/* ---- collapsible modal sections ---------------------------------------- */
+
+.def-fold,
+.typ-fold {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin: 8px 0;
+  overflow: hidden;
+}
+
+.def-fold > summary,
+.typ-fold > summary {
+  cursor: pointer;
+  padding: 12px 14px;
+  font-weight: bold;
+  color: var(--green);
+  font-size: 14.5px;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  background: var(--bg);
+}
+
+.def-fold > summary::-webkit-details-marker,
+.typ-fold > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* The disclosure triangle, drawn rather than inherited, so it looks the same
+   in every browser and matches the card chevrons elsewhere in the app. */
+.def-fold > summary::before,
+.typ-fold > summary::before {
+  content: '';
+  flex: 0 0 auto;
+  border: solid currentColor;
+  border-width: 0 2px 2px 0;
+  padding: 3px;
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+}
+
+.def-fold[open] > summary::before,
+.typ-fold[open] > summary::before {
+  transform: rotate(45deg);
+}
+
+.def-fold-body {
+  padding: 2px 14px 10px;
+}
+
+.typ-fold > summary {
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-size: 12px;
+}
+
+.typ-fold .typ-option {
+  margin: 6px 10px;
+  width: calc(100% - 20px);
+}
+
+.modal-unit {
+  font-size: 13px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+  margin: 6px 0 12px;
+}
+
+.modal-unit b {
+  color: var(--brand-ink);
 }
 
 .def h3 {
@@ -1147,24 +1666,56 @@ input.invalid {
     padding-bottom: 6px;
   }
 
+  /* Flex rather than grid-auto-flow: column. Auto-flow sizes every track the
+     same, so a collapsed column would keep its full 310px and the fold would
+     only close vertically. Flex lets a collapsed card take just its own width,
+     which is what "collapse" has to mean when the cards are side by side. */
   .ent-grid {
-    grid-auto-flow: column;
-    grid-auto-columns: minmax(310px, 1fr);
-    align-items: start;
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+  }
+
+  .ent {
+    flex: 1 1 310px;
+    min-width: 310px;
+  }
+
+  /* Shut: a narrow spine with its name turned on end, like a closed folder in
+     a drawer. Still tappable, still says which enterprise it is. */
+  .ent.collapsed {
+    flex: 0 0 58px;
+    min-width: 0;
+    width: 58px;
+    padding: 12px 6px;
+  }
+
+  .ent.collapsed .ent-head {
+    flex-direction: column;
+    gap: 10px;
+    align-items: center;
+  }
+
+  .ent.collapsed .ent-toggle {
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .ent.collapsed .ent-name,
+  .ent.collapsed .ent-sub {
+    writing-mode: vertical-rl;
+    max-height: 260px;
+  }
+
+  .ent.collapsed .chev {
+    transform: rotate(-135deg);
   }
 
   .ent-add {
+    flex: 0 0 220px;
     min-width: 220px;
-  }
-
-  /* Accordion collapsing is a mobile affordance; on desktop every column
-     stays open so they can be read against each other. */
-  .ent .ent-body {
-    display: block !important;
-  }
-
-  .ent-toggle {
-    cursor: default;
   }
 
   .fixed-grid,
@@ -1190,30 +1741,33 @@ input.invalid {
     padding: 0 12px 12px;
   }
 
-  .ent.collapsed .ent-body {
-    display: none;
-  }
-
-  .chev {
-    display: inline-block;
-    margin-left: auto;
-    border: solid var(--muted);
-    border-width: 0 2px 2px 0;
-    padding: 3px;
-    transform: rotate(45deg);
-    transition: transform 0.15s ease;
-  }
-
-  .ent.collapsed .chev {
-    transform: rotate(-45deg);
+  /* The logo wraps onto its own full-width line rather than being squeezed
+     beside the controls, which is what was cropping it vertically. */
+  .topbar {
+    padding: 10px 0 4px;
   }
 
   .toplogo {
-    height: 34px;
+    max-height: 40px;
+    max-width: min(58%, 240px);
+  }
+
+  .app-head {
+    align-items: stretch;
+  }
+
+  .app-nav {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .tab {
+    flex: 1 1 0;
+    padding: 10px 8px 11px;
   }
 
   .kpi-value {
-    font-size: 19px;
+    font-size: 25px;
   }
 
   .sticky-figs {
@@ -1223,12 +1777,42 @@ input.invalid {
   .sticky-figs b {
     font-size: 15px;
   }
+
+  .period-select {
+    min-width: 96px;
+  }
+
+  .scn-btns {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+
+@media (max-width: 420px) {
+  .toplogo {
+    max-width: 100%;
+    max-height: 36px;
+  }
+
+  .topbar {
+    justify-content: center;
+  }
 }
 
 /* ---- print ------------------------------------------------------------- */
 
+/* ---- print --------------------------------------------------------------
+   Everything that scrolls on screen has to become tall on paper instead, or the
+   part past the fold is simply gone. Three separate things were clipping:
+   .ent-scroller's horizontal overflow, .tbl-scroll's, and the enterprise
+   columns being laid out side by side across a page only 8.5in wide. A folded
+   card printed as a blank spine, too. All four are undone here.
+   -------------------------------------------------------------------------- */
 @media print {
-  .topbar,
+  @page {
+    margin: 12mm;
+  }
+
   .app-nav,
   .sticky-bar,
   .btn-add,
@@ -1236,6 +1820,10 @@ input.invalid {
   .tip,
   .help-btn,
   .mode-toggle,
+  .fold-toggle .chev,
+  .scn-grip,
+  .edit-name,
+  .edit-icon,
   .overlay,
   .footer button {
     display: none !important;
@@ -1244,16 +1832,117 @@ input.invalid {
   body {
     background: #fff;
     color: #000;
+    padding: 0;
+    font-size: 11pt;
+  }
+
+  /* Keep the mark on the printed copy — this gets handed round a classroom. */
+  .topbar {
+    padding: 0 0 8px;
+    border-bottom: 1px solid #999;
+    margin-bottom: 10px;
+  }
+
+  .topbar-controls {
+    display: none !important;
+  }
+
+  .toplogo {
+    max-height: 34px;
+    filter: none !important;
+  }
+
+  .app-head {
+    border-bottom: none;
+    margin-bottom: 8px;
+  }
+
+  /* A name box with a border round it looks like an empty field on paper. */
+  .scenario-name,
+  .scn-name-input {
+    border-color: transparent !important;
+    background: transparent !important;
+    width: auto !important;
+    font-size: 15pt;
   }
 
   .box {
     box-shadow: none;
     border: 1px solid #999;
     break-inside: avoid;
+    page-break-inside: avoid;
   }
 
+  /* Anything with its own scrollbar on screen must print at full height. */
+  .ent-scroller,
+  .tbl-scroll,
+  .modal-body {
+    overflow: visible !important;
+    max-height: none !important;
+  }
+
+  /* One enterprise per block, down the page. Four columns across a sheet of
+     paper is where the right-hand ones fell off the edge. */
   .ent-grid {
-    grid-auto-flow: row;
+    display: block !important;
+  }
+
+  .ent {
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    margin-bottom: 10px;
+    padding: 10px 12px !important;
+  }
+
+  /* Print what a folded card contains, not the folded card. */
+  .ent.collapsed .ent-body,
+  .fixed-block.collapsed .fixed-body {
+    display: block !important;
+  }
+
+  .ent.collapsed .ent-head,
+  .ent.collapsed .ent-toggle {
+    flex-direction: row !important;
+  }
+
+  .ent.collapsed .ent-name,
+  .ent.collapsed .ent-sub {
+    writing-mode: horizontal-tb !important;
+    max-height: none !important;
+  }
+
+  .fixed-grid,
+  .results-grid {
+    display: block !important;
+  }
+
+  .kpi-row {
+    grid-template-columns: repeat(4, 1fr) !important;
+  }
+
+  .kpi-value {
+    font-size: 16pt;
+  }
+
+  /* Split a long table across pages at a row boundary, with its heading
+     repeated, rather than mid-row. */
+  .tbl {
+    page-break-inside: auto;
+  }
+
+  .tbl thead {
+    display: table-header-group;
+  }
+
+  .tbl tr {
+    page-break-inside: avoid;
+  }
+
+  /* Guide sections are folded shut on screen; on paper they must all print. */
+  .def-fold > .def-fold-body,
+  .typ-fold > .typ-option {
+    display: block !important;
   }
 }
 

@@ -88,6 +88,9 @@ function blankVariableLines() {
 export function newEnterprise(crop = '') {
   return {
     id: makeId('ent'),
+    // Separate from the crop on purpose: two columns can both grow corn and
+    // still need to be told apart ("No-till", "Conventional").
+    name: '',
     crop,
     acres: '',
     yieldPerAcre: '',
@@ -138,10 +141,12 @@ export function newScenario(name = 'My farm budget') {
     enterprises: [newEnterprise()],
     fixed: {
       landRentPerAcre: '',
-      labor: { ratePerHour: '', totalHoursPerYear: '' },
+      labor: { ratePerHour: '', hours: '', hoursBasis: 'year' },
       equipment: [],
       buildings: [],
       annual: { utilities: '', farmInsurance: '', duesFees: '', misc: '' },
+      // Parallel to `annual`: what period each figure above was entered for.
+      annualBasis: { utilities: 'year', farmInsurance: 'year', duesFees: 'year', misc: 'year' },
     },
   }
 }
@@ -154,6 +159,9 @@ export function duplicateScenario(source, name) {
   copy.name = name || `${source.name} (copy)`
   copy.createdAt = now
   copy.updatedAt = now
+  // A copy has never been dragged anywhere. Inheriting the original's list
+  // position would put two budgets at the same rank.
+  delete copy.sortIndex
   // Fresh ids so the two scenarios' rows never collide in a compare view.
   for (const e of copy.enterprises) e.id = makeId('ent')
   for (const e of copy.fixed.equipment) e.id = makeId('eq')

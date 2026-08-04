@@ -9,6 +9,54 @@
  */
 
 export const DEFINITIONS = {
+  enterpriseName: {
+    title: 'Enterprise name',
+    body: [
+      'What you want this column called. It is only a label — it changes no numbers.',
+      'It is separate from the crop on purpose. Comparing tillage systems means two enterprises both growing corn, and "Corn" twice tells you nothing; "No-till corn" and "Conventional corn" tell you which is which at a glance, in the results and in every comparison.',
+      'Leave it blank and the crop is used instead, exactly as the original spreadsheet did.',
+    ],
+  },
+
+  enterpriseGrossMargin: {
+    title: 'Enterprise Gross Margin',
+    body: [
+      'The whole enterprise’s gross margin in dollars: gross margin per acre × its acres.',
+      'Gross margin per acre tells you how each acre performed. Enterprise gross margin tells you how much that enterprise contributed to the farm in total, which is a different question — a strong margin on 40 acres contributes less than a thin one on 900.',
+      'Example: $232/acre × 500 acres = $116,000.',
+      'It is what is left to cover the farm’s fixed costs. Add up every enterprise’s gross margin, subtract total fixed costs, and you have the farm’s profit.',
+    ],
+  },
+
+  laborHours: {
+    title: 'Hired labor hours',
+    body: [
+      'How much hired help the whole farm uses — not the hours you work yourself, unless you intend to charge the business for your own time.',
+      'Enter it however you know it. If you hire someone about ten hours a week, choose "hours / week" and enter 10; the calculator turns that into a yearly figure for you.',
+      'The spreadsheet asks for an annual total, which means doing that conversion in your head first. That is where a budget quietly picks up a factor-of-twelve mistake.',
+    ],
+  },
+
+  overheadPeriod: {
+    title: 'Overhead, and the period you enter it for',
+    body: [
+      'Overhead is the running cost of being a farm business at all: utilities, insurance, dues and subscriptions, and whatever else does not belong to one crop.',
+      'Bills arrive monthly far more often than yearly, so each line lets you say which period your figure covers. A $180 power bill entered as "$ / month" becomes $2,160 a year.',
+      'Everything is converted to a yearly figure before it is spread across your acres.',
+    ],
+  },
+
+  budgetFile: {
+    title: 'What is a budget file?',
+    body: [
+      'A budget file is a small .json file this calculator produces — use "Save budget file" at the bottom of the page and it downloads to your device.',
+      'It holds one complete budget: every enterprise, every expense, and all the shared fixed costs.',
+      'It exists because budgets are saved in this browser only. To move a budget from your phone to your laptop, save the file on the phone, get it to the laptop however you normally would, and open it here.',
+      'Only files this calculator produced will open. A spreadsheet or a PDF will be refused.',
+      'Opening a file never replaces a saved budget — it always comes in as a new one. If the name is already in use, "(opened from file)" is added so you can tell them apart.',
+    ],
+  },
+
   enterpriseBudget: {
     title: 'Enterprise Budget',
     body: [

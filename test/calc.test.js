@@ -396,3 +396,136 @@ describe('edge cases', () => {
     assert.ok(r.totals.profitPerAcre < 0)
   })
 })
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Schema v2 — entry conveniences that must not change any answer
+   ══════════════════════════════════════════════════════════════════════════ */
+
+describe('entering labour for a period other than a year', () => {
+  const base = {
+    enterprises: [{ acres: 100 }],
+    fixed: { labor: { ratePerHour: 20, hours: 10 } },
+  }
+
+  const laborTotal = (labor) =>
+    calcScenario({ ...base, fixed: { labor: { ...base.fixed.labor, ...labor } } }).fixed.laborTotal
+
+  test('a missing basis means yearly, so a v1 budget is untouched', () => {
+    assert.equal(laborTotal({}), 200, '10 hours a year at $20')
+  })
+
+  test('weekly hours are multiplied by 52', () => {
+    assert.equal(laborTotal({ hoursBasis: 'week' }), 10 * 52 * 20)
+  })
+
+  test('monthly hours are multiplied by 12', () => {
+    assert.equal(laborTotal({ hoursBasis: 'month' }), 10 * 12 * 20)
+  })
+
+  test('an unrecognised basis falls back to yearly, never to zero', () => {
+    // A hand-edited file or a future key must not silently erase a real cost.
+    assert.equal(laborTotal({ hoursBasis: 'fortnight' }), 200)
+    assert.equal(laborTotal({ hoursBasis: null }), 200)
+    assert.equal(laborTotal({ hoursBasis: 42 }), 200)
+  })
+
+  test('the pre-v2 key still reads, so an unmigrated budget still calculates', () => {
+    const r2 = calcScenario({
+      enterprises: [{ acres: 100 }],
+      fixed: { labor: { ratePerHour: 20, totalHoursPerYear: 400 } },
+    })
+    assert.equal(r2.fixed.laborTotal, 8000)
+    assert.equal(r2.fixed.totalHoursPerYear, 400)
+  })
+
+  test('the annualised hours are reported, not just the cost', () => {
+    const r2 = calcScenario({
+      enterprises: [{ acres: 100 }],
+      fixed: { labor: { ratePerHour: 20, hours: 10, hoursBasis: 'week' } },
+    })
+    assert.equal(r2.fixed.totalHoursPerYear, 520)
+    assert.equal(r2.fixed.laborHrsPerAcre, 5.2)
+  })
+})
+
+describe('entering overhead for a period other than a year', () => {
+  const overhead = (annual, annualBasis) =>
+    calcScenario({ enterprises: [{ acres: 100 }], fixed: { annual, annualBasis } }).fixed
+
+  test('a missing basis means yearly', () => {
+    assert.equal(overhead({ utilities: 1200 }).annualTotal, 1200)
+  })
+
+  test('a monthly bill becomes twelve of them', () => {
+    assert.equal(overhead({ utilities: 180 }, { utilities: 'month' }).annualTotal, 2160)
+  })
+
+  test('each line carries its own period', () => {
+    const f = overhead(
+      { utilities: 180, farmInsurance: 4000, duesFees: 50, misc: 100 },
+      { utilities: 'month', duesFees: 'quarter', misc: 'week' }
+    )
+    // 2160 + 4000 + 200 + 5200
+    assert.equal(f.annualTotal, 11560)
+    assert.equal(f.annual.utilities.total, 2160)
+    assert.equal(f.annual.farmInsurance.total, 4000, 'no basis given, so yearly')
+    assert.equal(f.annual.duesFees.total, 200)
+    assert.equal(f.annual.misc.total, 5200)
+  })
+
+  test('the figure as entered is preserved alongside the annualised one', () => {
+    const f = overhead({ utilities: 180 }, { utilities: 'month' })
+    assert.equal(f.annual.utilities.entered, 180)
+    assert.equal(f.annual.utilities.basis, 'month')
+  })
+
+  test('an unrecognised period falls back to yearly, never to zero', () => {
+    assert.equal(overhead({ utilities: 1200 }, { utilities: 'decade' }).annualTotal, 1200)
+  })
+
+  test('the annualised overhead reaches total profit', () => {
+    const r2 = calcScenario({
+      enterprises: [{ acres: 100 }],
+      fixed: { annual: { utilities: 100 }, annualBasis: { utilities: 'month' } },
+    })
+    assert.equal(r2.totals.totalFixed, 1200)
+    assert.equal(r2.totals.totalProfit, -1200)
+  })
+})
+
+describe('an enterprise name, separate from its crop', () => {
+  const label = (ent, i) => calcScenario({ enterprises: [ent] }).enterprises[0].label
+
+  test('the name wins when there is one', () => {
+    assert.equal(label({ name: 'No-till', crop: 'Corn' }), 'No-till')
+  })
+
+  test('the crop is the fallback, so a v1 budget reads exactly as before', () => {
+    assert.equal(label({ crop: 'Corn' }), 'Corn')
+    assert.equal(label({ name: '', crop: 'Corn' }), 'Corn')
+    assert.equal(label({ name: '   ', crop: 'Corn' }), 'Corn')
+  })
+
+  test('with neither, the position is the label', () => {
+    assert.equal(label({}), 'Enterprise 1')
+    const two = calcScenario({ enterprises: [{}, {}] })
+    assert.equal(two.enterprises[1].label, 'Enterprise 2')
+  })
+
+  test('two enterprises growing the same crop are still distinguishable', () => {
+    const r2 = calcScenario({
+      enterprises: [
+        { name: 'Conventional', crop: 'Corn', acres: 500 },
+        { name: 'No-till', crop: 'Corn', acres: 500 },
+      ],
+    })
+    assert.notEqual(r2.enterprises[0].label, r2.enterprises[1].label)
+    assert.equal(r2.enterprises[0].crop, r2.enterprises[1].crop)
+  })
+
+  test('a name changes no number', () => {
+    const without = calcScenario({ enterprises: [{ crop: 'Corn', acres: 100, yieldPerAcre: 50, pricePerUnit: 4 }] })
+    const with_ = calcScenario({ enterprises: [{ name: 'X', crop: 'Corn', acres: 100, yieldPerAcre: 50, pricePerUnit: 4 }] })
+    assert.deepEqual(without.totals, with_.totals)
+  })
+})

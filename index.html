@@ -9,22 +9,38 @@
       content="Build enterprise budgets, then save and compare scenarios — South Dakota Soil Health Coalition."
     />
     <title>Farm Plan Budget — SDSHC</title>
-    <link rel="icon" href="./sdshc-logo.png" />
-    <link rel="apple-touch-icon" href="./sdshc-logo.png" />
+    <link rel="icon" href="%BASE_URL%sdshc-logo.png" />
+    <link rel="apple-touch-icon" href="%BASE_URL%sdshc-logo.png" />
     <!-- Linked here rather than imported from main.js so the entry module stays
          plain JS and can be imported directly by the Node smoke tests. -->
     <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body>
     <div class="topbar">
-      <img class="toplogo" src="./sdshc-logo-horizontal.png" alt="South Dakota Soil Health Coalition" />
+      <!-- %BASE_URL% is substituted by Vite with the deployed base path. A
+           "./"-relative URL resolves against the current page instead, which is
+           wrong the moment the app is opened on any path but the site root. -->
+      <img
+        class="toplogo"
+        src="%BASE_URL%sdshc-logo-horizontal.png"
+        alt="South Dakota Soil Health Coalition"
+        width="763"
+        height="200"
+      />
       <div class="topbar-controls">
         <div class="segmented" role="group" aria-label="Font">
           <span class="segmented-label">Font</span>
           <button type="button" class="seg" data-font-choice="browser" aria-pressed="true">Browser</button>
           <button type="button" class="seg" data-font-choice="classic" aria-pressed="false">Classic</button>
         </div>
-        <button type="button" class="toggle" id="themeToggle" aria-pressed="false">🌙 Dark</button>
+        <button
+          type="button"
+          class="theme-toggle"
+          id="themeToggle"
+          aria-pressed="false"
+          aria-label="Switch to dark mode"
+          title="Dark mode"
+        ></button>
       </div>
     </div>
 

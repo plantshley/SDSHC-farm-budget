@@ -204,12 +204,81 @@ describe('negative and zero inputs', () => {
     assert.equal(out.fixed.buildings[0].annualDep, 0)
   })
 
-  test('negative interest rate produces negative (finite) interest, not NaN', () => {
+  test('a negative interest rate is counted as $0 and said out loud', () => {
+    // This test used to assert the opposite — that a negative rate produced
+    // negative (but finite) interest. Finite is not the same as right: a "-7"
+    // typed for 7% subtracts from total fixed costs and therefore INFLATES the
+    // farm's profit, silently, with a perfectly normal-looking number on screen.
+    // Same failure as the negative-useful-life bug, and now closed the same way.
     const s = deepClone(fixtureScenario)
     s.fixed.equipment[0].interestRate = -7
     const out = calcScenario(s)
     assertAllFinite(out, 'negative interest rate')
-    assert.ok(out.fixed.equipment[0].annualInt < 0)
+    assert.equal(out.fixed.equipment[0].annualInt, 0)
+    assert.ok(
+      out.warnings.some((w) => /interest rate is negative/i.test(w)),
+      'the producer is told which field to look at'
+    )
+  })
+
+  test('a negative rate behaves exactly like zero, and never like a rebate', () => {
+    // The invariant is NOT "profit cannot rise" — treating a typo as $0 does
+    // remove a real cost, so profit rises against a correctly-entered rate, and
+    // the warning is what covers that. The invariant is that a negative figure
+    // is worth the SAME as zero rather than being handed back as a credit, which
+    // is what turns a mistyped cost into extra profit.
+    const clean = calcScenario(deepClone(fixtureScenario))
+
+    for (const [label, negative, zero] of [
+      [
+        'equipment interest',
+        (s) => (s.fixed.equipment[0].interestRate = -7),
+        (s) => (s.fixed.equipment[0].interestRate = 0),
+      ],
+      [
+        'land rent',
+        (s) => (s.fixed.landRentPerAcre = -60),
+        (s) => (s.fixed.landRentPerAcre = 0),
+      ],
+      [
+        'labor rate',
+        (s) => (s.fixed.labor.ratePerHour = -22),
+        (s) => (s.fixed.labor.ratePerHour = 0),
+      ],
+      [
+        'overhead',
+        (s) => (s.fixed.annual.utilities = -4000),
+        (s) => (s.fixed.annual.utilities = 0),
+      ],
+      [
+        'a seed cost',
+        (s) => (s.enterprises[0].variable.seed.costPerUnit = -320),
+        (s) => (s.enterprises[0].variable.seed.costPerUnit = 0),
+      ],
+    ]) {
+      const bad = deepClone(fixtureScenario)
+      negative(bad)
+      const good = deepClone(fixtureScenario)
+      zero(good)
+
+      const outBad = calcScenario(bad)
+      const outGood = calcScenario(good)
+      assertAllFinite(outBad, label)
+
+      assert.equal(
+        outBad.totals.totalProfit,
+        outGood.totals.totalProfit,
+        `a negative ${label} must be worth the same as zero, not a credit`
+      )
+      assert.ok(
+        outBad.totals.totalProfit < clean.totals.totalProfit + Math.abs(clean.totals.totalProfit) * 10,
+        `a negative ${label} must not blow the total up`
+      )
+      assert.ok(
+        outBad.warnings.length > clean.warnings.length,
+        `a negative ${label} is warned about`
+      )
+    }
   })
 
   test('salvage greater than initial cost warns and yields negative depreciation (finite)', () => {

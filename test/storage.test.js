@@ -45,6 +45,8 @@ const {
   storageAvailable,
   importScenarioJSON,
   exportScenarioJSON,
+  renameScenario,
+  reorderScenarios,
 } = await import('../src/storage.js')
 
 const KEY = 'sdshc-fb-scenarios'
@@ -72,7 +74,7 @@ describe('saving and reading', () => {
     const all = listScenarios()
     assert.equal(all.length, 1)
     assert.equal(all[0].name, 'Corn')
-    assert.equal(all[0].schemaVersion, 1)
+    assert.equal(all[0].schemaVersion, 2)
   })
 
   test('replaces by id rather than accumulating duplicates', () => {
@@ -169,7 +171,7 @@ describe('migration', () => {
     )
     const all = listScenarios()
     assert.equal(all.length, 1, 'an old scenario is migrated, never dropped')
-    assert.equal(all[0].schemaVersion, 1)
+    assert.equal(all[0].schemaVersion, 2)
     assert.ok(Array.isArray(all[0].fixed.equipment))
     assert.ok(Array.isArray(all[0].fixed.buildings))
   })
@@ -185,6 +187,147 @@ describe('migration', () => {
     )
     const all = listScenarios()
     assert.equal(all[0].name, 'Recent', 'the genuinely recent one is listed first')
+  })
+})
+
+describe('v2 migration', () => {
+  test('a v1 budget keeps the crop as its enterprise label', () => {
+    store.setItem(
+      KEY,
+      JSON.stringify([
+        {
+          schemaVersion: 1,
+          id: 'a',
+          name: 'Old',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+          enterprises: [{ id: 'e1', crop: 'Corn', acres: 500 }],
+          fixed: { labor: { totalHoursPerYear: 400 }, annual: { utilities: 1200 } },
+        },
+      ])
+    )
+    const [s] = listScenarios()
+    assert.equal(s.schemaVersion, 2)
+    // Blank, not copied from the crop: enterpriseLabel() falls back to the crop,
+    // so the column reads exactly as it did before, and a producer who renames
+    // it isn't fighting a value they never typed.
+    assert.equal(s.enterprises[0].name, '')
+  })
+
+  test('a v1 annual labor figure still means the same number of hours', () => {
+    store.setItem(
+      KEY,
+      JSON.stringify([
+        {
+          schemaVersion: 1,
+          id: 'a',
+          name: 'Old',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+          enterprises: [],
+          fixed: { labor: { ratePerHour: 20, totalHoursPerYear: 400 }, annual: {} },
+        },
+      ])
+    )
+    const [s] = listScenarios()
+    assert.equal(s.fixed.labor.hours, 400)
+    assert.equal(s.fixed.labor.hoursBasis, 'year', 'must not silently become weekly')
+  })
+
+  test('v1 overhead amounts are annual, and stay annual', () => {
+    store.setItem(
+      KEY,
+      JSON.stringify([
+        {
+          schemaVersion: 1,
+          id: 'a',
+          name: 'Old',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+          enterprises: [],
+          fixed: { labor: {}, annual: { utilities: 1200, misc: 300 } },
+        },
+      ])
+    )
+    const [s] = listScenarios()
+    for (const key of ['utilities', 'farmInsurance', 'duesFees', 'misc']) {
+      assert.equal(s.fixed.annualBasis[key], 'year')
+    }
+  })
+})
+
+describe('list order', () => {
+  test('newest first until something is dragged', () => {
+    // Written straight to the store: saveScenario always stamps updatedAt with
+    // the current time, which would make both records the same age.
+    store.setItem(
+      KEY,
+      JSON.stringify([
+        { ...makeScenario('a', 'Older'), updatedAt: '2026-01-01T00:00:00.000Z' },
+        { ...makeScenario('b', 'Newer'), updatedAt: '2026-06-01T00:00:00.000Z' },
+      ])
+    )
+    assert.equal(listScenarios()[0].name, 'Newer')
+  })
+
+  test('a dragged order survives a reload and a later save', () => {
+    saveScenario(makeScenario('a', 'One'))
+    saveScenario(makeScenario('b', 'Two'))
+    saveScenario(makeScenario('c', 'Three'))
+
+    assert.equal(reorderScenarios(['c', 'a', 'b']).ok, true)
+    assert.deepEqual(
+      listScenarios().map((s) => s.name),
+      ['Three', 'One', 'Two']
+    )
+
+    // Editing and re-saving a budget must not fling it back to the top.
+    const one = getScenarioById('a')
+    one.name = 'One, edited'
+    saveScenario(one)
+    assert.deepEqual(
+      listScenarios().map((s) => s.name),
+      ['Three', 'One, edited', 'Two']
+    )
+  })
+
+  test('a reorder never drops a budget it was not told about', () => {
+    saveScenario(makeScenario('a', 'One'))
+    saveScenario(makeScenario('b', 'Two'))
+    // 'b' is missing from the arrangement — as it would be if another tab saved
+    // it between this tab rendering the list and the drag finishing.
+    reorderScenarios(['a'])
+    assert.equal(listScenarios().length, 2)
+  })
+
+  test('a new budget lands at the top of an arranged list', () => {
+    saveScenario(makeScenario('a', 'One'))
+    saveScenario(makeScenario('b', 'Two'))
+    reorderScenarios(['a', 'b'])
+    saveScenario(makeScenario('c', 'Brand new'))
+    assert.equal(listScenarios()[0].name, 'Brand new')
+  })
+})
+
+describe('renaming in place', () => {
+  test('renames without touching anything else', () => {
+    const original = makeScenario('a', 'Before')
+    original.enterprises[0].acres = 500
+    saveScenario(original)
+
+    assert.equal(renameScenario('a', 'After').ok, true)
+    const stored = getScenarioById('a')
+    assert.equal(stored.name, 'After')
+    assert.equal(stored.enterprises[0].acres, 500, 'the budget itself is untouched')
+  })
+
+  test('renaming a budget that is gone reports rather than throws', () => {
+    assert.deepEqual(renameScenario('nope', 'X'), { ok: false, error: 'NotFound' })
+  })
+
+  test('a rename does not overwrite unsaved work in another budget', () => {
+    saveScenario(makeScenario('a', 'A'))
+    saveScenario(makeScenario('b', 'B'))
+    renameScenario('a', 'A renamed')
+    assert.equal(getScenarioById('b').name, 'B')
+    assert.equal(listScenarios().length, 2)
   })
 })
 

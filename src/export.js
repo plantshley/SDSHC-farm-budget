@@ -6,9 +6,25 @@
 import { calcScenario, VARIABLE_LINES } from './calc.js'
 import { exportScenarioJSON } from './storage.js'
 
-/** RFC-4180 quoting: anything with a comma, quote or newline gets wrapped. */
+/**
+ * RFC-4180 quoting, plus formula neutralisation.
+ *
+ * Budget names, enterprise names and equipment names are free text, and these
+ * files are made to be handed to somebody — an instructor, a lender, the rest of
+ * the class. Excel, Sheets and LibreOffice all execute a cell that begins with
+ * `=`, `+`, `-` or `@`, so a budget named "=HYPERLINK(...)" becomes a live
+ * formula the moment the recipient opens it. Prefixing an apostrophe forces it
+ * back to text; spreadsheets hide the apostrophe on display.
+ *
+ * NUMBERS ARE NOT TOUCHED. Every figure here arrives as a real number from
+ * round(), and a negative profit of -19140.83 must stay a negative number that
+ * the recipient can sum — quoting it as text would break every formula they
+ * write against the export, which is most of the point of a CSV.
+ */
 function csvCell(value) {
-  const s = String(value ?? '')
+  const isText = typeof value !== 'number'
+  let s = String(value ?? '')
+  if (isText && /^[=+\-@\t\r]/.test(s)) s = `'${s}`
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
 }
 
@@ -40,6 +56,7 @@ export function scenarioToCSV(scenario) {
   rows.push(['ENTERPRISES'])
   rows.push([
     'Enterprise',
+    'Crop',
     'Acres',
     'Yield/acre',
     'Unit',
@@ -55,6 +72,9 @@ export function scenarioToCSV(scenario) {
   for (const [i, e] of r.enterprises.entries()) {
     const src = scenario.enterprises[i] ?? {}
     rows.push([
+      // The label, then the crop: two enterprises can share a crop, and the
+      // exported sheet has to be able to tell them apart the same way the app does.
+      e.label,
       e.crop,
       round(e.acres),
       round(Number(src.yieldPerAcre) || 0),
@@ -74,6 +94,9 @@ export function scenarioToCSV(scenario) {
   rows.push(['FIXED COSTS', 'Per acre', 'Per year'])
   rows.push(['Land rent', round(r.fixed.landRentPerAcre), round(r.fixed.landRentTotal)])
   rows.push(['Labor', round(r.fixed.laborPerAcre), round(r.fixed.laborTotal)])
+  // Annualised, so a figure entered as hours-per-week is not mistaken for a
+  // yearly total by whoever opens this in a spreadsheet.
+  rows.push(['Labor hours per year', '', round(r.fixed.totalHoursPerYear)])
   rows.push(['Equipment depreciation', round(r.fixed.equipDepPerAcre), round(r.fixed.equipDepTotal)])
   rows.push(['Equipment interest', round(r.fixed.equipIntPerAcre), round(r.fixed.equipIntTotal)])
   rows.push(['Building depreciation', round(r.fixed.bldgDepPerAcre), round(r.fixed.bldgDepTotal)])

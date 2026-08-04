@@ -15,21 +15,34 @@
  */
 
 import { esc } from './format.js'
-import { field, moneyField, readout, sectionInfo, infoButton } from './fields.js'
+import { field, moneyField, readout, sectionInfo, infoButton, periodField } from './fields.js'
 import { EQUIPMENT_CATALOG, BUILDING_CATALOG } from '../data/typical-values.js'
+import { HOURS_BASIS, COST_BASIS } from '../calc.js'
 
-export function renderFixed(scenario) {
+export function renderFixed(scenario, collapsed = false) {
   const f = scenario.fixed ?? {}
 
   return `
-    <section class="box fixed-block">
+    <section class="box fixed-block ${collapsed ? 'collapsed' : ''}">
       <header class="block-head">
-        <h2 class="title">Shared fixed costs</h2>
+        <!-- The button lives INSIDE the heading, not the other way round: a
+             <button> may only contain phrasing content, so an <h2> nested in one
+             is invalid and screen readers lose the heading. -->
+        <h2 class="title">
+          <button type="button" class="fold-toggle" data-action="toggle-fixed"
+            aria-expanded="${!collapsed}">
+            <span class="chev" aria-hidden="true"></span>
+            Shared fixed costs
+          </button>
+        </h2>
+        <span class="fold-sub" data-out="fixed.totalFixedAnnual" data-fmt="usd">—</span>
         ${sectionInfo(
           ['fixedCosts', 'landRent', 'laborCost', 'equipmentVsBuilding', 'depreciationVsInterest', 'salvageValue', 'usefulLife'],
           'Fixed costs'
         )}
       </header>
+
+      <div class="fixed-body">
       <p class="hint">
         Costs you pay whether or not you plant: land, labor, machinery, buildings, overhead.
         They are spread across the total acres of every enterprise above.
@@ -45,6 +58,7 @@ export function renderFixed(scenario) {
             prefix: '$',
             placeholder: '0.00',
             info: 'landRent',
+            typical: 'landRent',
           })}
           ${moneyField({
             label: 'Labor rate',
@@ -56,22 +70,35 @@ export function renderFixed(scenario) {
             info: 'laborCost',
             typical: 'laborRate',
           })}
-          ${moneyField({
-            label: 'Total labor hours / year',
-            path: 'fixed.labor.totalHoursPerYear',
-            value: f.labor?.totalHoursPerYear,
-            suffix: 'hrs',
+          ${periodField({
+            label: 'Hired labor',
+            path: 'fixed.labor.hours',
+            value: f.labor?.hours ?? f.labor?.totalHoursPerYear,
+            basisPath: 'fixed.labor.hoursBasis',
+            basisValue: f.labor?.hoursBasis,
+            options: HOURS_BASIS,
             placeholder: '0',
+            info: 'laborHours',
           })}
+          ${readout('Labor hours / year', 'fixed.totalHoursPerYear', { fmt: 'plain' })}
           ${readout('Labor cost / acre', 'fixed.laborPerAcre')}
         </div>
 
         <div class="fixed-col">
-          <h3 class="sub-title">Annual overhead</h3>
-          ${moneyField({ label: 'Utilities', path: 'fixed.annual.utilities', value: f.annual?.utilities, prefix: '$', suffix: '/yr', placeholder: '0' })}
-          ${moneyField({ label: 'Farm insurance', path: 'fixed.annual.farmInsurance', value: f.annual?.farmInsurance, prefix: '$', suffix: '/yr', placeholder: '0' })}
-          ${moneyField({ label: 'Dues & professional fees', path: 'fixed.annual.duesFees', value: f.annual?.duesFees, prefix: '$', suffix: '/yr', placeholder: '0' })}
-          ${moneyField({ label: 'Miscellaneous', path: 'fixed.annual.misc', value: f.annual?.misc, prefix: '$', suffix: '/yr', placeholder: '0' })}
+          <h3 class="sub-title">Overhead ${infoButton('overheadPeriod', 'overhead')}</h3>
+          ${OVERHEAD_LINES.map((o) =>
+            periodField({
+              label: o.label,
+              path: `fixed.annual.${o.key}`,
+              value: f.annual?.[o.key],
+              basisPath: `fixed.annualBasis.${o.key}`,
+              basisValue: f.annualBasis?.[o.key],
+              options: COST_BASIS,
+              prefix: '$',
+              placeholder: '0',
+            })
+          ).join('')}
+          ${readout('Overhead / year', 'fixed.annualTotal', { fmt: 'usd' })}
         </div>
       </div>
 
@@ -109,8 +136,16 @@ export function renderFixed(scenario) {
       <datalist id="building-names">
         ${BUILDING_CATALOG.map((c) => `<option value="${esc(c.name)}"></option>`).join('')}
       </datalist>
+      </div>
     </section>`
 }
+
+const OVERHEAD_LINES = [
+  { key: 'utilities', label: 'Utilities' },
+  { key: 'farmInsurance', label: 'Farm insurance' },
+  { key: 'duesFees', label: 'Dues & professional fees' },
+  { key: 'misc', label: 'Miscellaneous' },
+]
 
 function renderEquipment(item, i) {
   const p = `fixed.equipment.${i}`

@@ -292,7 +292,9 @@ describe('saving, duplicating and comparing', () => {
     assert.equal(textOf('#saveState'), 'Saved')
     click('[data-action="go-scenarios"]')
     assert.equal(doc.querySelectorAll('.scn').length, 1)
-    assert.match(textOf('.scn-name'), /Field corn, conventional/)
+    // The saved list renames in place, so the name is an input's value rather
+    // than text content.
+    assert.equal(doc.querySelector('.scn-name-input').value, 'Field corn, conventional')
   })
 
   test('duplicate then compare shows both budgets side by side', () => {
@@ -362,6 +364,35 @@ describe('exports', () => {
     assert.match(csv, /equipment interest is included/)
   })
 
+  test('a name that looks like a formula is exported as text, not run', async () => {
+    // These files get handed to an instructor, a lender, the rest of the class.
+    // Excel, Sheets and LibreOffice all execute a cell starting with = + - or @.
+    const { scenarioToCSV } = await import('../src/export.js')
+    const csv = scenarioToCSV({
+      name: '=HYPERLINK("http://evil","click")',
+      enterprises: [{ name: '+SUM(A1:A9)', crop: '-2+3', acres: 100 }],
+      fixed: { equipment: [{ name: '@ECHO', initialCost: 1000, usefulLife: 5 }] },
+    })
+    for (const dangerous of ['=HYPERLINK', '+SUM', '-2+3', '@ECHO']) {
+      const cell = csv.split(/[\r\n,]/).find((c) => c.includes(dangerous.replace(/^./, '')))
+      assert.ok(cell, `${dangerous} appears in the export`)
+      assert.ok(
+        cell.startsWith("'") || cell.startsWith('"\''),
+        `${dangerous} must be forced to text, got ${cell}`
+      )
+    }
+  })
+
+  test('numbers are NOT quoted, so the export still sums in a spreadsheet', async () => {
+    const { scenarioToCSV } = await import('../src/export.js')
+    const { scenario } = await import('./fixture.js')
+    const csv = scenarioToCSV(scenario)
+    // A negative total starts with "-", but it is a number and must stay one —
+    // the formula guard applies to text cells only.
+    assert.match(csv, /Total profit,-19140\.83/)
+    assert.ok(!csv.includes("'-19140"), 'a negative figure was not turned into text')
+  })
+
   test('a budget name with a comma does not break the CSV', async () => {
     const { scenarioToCSV } = await import('../src/export.js')
     const csv = scenarioToCSV({
@@ -370,5 +401,302 @@ describe('exports', () => {
       fixed: {},
     })
     assert.match(csv, /"Corn, silage vs ""field"""/)
+  })
+})
+
+/**
+ * The results section and the sticky bar are two views of one calculation. They
+ * disagreed once — the sticky bar updated on every keystroke while the results
+ * cards stayed frozen at the last structural render — and a producer reading
+ * one number at the bottom of the screen and a contradictory one in the middle
+ * has no way to know which to believe. These lock the two together.
+ */
+describe('every figure on screen agrees', () => {
+  beforeEach(async () => {
+    await boot()
+  })
+
+  test('the KPI cards move with the sticky bar as revenue is typed', () => {
+    type('enterprises.0.acres', '500')
+    type('enterprises.0.yieldPerAcre', '180')
+    type('enterprises.0.pricePerUnit', '4.25')
+
+    const sticky = textOf('.sticky-bar [data-out="totals.totalProfit"]')
+    const kpi = textOf('.kpi [data-out="totals.totalProfit"]')
+    assert.equal(kpi, sticky)
+    assert.match(kpi, /382,500/, '180 x $4.25 x 500 acres, no costs entered yet')
+  })
+
+  test('every whole-farm figure updates without a re-render', () => {
+    type('enterprises.0.acres', '100')
+    type('enterprises.0.yieldPerAcre', '50')
+    type('enterprises.0.pricePerUnit', '10')
+
+    assert.match(textOf('[data-out="totals.totalRevenue"]'), /50,000/)
+    assert.match(textOf('[data-out="totals.totalGrossMargin"]'), /50,000/)
+    assert.match(textOf('[data-out="totals.revenuePerAcre"]'), /500\.00/)
+    assert.equal(textOf('[data-out="totalAcres"]'), '100')
+  })
+
+  test('fixed costs reach the results table as they are typed', () => {
+    type('enterprises.0.acres', '200')
+    type('fixed.landRentPerAcre', '150')
+
+    assert.match(textOf('[data-out="fixed.landRentTotal"]'), /30,000/)
+    assert.match(textOf('[data-out="totals.totalFixed"]'), /30,000/)
+    assert.match(textOf('[data-out="totals.totalProfit"]'), /30,000/)
+  })
+
+  test('the acres warning clears once acres are entered', () => {
+    assert.match(textOf('[data-warnings]'), /Enter acres/)
+    type('enterprises.0.acres', '80')
+    assert.equal(textOf('[data-warnings]'), '')
+  })
+})
+
+describe('naming an enterprise', () => {
+  beforeEach(async () => {
+    await boot()
+  })
+
+  test('the name is separate from the crop and wins as the label', () => {
+    type('enterprises.0.crop', 'Corn')
+    assert.equal(textOf('.ent-name'), 'Corn', 'crop is the fallback label')
+
+    type('enterprises.0.name', 'No-till, east half')
+    assert.equal(textOf('.ent-name'), 'No-till, east half')
+    assert.equal(
+      doc.querySelector('[data-path="enterprises.0.crop"]').value,
+      'Corn',
+      'renaming the column must not touch the crop'
+    )
+  })
+
+  test('the results table follows the rename without a re-render', () => {
+    type('enterprises.0.acres', '100')
+    type('enterprises.0.name', 'Silage')
+    assert.equal(textOf('[data-ent-label="0"]'), 'Silage')
+  })
+})
+
+describe('folding cards away', () => {
+  beforeEach(async () => {
+    await boot()
+  })
+
+  test('an enterprise collapses and stays collapsed through a re-render', () => {
+    const card = doc.querySelector('.ent')
+    assert.equal(card.classList.contains('collapsed'), false)
+
+    click('.ent [data-action="toggle-enterprise"]')
+    assert.equal(doc.querySelector('.ent').classList.contains('collapsed'), true)
+
+    // Adding a second enterprise re-renders everything; the first must not
+    // silently spring open again.
+    click('[data-action="add-enterprise"]')
+    assert.equal(doc.querySelectorAll('.ent')[0].classList.contains('collapsed'), true)
+    assert.equal(doc.querySelectorAll('.ent')[1].classList.contains('collapsed'), false)
+  })
+
+  test('the shared fixed costs block collapses', () => {
+    click('[data-action="toggle-fixed"]')
+    assert.equal(doc.querySelector('.fixed-block').classList.contains('collapsed'), true)
+    click('[data-action="add-enterprise"]')
+    assert.equal(doc.querySelector('.fixed-block').classList.contains('collapsed'), true)
+  })
+
+  test('folding is not part of the budget, so it never marks it unsaved', () => {
+    click('[data-action="save-scenario"]')
+    assert.equal(textOf('#saveState'), 'Saved')
+    click('.ent [data-action="toggle-enterprise"]')
+    assert.equal(textOf('#saveState'), 'Saved')
+  })
+})
+
+describe('labour and overhead periods', () => {
+  beforeEach(async () => {
+    await boot()
+  })
+
+  function setSelect(path, value) {
+    const el = doc.querySelector(`select[data-path="${path}"]`)
+    assert.ok(el, `no select for ${path}`)
+    el.value = value
+    el.dispatchEvent(new win.Event('change', { bubbles: true }))
+  }
+
+  test('hours a week become hours a year', () => {
+    type('enterprises.0.acres', '100')
+    type('fixed.labor.ratePerHour', '20')
+    type('fixed.labor.hours', '10')
+    setSelect('fixed.labor.hoursBasis', 'week')
+
+    assert.equal(textOf('[data-out="fixed.totalHoursPerYear"]'), '520')
+    assert.match(textOf('[data-out="fixed.laborTotal"]'), /10,400/)
+  })
+
+  test('a monthly bill is annualised', () => {
+    type('enterprises.0.acres', '100')
+    type('fixed.annual.utilities', '180')
+    setSelect('fixed.annualBasis.utilities', 'month')
+    assert.match(textOf('[data-out="fixed.annualTotal"]'), /2,160/)
+  })
+
+  test('the default period is yearly, so nothing changes until it is chosen', () => {
+    type('enterprises.0.acres', '100')
+    type('fixed.annual.utilities', '1200')
+    assert.match(textOf('[data-out="fixed.annualTotal"]'), /1,200/)
+  })
+})
+
+describe('the saved list', () => {
+  beforeEach(async () => {
+    await boot()
+  })
+
+  test('renaming a row saves without opening that budget', () => {
+    type('name', 'Original')
+    click('[data-action="save-scenario"]')
+    click('[data-action="go-scenarios"]')
+
+    const input = doc.querySelector('.scn-name-input')
+    input.value = 'Renamed in the list'
+    input.dispatchEvent(new win.Event('input', { bubbles: true }))
+    input.dispatchEvent(new win.FocusEvent('blur', { bubbles: true }))
+
+    click('[data-action="go-build"]')
+    click('[data-action="go-scenarios"]')
+    assert.equal(doc.querySelector('.scn-name-input').value, 'Renamed in the list')
+  })
+
+  test('the budget name is not shown twice on the saved tab', () => {
+    click('[data-action="save-scenario"]')
+    assert.ok(doc.querySelector('#scenarioName'), 'shown while building')
+    click('[data-action="go-scenarios"]')
+    assert.equal(doc.querySelector('#scenarioName'), null, 'each row carries its own')
+  })
+
+  test('the baseline rule is stated where budgets are picked', () => {
+    click('[data-action="save-scenario"]')
+    click('[data-action="go-scenarios"]')
+    assert.match(textOf('.baseline-note').replace(/\s+/g, ' '), /first one you tick becomes the\s*baseline/i)
+  })
+
+  test('rows can be dragged, and the order survives leaving the tab', () => {
+    type('name', 'First')
+    click('[data-action="save-scenario"]')
+    for (const name of ['Second', 'Third']) {
+      click('[data-action="go-scenarios"]')
+      click('[data-action="new-scenario"]') // only exists on the saved tab
+      type('name', name)
+      click('[data-action="save-scenario"]')
+    }
+    click('[data-action="go-scenarios"]')
+
+    const list = doc.querySelector('[data-scn-list]')
+    const rows = [...list.querySelectorAll('.scn')]
+    // Drag the last row to the front, the way the dragover handler would.
+    rows[2].dispatchEvent(new win.Event('dragstart', { bubbles: true }))
+    list.insertBefore(rows[2], rows[0])
+    rows[2].dispatchEvent(new win.Event('dragend', { bubbles: true }))
+
+    const expected = [...list.querySelectorAll('.scn')].map(
+      (r) => r.querySelector('.scn-name-input').value
+    )
+    click('[data-action="go-build"]')
+    click('[data-action="go-scenarios"]')
+    const after = [...doc.querySelectorAll('.scn-name-input')].map((i) => i.value)
+    assert.deepEqual(after, expected)
+  })
+
+  test('the arrows reorder without a mouse, and the ends are disabled', () => {
+    type('name', 'First')
+    click('[data-action="save-scenario"]')
+    for (const name of ['Second', 'Third']) {
+      click('[data-action="go-scenarios"]')
+      click('[data-action="new-scenario"]')
+      type('name', name)
+      click('[data-action="save-scenario"]')
+    }
+    click('[data-action="go-scenarios"]')
+
+    const names = () => [...doc.querySelectorAll('.scn-name-input')].map((i) => i.value)
+    assert.deepEqual(names(), ['Third', 'Second', 'First'], 'newest first to begin with')
+
+    // Nothing above the top row or below the bottom one.
+    const rows = doc.querySelectorAll('.scn')
+    assert.equal(rows[0].querySelector('[data-action="move-scenario-up"]').disabled, true)
+    assert.equal(rows[2].querySelector('[data-action="move-scenario-down"]').disabled, true)
+
+    click('.scn:last-child [data-action="move-scenario-up"]')
+    assert.deepEqual(names(), ['Third', 'First', 'Second'])
+
+    // The order is persisted, not just shuffled on screen.
+    click('[data-action="go-build"]')
+    click('[data-action="go-scenarios"]')
+    assert.deepEqual(names(), ['Third', 'First', 'Second'])
+  })
+
+  test('opening a budget file explains what one is', () => {
+    click('[data-action="go-scenarios"]')
+    const help = doc.querySelector('.open-file .help-btn')
+    assert.ok(help, 'the ? sits beside the Open a budget file link')
+    help.dispatchEvent(new win.MouseEvent('click', { bubbles: true }))
+    assert.match(doc.querySelector('.modal-body').textContent, /\.json file/)
+  })
+})
+
+describe('typical values know their units', () => {
+  beforeEach(async () => {
+    await boot()
+  })
+
+  test('the picker states the unit its figures are quoted in', () => {
+    click('[data-typical="customHire"]')
+    assert.match(textOf('.modal-unit'), /\$\/acre/)
+  })
+
+  test('a $/bushel list warns when the line is set to $/acre, then fixes it', () => {
+    // Hauling is quoted per bushel; put the line in $/acre mode first.
+    const toggle = doc.querySelector('[data-line="hauling"] .mode-toggle')
+    toggle.dispatchEvent(new win.MouseEvent('click', { bubbles: true }))
+
+    click('[data-line="hauling"] [data-typical="hauling"]')
+    assert.match(doc.querySelector('.modal-warn').textContent, /switch the line/i)
+
+    doc.querySelector('.typ-option').dispatchEvent(new win.MouseEvent('click', { bubbles: true }))
+
+    // The value landed in the cost-per-unit box, and the line switched with it.
+    const unitInput = doc.querySelector('[data-path="enterprises.0.variable.hauling.costPerUnit"]')
+    assert.ok(unitInput, 'the line is back in $/unit mode')
+    assert.equal(Number(unitInput.value) > 0, true)
+  })
+
+  test('the offer sits beside the label it belongs to, not below the inputs', () => {
+    const tip = doc.querySelector('[data-line="customHire"] .line-head .tip')
+    assert.ok(tip, 'inline with the line label')
+    assert.equal(tip.textContent.trim(), 'use typical value')
+  })
+})
+
+describe('long modals stay put', () => {
+  beforeEach(async () => {
+    await boot()
+  })
+
+  test('the how-to guide opens folded, one heading per section', () => {
+    click('[data-action="how-to"]')
+    const folds = doc.querySelectorAll('.modal-body details.def-fold')
+    assert.ok(folds.length >= 5, 'every section is its own fold')
+    assert.equal([...folds].every((d) => !d.open), true, 'all closed to begin with')
+    assert.match(folds[0].querySelector('summary').textContent, /What this calculator does/)
+  })
+
+  test('the page behind a modal is frozen while it is open', async () => {
+    const { closeModal } = await import('../src/ui/modals.js')
+    click('[data-action="how-to"]')
+    assert.equal(doc.body.classList.contains('modal-open'), true)
+    closeModal()
+    assert.equal(doc.body.classList.contains('modal-open'), false)
   })
 })

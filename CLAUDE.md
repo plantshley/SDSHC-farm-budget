@@ -21,12 +21,17 @@ like one family.
 - `SimpleFarmPlanBudget (002).xlsx` — the spreadsheet this app reproduces
 - `Iowa State Custom Rates.pdf` — the 2026 survey behind most typical values
 
+South Dakota land rent comes from USDA NASS county estimates; useful life and
+salvage value come from Iowa State AgDM A3-29. Both were extracted from their
+PDFs by script rather than typed in — see [TYPICAL-VALUES.md](TYPICAL-VALUES.md),
+which also records what was deliberately NOT shipped and why.
+
 ## How it runs
 
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 50 tests: the economic model + a DOM smoke test
+npm test           # 396 tests: the economic model, storage, data, and a DOM smoke test
 npm run build      # -> dist/
 ```
 
@@ -120,6 +125,29 @@ straight through. Depreciation therefore clamps useful life with
 *negative* depreciation that quietly **reduced** the farm's costs and inflated
 profit, while the warning told the producer it was counted as $0.
 
+**Every cost and rate goes through `nonNegative(value, label, warnings)`.** This
+is the same bug generalised. A finite number is not a correct one: a "-7" typed
+for a 7% equipment interest rate produces a negative cost, which is *subtracted*
+from total fixed costs and therefore **inflates profit** — on a farm with
+$500,000 of machinery, by tens of thousands of dollars, in the flattering
+direction, with a perfectly ordinary-looking figure on screen. Every finiteness
+assertion in `calc-adversarial.test.js` passes straight over it. Covered:
+equipment and building initial cost / salvage / interest rate, land rent, labor
+rate, labor hours, every overhead line, yield, price, and every variable expense
+line.
+
+Two deliberate exceptions, both already warned about and both left alone because
+the arithmetic still has to be shown to explain what went wrong:
+
+- **negative acres** — the per-acre figures must still compute so the producer
+  can see the effect;
+- **salvage above initial cost** — internally consistent (it says the machine
+  appreciates) rather than a sign error, and pinned by its own test.
+
+The invariant the tests assert is *not* "profit can never rise" — treating a typo
+as $0 removes a real cost, so it can. It is that **a negative figure is worth the
+same as zero, never handed back as a credit.**
+
 ### Adding an input means touching three places
 
 Markup (`src/ui/*.js`) → the scenario shape (`src/state.js` factories) →
@@ -127,6 +155,32 @@ Markup (`src/ui/*.js`) → the scenario shape (`src/state.js` factories) →
 and one delegated listener in `main.js` writes by path, so a new field needs no
 new handler — but it does need to exist in the state factory and be consumed by
 the model.
+
+### Entry conveniences must not change an answer
+
+Two v2 additions let a producer enter a figure the way they actually know it,
+and both are deliberately *presentational* — they annualise on the way into the
+model and change nothing else:
+
+- `fixed.labor.hours` + `fixed.labor.hoursBasis` (year / month / week)
+- `fixed.annual.<key>` + `fixed.annualBasis.<key>` (year / quarter / month / week)
+
+`perYearFactor()` in `calc.js` resolves the basis, and **an unrecognised basis
+falls back to a multiplier of 1, never 0.** A hand-edited file or a future key
+must not silently erase a real cost. Asserted in `test/calc.test.js`.
+
+`calcFixed()` also still reads the pre-v2 `fixed.labor.totalHoursPerYear`, so an
+unmigrated budget — one arriving from an old exported file — calculates
+correctly even before `migrate()` touches it.
+
+### An enterprise's name is separate from its crop
+
+`enterpriseLabel(ent, index)` in `calc.js` resolves `name || crop || "Enterprise
+N"`. The sheet's column heading *is* the crop (D2); here they are separate,
+because comparing tillage systems means two enterprises both growing corn and
+"Corn" twice tells a producer nothing. The crop is the fallback, so a v1 budget
+reads exactly as it did — `migrate()` sets `name` to `''`, never copying the crop
+into it.
 
 ### `schemaVersion` and migrations
 
@@ -136,12 +190,62 @@ bump `SCHEMA_VERSION` in `calc.js` **and** add a step to `migrate()` in
 skipped, never fatal to the list.
 
 `storage.js` never throws — every failure path returns `{ok: false, error}`, so a
-full or blocked store is reported rather than swallowed. A save also returns
+full or blocked store is reported rather than swallowed.
+
+Two writes bypass `saveScenario()` on purpose:
+
+- **`renameScenario(id, name)`** — the Saved tab renames inline and autosaves.
+  Routing that through `saveScenario()` would write the whole *working* scenario
+  over the stored one, including Budget-tab edits the producer has not saved.
+- **`reorderScenarios(ids)`** — assigns `sortIndex`. Ids not in the list keep
+  their place and are appended, so a reorder can never make a budget vanish
+  because another tab saved one between render and drop. `listScenarios()` sorts
+  by `sortIndex` when present and falls back to newest-first, which is what
+  someone who has never dragged anything expects.
+
+`duplicateScenario()` deletes `sortIndex`; a copy has never been dragged
+anywhere, and inheriting the original's rank would put two budgets at the same
+position. A save also returns
 `{error: 'Conflict'}` when the stored record has moved on since this tab read it
 (tracked in the module-level `lastKnownUpdatedAt` map). `main.js` asks the
 producer before overwriting; `{force: true}` proceeds. Saving is a
 read-modify-write of one key, so without that check a second tab could silently
 replace the first tab's work.
+
+### The typical-value picker knows its units
+
+Each variable-expense spec in `data/typical-values.js` declares `appliesTo:
+'perAcre' | 'unit'`. A Custom Hire list quoted in $/acre and a Hauling list
+quoted in $/bushel are not interchangeable, and writing one into the box the
+line happens to be showing produces a silently wrong budget — a $0.14/bu hauling
+rate landing in the $/acre box is off by a factor of your yield.
+
+`openTypical()` therefore takes the line's current mode. On a mismatch it says so
+at the top of the modal and, when an option is chosen, switches the line's mode
+*and* writes to the correct field. Because that swaps which inputs exist, it
+needs a structural re-render — announced as a `fb:rerender` event on `document`
+so `ui/modals.js` keeps no dependency on `main.js`. The `CustomEvent`
+constructor comes from `document.defaultView`, not the global: Node has its own
+`CustomEvent`, and a synthetic document rejects an event built in another realm.
+
+Every picker also prints its unit (`.modal-unit`) and suffixes it onto each
+option, because "$0.14" and "$0.14 /bu" are the same number but only the second
+tells a producer what it is about to be multiplied by.
+
+### Exports are handed to other people
+
+`csvCell()` in `export.js` does RFC-4180 quoting **and** neutralises formulas: a
+cell of *text* starting `=`, `+`, `-`, `@`, tab or CR is prefixed with an
+apostrophe. Budget, enterprise and equipment names are free text, and these files
+are made to be given to an instructor, a lender or the rest of the class — all
+three major spreadsheets execute such a cell on open.
+
+**Numbers are deliberately exempt.** Every figure arrives as a real number from
+`round()`, and a negative profit of `-19140.83` must stay a summable number;
+quoting it as text would break every formula the recipient writes against the
+export, which is most of the reason to offer a CSV at all. The guard therefore
+tests `typeof value !== 'number'`, not the leading character alone. Both halves
+are asserted in `test/app.test.js` under *exports*.
 
 ### `?` explains, `use typical value` acts — never merge them
 
@@ -175,12 +279,35 @@ spreadsheet; mobile stacks the same cards as accordions. This is a media query i
 `styles.css` and nothing else. **Never fork into separate mobile and desktop
 components.**
 
-### `render()` vs `updateOutputs()`
+### `render()` vs `updateOutputs()` — and why results must be `data-out`
 
 `render()` replaces the DOM and is for **structural** changes only — adding an
 enterprise, switching screens, toggling a line's entry mode. Typing calls
 `updateOutputs()`, which refreshes `[data-out]` elements in place. Re-rendering
 on keystroke would move the caret and drop the mobile keyboard.
+
+**The corollary is load-bearing and was violated once.** `updateOutputs()` is the
+*only* thing that runs on a keystroke, so anything it does not touch is frozen at
+the last structural render. `ui/results.js` originally interpolated its numbers
+straight from the result object — so the sticky bar (which used `data-out`)
+tracked every keystroke while the KPI cards and every results table below them
+sat at whatever the farm looked like when an enterprise was last added. On screen
+that reads as two contradictory profit figures, and the producer has no way to
+know the bottom one is right.
+
+> **Rule: if a number can change without the DOM changing shape, it must be a
+> `[data-out]` placeholder, never a template literal.** That now includes the
+> warnings block (`[data-warnings]`) and the enterprise labels in the results
+> table (`[data-ent-label]`), both of which appear and change as acres and names
+> are typed. Asserted in `test/app.test.js` under *every figure on screen agrees*.
+
+### UI state is not scenario state
+
+Which cards are folded shut lives in module-level state in `main.js`
+(`collapsedEnterprises`, `fixedCollapsed`), **not** in the scenario. Whether a
+column is open on this phone right now is not a fact about the farm; putting it
+in the scenario would mark the budget dirty on every fold and carry the flag into
+the exported file. Same reasoning keeps it out of `localStorage`.
 
 The boot block sits at the **bottom** of `main.js` on purpose: `render()` reads
 `const` bindings declared above it (`FORMATTERS`), so booting from the top hits
@@ -191,7 +318,7 @@ smoke test catches it.
 
 ## Tests
 
-315 tests across four files:
+396 tests across six files:
 
 - `test/calc.test.js` — the model against real Excel output, plus the deliberate
   divergences and the regressions listed above.
@@ -201,7 +328,13 @@ smoke test catches it.
   to farmers as dollar amounts.
 - `test/storage.test.js` — saving, migration, corruption, quota, cross-tab
   conflicts.
-- `test/app.test.js` — boots the real app in jsdom and drives it.
+- `test/app.test.js` — boots the real app in jsdom and drives it. Now also
+  covers the results/sticky-bar agreement, folding, inline rename, drag
+  reordering and the unit-aware typical-value picker.
+- `test/typical-values.test.js` — the shape and provenance of every shipped
+  figure: a citation on everything, no negative or non-finite values, sentinels
+  that `ui/modals.js` can actually resolve, and the land-rent extraction checked
+  against the county list and the map legend bands.
 
 The smoke test exists because a passing build proves the modules parse and
 nothing more. It has already caught a TDZ crash on boot and a crash in the How-to
