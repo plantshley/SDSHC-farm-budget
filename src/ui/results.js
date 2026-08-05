@@ -5,7 +5,11 @@
  *
  * Those notes are not optional garnish. Producers and instructors will hold
  * this next to the .xlsx and see different numbers; if the app doesn't say why,
- * it looks broken. Every divergence gets a `?`.
+ * it looks broken. `showDifferences()` covers every one of them, and the way in
+ * is the `.differs-note` at the foot of the card — a sentence saying the figures
+ * differ, next to a link that says what changed. That is the whole affordance;
+ * there is no longer a `?` on the header competing with it to open the same
+ * modal. Do not delete the note without putting the `?` back.
  */
 
 import { esc } from './format.js'
@@ -28,14 +32,17 @@ import { infoButton } from './fields.js'
 export function renderResults(r) {
   return `
     <section class="box results">
+      <!-- The warnings sit IN the header row, to the right of the heading, not
+           in a banner above the card. With no acres entered the warning is the
+           only thing on this card with anything to say, and a full-width red box
+           over four blank KPI figures reads as something having gone wrong
+           rather than as the next thing to type. It stays a [data-warnings]
+           placeholder wherever it sits: warnings appear and disappear as acres
+           are typed, and updateOutputs() is all that runs on a keystroke. -->
       <header class="block-head">
         <h2 class="title">Results</h2>
-        <button type="button" class="help-btn" data-action="show-differences"
-          aria-label="How this differs from the spreadsheet"
-          title="How this differs from the spreadsheet">?</button>
+        <div data-warnings>${r.warnings.length ? renderWarnings(r.warnings) : ''}</div>
       </header>
-
-      <div data-warnings>${r.warnings.length ? renderWarnings(r.warnings) : ''}</div>
 
       <div class="kpi-row">
         ${kpi('Total profit', 'totals.totalProfit', 'usd', 'totalProfit')}
@@ -124,7 +131,7 @@ export function renderResults(r) {
       </div>
 
       <p class="differs-note">
-        Some figures here are calculated differently from the original spreadsheet.
+        Some figures are calculated differently from the original spreadsheet.
         <button type="button" class="tip" data-action="show-differences">See what changed and why</button>
       </p>
     </section>`

@@ -384,7 +384,7 @@ input.invalid {
   font-size: 14px;
   font-weight: bold;
   cursor: pointer;
-  min-height: 44px;
+  min-height: 40px;
   width: 100%;
 }
 
@@ -869,7 +869,7 @@ input.invalid {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 8px;
+  gap: 0px;
   border: 1px dashed var(--border);
   border-radius: var(--radius);
   padding: 12px;
@@ -1280,6 +1280,58 @@ input.invalid {
   margin: 4px 0;
   font-size: 13.5px;
   color: var(--cost);
+}
+
+/* The Results warnings live in the header row instead — see renderResults().
+
+   The heading gives up its `flex: 1` so the warning sits immediately after the
+   word "Results" rather than against the far edge of the card. On a wide screen
+   that is a gap of most of a metre, and a red pill alone in the top right corner
+   reads as a status light for the page rather than as a sentence about the
+   heading beside it.
+
+   `flex-wrap` is the narrow-screen escape: there is no width at which a warning
+   should be squeezed to one word a line, so it drops to its own row under the
+   heading instead. */
+.results .block-head {
+  flex-wrap: wrap;
+}
+
+.results .block-head > .title {
+  flex: 0 1 auto;
+}
+
+.results .block-head > [data-warnings] {
+  min-width: 0;
+}
+
+/* No acres missing, no gap where the box would have been. */
+.results .block-head > [data-warnings]:empty {
+  display: none;
+}
+
+/* One pill per warning rather than one box around all of them: in a header row a
+   single box would stretch to the height of the longest and leave the short ones
+   floating in it. */
+.block-head .warnings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  margin: 0;
+}
+
+.block-head .warnings p {
+  margin: 0;
+  padding: 4px 11px;
+  border: 1px solid var(--cost);
+  border-radius: 999px;
+  background: var(--cost-bg);
+  font-size: 12.5px;
+  line-height: 1.35;
 }
 
 /* Said once, by the render that answers the change. A figure disappearing from a
@@ -1973,7 +2025,7 @@ body.modal-open {
      plus Remove; the card clips rather than growing, because a single tall tile
      is the thing this is here to prevent. */
   .ent-grid {
-    --fold-h: 124px;
+    --fold-h: 100px;
   }
 
   .ent.collapsed {

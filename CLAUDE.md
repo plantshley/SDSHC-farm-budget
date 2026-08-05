@@ -31,7 +31,7 @@ which also records what was deliberately NOT shipped and why.
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 446 tests: the economic model, storage, data, and a DOM smoke test
+npm test           # 447 tests: the economic model, storage, data, and a DOM smoke test
 npm run build      # -> dist/
 ```
 
@@ -579,7 +579,7 @@ smoke test catches it.
 
 ## Tests
 
-446 tests across six files:
+447 tests across six files:
 
 - `test/calc.test.js` — the model against real Excel output, plus the deliberate
   divergences and the regressions listed above.

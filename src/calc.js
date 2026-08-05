@@ -494,7 +494,11 @@ export function calcScenario(scenario) {
 
   if (totalAcres <= 0) {
     warnings.push(
-      'Enter acres for at least one enterprise — fixed costs are spread across total acres, so without them per-acre figures cannot be calculated.'
+      // Short on purpose: this now sits inline in the Results header rather than
+      // in a banner. The reason acres are needed is on the Fixed costs card and
+      // in the `fixedCosts` definition; repeating it here made a one-line
+      // instruction into three lines of explanation nobody has asked for yet.
+      'Enter acres for at least one enterprise.'
     )
   }
 

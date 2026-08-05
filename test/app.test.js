@@ -84,6 +84,20 @@ describe('the app boots', () => {
     assert.match(textOf('.warnings'), /acres/i)
   })
 
+  test('the warning sits in the results header, and clears on a keystroke', () => {
+    // Beside the heading, not in a banner over the card.
+    assert.ok(
+      doc.querySelector('.results .block-head [data-warnings] .warnings'),
+      'the warning is in the header row'
+    )
+
+    // And it is still a live placeholder there. Typing acres does not re-render,
+    // so anything updateOutputs() cannot reach would stay on screen for good.
+    type('enterprises.0.acres', 500)
+    assert.equal(doc.querySelector('.warnings'), null, 'gone once there are acres')
+    assert.ok(doc.querySelector('.results .block-head [data-warnings]'), 'the holder stays')
+  })
+
   test('font control shows both options with Browser active', () => {
     const browser = doc.querySelector('[data-font-choice="browser"]')
     const classic = doc.querySelector('[data-font-choice="classic"]')
