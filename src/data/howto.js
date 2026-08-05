@@ -65,7 +65,7 @@ export const HOW_TO_SECTIONS = [
     ],
   },
   {
-    heading: 'Two comparisons examples',
+    heading: 'Two comparison examples',
     body: [
       'FIELD CORN AGAINST SILAGE CORN. Duplicate your corn budget. On the copy, change the yield unit to tons and enter your silage yield and price, then adjust harvest costs: silage means chopping instead of combining and drying. Changing the unit clears any hauling or drying figure taken from the typical values, because those are published per bushel. Compare gross margin per acre. Silage revenue often looks better, and the question is whether the harvest and hauling costs absorb the difference.',
       'TILLAGE AGAINST NO-TILL ON SOYBEANS. Duplicate your soybean budget. On the no-till copy, remove the tillage passes from custom hire or fuel, adjust repairs, and change the herbicide line if your program changes. Compare gross margin per acre. The machinery you no longer run still costs depreciation and interest until you sell it, and that sits in fixed costs rather than variable.',
