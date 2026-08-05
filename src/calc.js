@@ -83,8 +83,12 @@ export const COST_BASIS = [
  *   - `fixed.annualTypicalBasis.<key>` on an overhead line (an annual figure
  *     left on "$ / month" is multiplied by twelve)
  * See migrate() in storage.js.
+ *
+ * v4 added `scenarioYear`, the crop year a budget is FOR. It is not derivable
+ * from any timestamp — a 2027 plan is routinely built in 2026 — and the model
+ * ignores it entirely; it exists to label and to find a budget by.
  */
-export const SCHEMA_VERSION = 3
+export const SCHEMA_VERSION = 4
 
 /* ────────────────────────────── helpers ────────────────────────────────── */
 

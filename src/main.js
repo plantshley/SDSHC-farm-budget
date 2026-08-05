@@ -30,7 +30,7 @@ import {
 import { renderEnterprises } from './ui/enterprise.js'
 import { renderFixed, OVERHEAD_LINES } from './ui/fixed.js'
 import { renderResults, renderWarningsInto } from './ui/results.js'
-import { renderScenarioList, renderCompare } from './ui/scenarios.js'
+import { renderScenarioList, renderCompare, scenarioHint } from './ui/scenarios.js'
 import { openInfo, openTypical, openGuide } from './ui/modals.js'
 import { usd, usdCents, esc, signClass } from './ui/format.js'
 import { matchCategory, EQUIPMENT_CATALOG, BUILDING_CATALOG } from './data/typical-values.js'
@@ -56,6 +56,18 @@ let dirty = false
 const collapsedEnterprises = new Set()
 let fixedCollapsed = false
 let collapseDefaultsApplied = false
+
+/**
+ * What is typed in the Saved tab's filter box.
+ *
+ * UI state for the same reason the folds above are: which budgets a producer is
+ * looking at right now is not a fact about any farm, so it is neither in the
+ * scenario nor in localStorage. It does survive render() — the list re-renders
+ * on a delete, a reorder and a failed rename, none of which are a reason for
+ * the box to empty itself — and it is cleared whenever the set of saved budgets
+ * GROWS, so a newly saved budget can never arrive filtered out of sight.
+ */
+let scenarioFilter = ''
 
 /**
  * One-shot messages saying why a figure just vanished from a card, by
@@ -123,7 +135,7 @@ function render() {
   const scenario = getScenario()
 
   if (screen === 'scenarios') {
-    app.innerHTML = header() + renderScenarioList(scenario.id) + footer()
+    app.innerHTML = header() + renderScenarioList(scenario.id, scenarioFilter) + footer()
   } else if (screen === 'compare') {
     const picked = compareIds.map((id) => getScenarioById(id)).filter(Boolean)
     app.innerHTML =
@@ -146,6 +158,9 @@ function render() {
   updateOutputs()
   updateStatus()
   sizeNameInputs()
+  // A no-op on every screen but the saved list. The filter survives a render,
+  // so a list rebuilt underneath it has to be re-filtered to match the box.
+  applyScenarioFilter()
   // Shown once, by the render that answers the change that raised it.
   unitNotices.clear()
   fixedNotice = null
@@ -180,20 +195,41 @@ function header() {
   const nameBlock =
     screen === 'build'
       ? `<div class="name-wrap">
-           <label class="sr-only" for="scenarioName">Budget name</label>
-           <span class="name-edit">
-             <input id="scenarioName" class="scenario-name" value="${esc(scenario.name)}"
-               data-path="name" placeholder="Name this budget" />
-             <button type="button" class="edit-name" data-action="focus-name"
-               aria-label="Rename this budget" title="Rename this budget">&#9998;</button>
+           <span class="title-row">
+             <label class="sr-only" for="scenarioName">Budget name</label>
+             <span class="name-edit">
+               <input id="scenarioName" class="scenario-name" value="${esc(scenario.name)}"
+                 data-path="name" placeholder="Name this budget" />
+               <button type="button" class="edit-name" data-action="focus-name"
+                 aria-label="Rename this budget" title="Rename this budget">&#9998;</button>
+             </span>
            </span>
-           <span class="save-state" id="saveState"></span>
+           <!-- Beside the name because it is the same kind of thing: a label for
+                the whole budget rather than a figure in it. The caption is not
+                decoration — a bare four-digit box next to a title reads as a
+                version number, and once it is filled in a placeholder is gone.
+                On a phone .name-wrap turns into a column, so this drops to its
+                own row and the title gets the width to itself. -->
+           <span class="year-edit">
+             <label class="year-label" for="scenarioYear">(Optional) Scenario year:</label>
+             <input id="scenarioYear" class="scenario-year" type="number"
+               inputmode="numeric" step="1" data-path="scenarioYear"
+               value="${esc(scenario.scenarioYear ?? '')}"
+               placeholder="${new Date().getFullYear()}" />
+           </span>
          </div>`
-      : '<div class="name-wrap"><span class="save-state" id="saveState"></span></div>'
+      : ''
 
   return `
     <div class="app-head">
       ${nameBlock}
+      <!-- A direct child of the header, between the name and the tabs, because
+           it has to land in a different place at each width: beside the tabs on
+           a computer, and on the end of the title row on a phone. One element in
+           one place in the DOM, moved by the flex rules alone — it cannot be
+           rendered twice, because updateStatus() and flashSaved() address it by
+           id. -->
+      <span class="save-state" id="saveState"></span>
       <nav class="app-nav" role="tablist">
         <button type="button" class="tab ${screen === 'build' ? 'active' : ''}"
           role="tab" aria-selected="${screen === 'build'}"
@@ -329,6 +365,18 @@ function updateOutputs() {
   }
 }
 
+/**
+ * The word "Saved" also names a tab, three inches to the right of this. The tick
+ * is what stops the two reading as the same control — one is a state, the other
+ * is somewhere to go.
+ *
+ * A plain U+2713, not an emoji: it renders in the page's own font at the page's
+ * own size and colour, which is the whole reason the theme toggle uses inline
+ * SVG rather than ✅ (see prefs.js). Only the settled state gets a mark; a tick
+ * beside "Unsaved changes" would be saying two opposite things at once.
+ */
+const SAVED_LABEL = '✓ Saved'
+
 function updateStatus() {
   const el = document.getElementById('saveState')
   if (!el) return
@@ -336,7 +384,7 @@ function updateStatus() {
     el.textContent = 'This browser will not save budgets'
     el.className = 'save-state warn'
   } else {
-    el.textContent = dirty ? 'Unsaved changes' : 'Saved'
+    el.textContent = dirty ? 'Unsaved changes' : SAVED_LABEL
     el.className = `save-state ${dirty ? 'dirty' : ''}`
   }
 }
@@ -361,6 +409,14 @@ app.addEventListener('input', (e) => {
     // in. Without this, typing past the original name runs off the end of a box
     // that no longer fits it.
     sizeNameInput(el, 44, 92)
+    return
+  }
+
+  // The filter box is a view over the list, not a value in anything. It writes
+  // no scenario, marks nothing dirty, and never re-renders.
+  if (el.hasAttribute?.('data-scn-filter')) {
+    scenarioFilter = el.value
+    applyScenarioFilter()
     return
   }
 
@@ -523,6 +579,73 @@ function dropStaleOverheadValue(key, period) {
   render()
 }
 
+/* ────────────────────── filtering the Saved tab ────────────────────────── */
+
+/**
+ * Hide the rows that do not match, in place.
+ *
+ * Deliberately NOT a render(): this runs on every keystroke, and replacing the
+ * DOM under the box being typed into would move the caret and drop the mobile
+ * keyboard, which is the same rule updateOutputs() exists for. It would also
+ * throw away every compare tick, so a search mid-selection would silently undo
+ * the selection it was helping with.
+ */
+function applyScenarioFilter() {
+  const list = app.querySelector('[data-scn-list]')
+  if (!list) return
+
+  const query = scenarioFilter.trim().toLowerCase()
+  const rows = [...list.querySelectorAll('.scn')]
+  let shown = 0
+
+  for (const row of rows) {
+    const match = !query || (row.getAttribute('data-scn-search') || '').includes(query)
+    row.hidden = !match
+    if (match) shown += 1
+  }
+
+  const hint = app.querySelector('[data-scn-hint]')
+  if (hint) hint.textContent = scenarioHint(shown, rows.length, Boolean(query))
+
+  const empty = app.querySelector('[data-scn-empty]')
+  if (empty) {
+    empty.hidden = shown > 0
+    empty.textContent = `No saved budget matches "${scenarioFilter.trim()}". Try part of a budget name, an enterprise name, or a crop.`
+  }
+
+  const clear = app.querySelector('[data-action="clear-scn-filter"]')
+  if (clear) clear.hidden = !query
+
+  setReorderEnabled(rows, !query)
+  refreshCompareButton()
+}
+
+/**
+ * Reordering is off while the list is filtered.
+ *
+ * A manual arrangement is an arrangement of the WHOLE list, and moving a row
+ * while most of that list is hidden is an operation whose result the producer
+ * cannot see: ▲ swaps the row past a budget that is not on screen and appears
+ * to do nothing at all, and a drop lands it somewhere relative to rows nobody
+ * can point at. Turning the controls off and saying so in the hint beats either
+ * of those. Clearing the box gives them straight back.
+ *
+ * The arrows are restored by recomputing first-and-last from the full row list,
+ * which is the same rule they were rendered with — the filter never changes
+ * which budget is actually at the top.
+ */
+function setReorderEnabled(rows, enabled) {
+  rows.forEach((row, i) => {
+    const grip = row.querySelector('.scn-grip')
+    if (grip) grip.draggable = enabled
+    const up = row.querySelector('[data-action="move-scenario-up"]')
+    const down = row.querySelector('[data-action="move-scenario-down"]')
+    if (up) up.disabled = !enabled || i === 0
+    if (down) down.disabled = !enabled || i === rows.length - 1
+  })
+  app.querySelector('[data-scn-list]')?.classList.toggle('filtered', !enabled)
+}
+
 /* ─────────────────── inline rename on the Saved tab ────────────────────── */
 
 /**
@@ -609,6 +732,9 @@ let draggingId = null
 app.addEventListener('dragstart', (e) => {
   const row = e.target.closest?.('.scn')
   if (!row) return
+  // Reordering is off while the list is filtered — see setReorderEnabled. The
+  // handle is already draggable=false, so this only catches a synthetic event.
+  if (scenarioFilter.trim()) return
   draggingId = row.getAttribute('data-scn-id')
   row.classList.add('dragging')
   // Dims the rows that are NOT moving, so the lifted one is the only thing at
@@ -684,6 +810,9 @@ app.addEventListener('pointerdown', (e) => {
   const row = grip?.closest('.scn')
   const list = row?.closest('[data-scn-list]')
   if (!list) return
+  // draggable=false does nothing to a pointer gesture, so the touch path needs
+  // the filter check itself.
+  if (scenarioFilter.trim()) return
 
   e.preventDefault()
   touchDrag = { row, list, moved: false }
@@ -918,6 +1047,10 @@ function handleAction(action, btn) {
 
       if (result.ok) {
         dirty = false
+        // A save can add a row, and a row that arrives filtered out of sight
+        // reads as the save having failed. Whenever the list grows, the filter
+        // goes.
+        scenarioFilter = ''
         updateStatus()
         flashSaved()
       } else if (result.error === 'QuotaExceededError') {
@@ -981,6 +1114,7 @@ function handleAction(action, btn) {
       // other saved budget rather than like a blank one.
       setScenario(copy)
       dirty = false
+      scenarioFilter = '' // the list just grew, see save-scenario
       screen = 'build'
       collapsedEnterprises.clear()
       collapseDefaultsApplied = false
@@ -1038,6 +1172,17 @@ function handleAction(action, btn) {
       render()
       break
 
+    case 'clear-scn-filter': {
+      scenarioFilter = ''
+      const box = app.querySelector('[data-scn-filter]')
+      if (box) box.value = ''
+      // Filtered in place, so cleared in place. A render() here would rebuild
+      // the list and take every compare tick with it.
+      applyScenarioFilter()
+      box?.focus()
+      break
+    }
+
     case 'import-scenario':
       importFromFile()
       break
@@ -1084,18 +1229,35 @@ function confirmRemoveItem(item, kind) {
 }
 
 function refreshCompareButton() {
-  const count = document.querySelectorAll('[data-compare-id]:checked').length
+  const checked = [...document.querySelectorAll('[data-compare-id]:checked')]
   const btn = document.querySelector('[data-action="compare-selected"]')
   if (btn) {
-    btn.disabled = count < 2
-    btn.textContent = count < 2 ? 'Compare selected' : `Compare ${count} budgets`
+    btn.disabled = checked.length < 2
+    btn.textContent =
+      checked.length < 2 ? 'Compare selected' : `Compare ${checked.length} budgets`
   }
+
+  // A row hidden by the filter keeps its tick. Clearing a deliberate selection
+  // to answer a search would be destroying work to help with a lookup, and
+  // "select two corn budgets, filter to soybeans, select two more" is a real
+  // way to build a comparison. But a comparison that quietly contains budgets
+  // the producer cannot see is exactly the kind of silently-wrong output this
+  // app is careful about, so the count above says four and this line says which
+  // of them are off screen.
+  const note = document.querySelector('[data-scn-hidden-note]')
+  if (!note) return
+  const hidden = checked.filter((el) => el.closest('.scn')?.hidden).length
+  note.hidden = hidden === 0
+  note.textContent =
+    hidden === 1
+      ? '1 budget you have selected is hidden by this filter, and it will still be compared.'
+      : `${hidden} budgets you have selected are hidden by this filter, and they will still be compared.`
 }
 
 function flashSaved() {
   const el = document.getElementById('saveState')
   if (!el) return
-  el.textContent = 'Saved'
+  el.textContent = SAVED_LABEL
   el.classList.add('flash')
   setTimeout(() => el.classList.remove('flash'), 700)
 }
@@ -1140,6 +1302,7 @@ function importFromFile() {
     }
     setScenario(copy)
     dirty = false
+    scenarioFilter = '' // the list just grew, see save-scenario
     screen = 'build'
     collapsedEnterprises.clear()
     collapseDefaultsApplied = false

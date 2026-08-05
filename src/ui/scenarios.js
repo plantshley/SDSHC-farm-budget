@@ -12,7 +12,22 @@ import { calcScenario } from '../calc.js'
 import { listScenarios } from '../storage.js'
 import { infoButton } from './fields.js'
 
-export function renderScenarioList(currentId) {
+/**
+ * The line above the list, which has two things to say depending on whether a
+ * filter is running.
+ *
+ * Defined once and called from both the template and main.js, because the two
+ * must never drift: the unfiltered version promises the ▲▼ arrows work, and
+ * while a filter is on they deliberately do not.
+ */
+export function scenarioHint(shown, total, filtering) {
+  if (!filtering) {
+    return 'Saved on this device only. Tap a name to rename it. Reorder the list with the ▲▼ arrows, or by dragging the handle.'
+  }
+  return `Showing ${shown} of ${total} budget${total === 1 ? '' : 's'}. Reordering is off while the list is filtered.`
+}
+
+export function renderScenarioList(currentId, filterQuery = '') {
   const all = listScenarios()
 
   const openFile = `
@@ -21,10 +36,33 @@ export function renderScenarioList(currentId) {
       ${infoButton('budgetFile', 'a budget file')}
     </span>`
 
+  // Always present once anything is saved, rather than appearing at some row
+  // count: a control that materialises partway down a list is one a producer
+  // has to notice arriving, and there is no obvious number to arrive at.
+  //
+  // The box carries whatever was typed into it, because the list re-renders for
+  // reasons that have nothing to do with the filter (a delete, a reorder, a
+  // rename that failed to save) and a box that empties itself on one of those
+  // reads as the app losing track of what you asked for.
+  //
+  // The placeholder says "planning year" rather than "scenario year" on
+  // purpose. The filter matches the scenarioYear field AND the budget's name, so
+  // a producer who wrote the year into the title as "2027 Corn" is covered by
+  // the same word. Naming the field would promise less than the box does.
+  const filter = `
+    <div class="scn-filter">
+      <input type="search" class="scn-filter-input" data-scn-filter
+        value="${esc(filterQuery)}"
+        placeholder="Filter scenario name, enterprise, crop, planning year, or date last saved"
+        aria-label="Filter saved budgets" />
+      <button type="button" class="tip" data-action="clear-scn-filter"
+        ${filterQuery.trim() ? '' : 'hidden'}>Clear</button>
+    </div>`
+
   return `
     <section class="box">
       <header class="block-head">
-        <h2 class="title">Saved scenarios</h2>
+        <h2 class="title">Saved budget scenarios / plans</h2>
         <!-- Sized to its own text rather than the full width .btn-add normally
              takes. Full width it read as the primary thing to do on a page whose
              actual subject is the list underneath it. -->
@@ -35,13 +73,12 @@ export function renderScenarioList(currentId) {
 
       ${
         all.length
-          ? `<p class="hint">
-               Saved on this device only. Tap a name to rename it.
-               Reorder the list with the ▲▼ arrows, or by dragging the handle.
-             </p>
+          ? `${filter}
+             <p class="hint" data-scn-hint>${esc(scenarioHint(all.length, all.length, false))}</p>
              <div class="scn-list" data-scn-list>
                ${all.map((s, i) => renderScenarioRow(s, currentId, i, all.length)).join('')}
              </div>
+             <p class="hint scn-empty" data-scn-empty hidden></p>
              <p class="hint baseline-note">
                Select two or more to compare them. <b>The first one you select becomes the
                baseline.</b> Every other budget is shown as a difference from it.
@@ -51,7 +88,8 @@ export function renderScenarioList(currentId) {
                  Compare selected
                </button>
                ${openFile}
-             </div>`
+             </div>
+             <p class="hint scn-hidden-note" data-scn-hidden-note hidden></p>`
           : `<p class="hint">
                No saved budget scenarios yet. Build one, name it, and save it. Then duplicate it to
                compare different scenarios.
@@ -67,7 +105,8 @@ function renderScenarioRow(s, currentId, index, total) {
   const isCurrent = s.id === currentId
 
   return `
-    <div class="scn ${isCurrent ? 'current' : ''}" data-scn-id="${esc(s.id)}">
+    <div class="scn ${isCurrent ? 'current' : ''}" data-scn-id="${esc(s.id)}"
+      data-scn-search="${esc(searchText(s))}">
       <div class="scn-order">
         <!-- Two ways to do one thing, deliberately. The arrows are the control
              that always works: from a keyboard, from a screen reader, and
@@ -103,10 +142,17 @@ function renderScenarioRow(s, currentId, index, total) {
              to a row, so it sits with the other two rather than being hidden
              behind the whole block of text being secretly tappable. -->
         <span class="scn-meta">
+          ${
+            // First, because it is the one thing here the producer stated rather
+            // than the app worked out, and because a filter must never match
+            // something that is not on the row. Not bold: the only bold thing on
+            // this line is the profit figure, and a second one competes with it.
+            s.scenarioYear ? `<span class="scn-year">${esc(s.scenarioYear)}</span> ·` : ''
+          }
           ${r.enterprises.length} enterprise${r.enterprises.length === 1 ? '' : 's'} ·
           ${Math.round(r.totalAcres * 100) / 100} acres ·
           <b class="${signClass(r.totals.totalProfit)}">${usd(r.totals.totalProfit)}</b> profit
-          ${isNaN(when) ? '' : `· ${when.toLocaleDateString()}`}
+          ${isNaN(when) ? '' : `· saved ${when.toLocaleDateString()}`}
         </span>
       </div>
       <div class="scn-btns">
@@ -115,6 +161,56 @@ function renderScenarioRow(s, currentId, index, total) {
         <button type="button" class="tip danger" data-action="delete-scenario" data-id="${esc(s.id)}">Delete</button>
       </div>
     </div>`
+}
+
+/**
+ * What the filter box matches a row against, baked in at render time.
+ *
+ * A named list of fields, not the row's rendered text. The row also shows an
+ * acreage and a profit figure, so filtering on what is on screen would have
+ * "5" turn up every budget whose loss happens to contain a 5, and "acres"
+ * turn up every budget there is. The enterprise names and crops are in here on
+ * purpose: "which of these had soybeans in it" is the question, and the
+ * budget's own name frequently cannot answer it.
+ *
+ * Read off the scenario rather than through enterpriseLabel(), because that
+ * falls back to "Enterprise 1" for an unnamed column and a filter of
+ * "enterprise" that matched every budget on the device would be worse than no
+ * filter at all. A column nobody has named contributes nothing to find it by,
+ * which is the honest answer.
+ *
+ * TWO different years are searchable and they are not interchangeable. The
+ * PLANNING year is the crop year the budget is for, stated by the producer. The
+ * SAVED date is when they were last at the keyboard, which for a 2027 plan
+ * written in 2026 is a different number. Both are offered because both are
+ * things somebody reaches for, and both are printed on the row so a filter can
+ * never match something invisible.
+ *
+ * The saved date contributes its YEAR and its month name, and deliberately not
+ * the "8/5/2026" the row prints. Feeding those digits in individually would have
+ * a filter of "5" return every budget touched on the fifth of a month, which is
+ * the same spurious-digit problem as matching on rendered text. "2026" and
+ * "august" are how a producer says a date out loud; the slashed form is not.
+ */
+function searchText(s) {
+  const when = new Date(s.updatedAt || s.createdAt)
+  const saved = isNaN(when)
+    ? []
+    : [
+        String(when.getFullYear()),
+        when.toLocaleString(undefined, { month: 'long' }),
+        when.toLocaleString(undefined, { month: 'short' }),
+      ]
+
+  return [
+    ...(s.enterprises ?? []).flatMap((e) => [e?.name, e?.crop]),
+    s.name,
+    s.scenarioYear,
+    ...saved,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase()
 }
 
 /* ─────────────────────────── compare view ──────────────────────────────── */

@@ -297,6 +297,43 @@ describe('v3 migration', () => {
   })
 })
 
+describe('v4 migration', () => {
+  // v4 added `scenarioYear`, the crop year the budget is FOR. A v3 budget has
+  // none, and the step deliberately does not invent one.
+  function v3Budget() {
+    return [
+      {
+        schemaVersion: 3,
+        id: 'a',
+        name: 'Existing',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        enterprises: [{ id: 'e1', name: '', crop: 'Corn', acres: 500, variable: {} }],
+        fixed: { labor: {}, annual: {}, annualBasis: {}, equipment: [], buildings: [] },
+      },
+    ]
+  }
+
+  test('a v3 budget comes forward with no scenario year invented for it', () => {
+    store.setItem(KEY, JSON.stringify(v3Budget()))
+    const [s] = listScenarios()
+    assert.equal(s.schemaVersion, SCHEMA_VERSION)
+    // Guessing one from createdAt would be the tempting move and is wrong: a
+    // 2027 plan is routinely built in 2026, so the timestamp says when someone
+    // was at the keyboard and nothing about what they were planning for. The
+    // filter would then find this budget under a year nobody chose.
+    assert.equal(s.scenarioYear, undefined, 'the producer never stated one')
+    assert.equal(s.name, 'Existing', 'and nothing else moved')
+  })
+
+  test('a scenario year already set survives being read back', () => {
+    const [budget] = v3Budget()
+    store.setItem(KEY, JSON.stringify([{ ...budget, scenarioYear: '2027' }]))
+    const [s] = listScenarios()
+    assert.equal(s.scenarioYear, '2027')
+  })
+})
+
 describe('list order', () => {
   test('newest first until something is dragged', () => {
     // Written straight to the store: saveScenario always stamps updatedAt with

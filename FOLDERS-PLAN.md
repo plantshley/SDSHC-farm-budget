@@ -132,10 +132,10 @@ does not know.
 ### Schema version
 
 Add `folderId` to the scenario record, so per CLAUDE.md: **bump
-`SCHEMA_VERSION` to 4 and add a v3 → v4 step to `migrate()`.**
+`SCHEMA_VERSION` to 5 and add a v4 → v5 step to `migrate()`.**
 
-**That step writes nothing**, for the same reason the v2 → v3 step writes
-nothing: a v3 budget is in no folder, absence is already the correct
+**That step writes nothing**, for the same reason the v2 → v3 and v3 → v4 steps
+write nothing: a v4 budget is in no folder, absence is already the correct
 representation of that, and writing `folderId: null` across every stored record
 would be a full rewrite of the store to say what it already said. The step
 exists so the version stays monotonic and a later migration knows what it is
@@ -425,7 +425,7 @@ if one needs editing, that is a signal something above was violated.
 - `moveScenarioToFolder()` does not change `updatedAt`
 - `moveScenarioToFolder()` does not write the working scenario over the stored one
 - `saveScenario()` preserves `existing.folderId` (§3)
-- `migrate()` v3 → v4 sets the version and writes no `folderId`
+- `migrate()` v4 → v5 sets the version and writes no `folderId`
 - `SCHEMA_VERSION` is read from the export, not a literal
 
 **`test/app.test.js`** (jsdom, drives the real app)
@@ -451,8 +451,13 @@ if one needs editing, that is a signal something above was violated.
 
 Each phase leaves the app shippable.
 
-1. **Filter box on the Saved tab.** Independent of everything below, useful on
-   its own, and it stays useful afterwards. Reuse the `wireSearch()` pattern.
+1. ~~**Filter box on the Saved tab.**~~ **Built.** Always present once anything
+   is saved. Matches budget names, enterprise names, crops, and the year or
+   month a budget was last touched. Reordering is off while it runs, and it
+   clears itself whenever the list grows. See the *Saved-tab filter* section of
+   CLAUDE.md. It also turned up a shipped bug it shares a mechanism with:
+   `[hidden]` was being overridden by `.typ-option`'s `display: grid`, so the
+   land-rent county search had never actually hidden anything. Fixed for both.
 2. **Storage layer.** `listFolders`, `saveFolder`, `deleteFolder`,
    `reorderFolders`, `moveScenarioToFolder`, the `saveScenario` guard, the
    `SCHEMA_VERSION` bump, the export strip. Full test file first. No UI yet.
@@ -492,9 +497,61 @@ Phases 1 to 5 are the feature. 6 to 8 are the finish.
 
 | # | Question | Recommendation |
 |---|---|---|
-| 1 | Build the filter box first, or go straight to folders? | Filter first. Small, immediately useful, keeps its value afterwards. |
+| 1 | ~~Build the filter box first?~~ | **Settled: built.** See phase 1. |
 | 2 | Ungrouped pile at the top or the bottom? | **Top.** A budget saved a moment ago lands there, and "I just saved it and it is gone" is the worst thing this feature can do. |
 | 3 | Inline SVG icons, or drop icons and ship colour only? | SVG, per `prefs.js`. But colour-only is a legitimate cut and loses little. |
 | 4 | Six swatches, or fewer? | Six. Four brand plus grey plus violet, with green and red withheld. |
 | 5 | Should folder fold state persist across sessions? | No, per the `collapsedEnterprises` precedent. Revisit only if someone with fifteen folders complains. |
 | 6 | Cap on folder count? | No cap, no counter. If someone makes thirty, the filter box from phase 1 is the answer. |
+
+---
+
+## Appendix: the free-text group field, spelled out
+
+The lighter design mentioned in §0.2, against the same section numbers.
+
+**The idea.** No folder records at all. Each budget carries one string,
+`group: 'Corn trials'`. The Saved tab groups rows by distinct value and renders
+a headed section per value. A group exists exactly as long as something is in
+it.
+
+| | Folders (§1–8) | Free-text group |
+|---|---|---|
+| **§2 Data** | `folderId` on the budget **and** a `sdshc-fb-folders` key holding records | one string on the budget, no second key |
+| **§3 Storage** | `listFolders`, `saveFolder`, `deleteFolder`, `reorderFolders`, `moveScenarioToFolder` | `setScenarioGroup(id, name)` |
+| **§4 Invariants** | six, four of them about folder lifecycle | two: every budget in one section, collapsing never reorders |
+| **§5 Reorder** | `mergeVisibleOrder()` fix required | identical, still required |
+| **§6 Filing** | Move button, radio modal, `+ New folder…` | one text input with a `<datalist>` of existing groups, no modal |
+| **§7 Icon, colour** | 8 SVG glyphs, 6 swatches | **not possible**, there is no record to hang them on |
+| **§8 Layout** | identical | identical |
+| **§11 Tests** | 45 to 55 | 15 to 20 |
+| **Section order** | `sortIndex` on the folder, ▲▼ on the header | alphabetical, with the ungrouped pile first |
+
+**What the string version cannot do.**
+
+1. **Icons and colours.** The thing that was actually asked for. Deriving a
+   colour by hashing the name is possible and is a bad idea: it is arbitrary,
+   it changes when the group is renamed, and it can hand out the green that
+   `--green` reserves for a positive dollar figure.
+2. **Survive a typo.** "Corn trials" and "Corn Trails" are two sections, and the
+   producer's budget is in the wrong one with no way to see why. A `<datalist>`
+   and case-insensitive grouping cover most of it, not all.
+3. **Hold a name of its own.** Renaming a group is a rewrite of the string on
+   every member, so a group can in principle be half-renamed by a failed write
+   and split in two. Folders rename one record.
+4. **Exist while empty.** You cannot make "2027 season" now and file into it
+   later. The flow is "file this budget under 2027 season", which creates it.
+   For this app that is arguably the better flow, and it is a real difference.
+
+**What it buys.** Roughly half the code, a third of the tests, filing in one
+gesture instead of three, and the entire folder-lifecycle failure surface gone:
+nothing to orphan, nothing to cascade-delete, no second key to corrupt.
+
+**Migrating string → folders later is possible but not free**: create a folder
+record per distinct string and rewrite each budget's field to its id. One
+migration step, and it has to pick a winner for names that differ only by case.
+
+**Recommendation.** If the icons and colours are the point, build folders. If
+the point is "stop scrolling past budgets that are not this year's", the string
+version does that for half the price, and the filter box from phase 1 already
+does a good deal of it for a tenth.

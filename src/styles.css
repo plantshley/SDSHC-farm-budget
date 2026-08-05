@@ -96,6 +96,17 @@
   box-sizing: border-box;
 }
 
+/* The browser's own `[hidden] { display: none }` lives in the UA stylesheet, and
+   ANY author rule setting a display beats it — the cascade puts author sheets
+   above UA sheets before specificity is even considered. So `.scn` at
+   display:flex and `.typ-option` at display:grid both stayed on screen after
+   being hidden, and the two filters in this app quietly did nothing.
+   jsdom cannot catch this: it loads no CSS, so `el.hidden` reads true there
+   whatever the stylesheet says, and every test passed. */
+[hidden] {
+  display: none !important;
+}
+
 body {
   font-family: var(--font);
   margin: 0;
@@ -503,7 +514,10 @@ input.invalid {
 .name-wrap {
   display: flex;
   align-items: center;
-  gap: 4px;
+  /* Room between the title and the year caption. At 4px, which was the gap when
+     this held the name and a one-word save state, "(Optional) Scenario year:"
+     read as a continuation of the budget's name. */
+  gap: 10px;
   min-width: 0;
   padding-bottom: 8px;
   flex: 0 1 auto;
@@ -527,6 +541,81 @@ input.invalid {
   min-height: 0;
   color: var(--brand-ink);
   field-sizing: content;
+  /* sizeNameInput() gives the box an explicit width, so it normally fits its
+     text exactly and this never fires. It is here for the narrow case, where
+     max-width: 100% caps that width against a squeezed header: the name is then
+     cut with an ellipsis rather than the save state beside it being displaced.
+     A focused input scrolls its text instead, which is the behaviour you want
+     while typing. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The title and the year are separate rows of .name-wrap on a phone and one
+   row on a computer, which is the whole reason the name has a wrapper of its
+   own rather than sitting directly in .name-wrap. */
+.title-row {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+/* The scenario year sits beside the name as a quiet pair of caption-and-box, not
+   as a form field: the header is a title bar, and a full-height bordered input
+   in it would read as the main thing to fill in. */
+.year-edit {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.year-label {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* Wide enough for four bold digits AND the padding and border, because `*` sets
+   box-sizing: border-box and the width therefore has to cover all three. At
+   5.5ch it covered about thirty pixels of content and cut the year off. */
+.scenario-year {
+  width: 6ch;
+  min-width: 0;
+  min-height: 0;
+  padding: 4px 6px;
+  font-size: 14px;
+  font-weight: bold;
+  color: var(--brand-ink);
+  text-align: center;
+  border: 1px solid transparent;
+  background: transparent;
+}
+
+/* A year is four characters and the spinners are wider than the number. They
+   also invite a producer to walk to a year one press at a time. */
+.scenario-year::-webkit-outer-spin-button,
+.scenario-year::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+}
+
+.scenario-year {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.scenario-year:hover,
+.scenario-year:focus {
+  border-color: var(--border);
+  background: var(--card);
+}
+
+/* On the row, the year the producer chose. It leads the meta line, so it takes
+   the heading ink rather than the green and red that mean money either side. */
+.scn-year {
+  color: var(--brand-ink);
 }
 
 .scenario-name:hover,
@@ -624,12 +713,21 @@ input.invalid {
   color: var(--sky);
 }
 
+/* `margin-left: auto` rather than space-between on the parent, and it is doing
+   two jobs at once. It collapses the free space BEFORE the save state, so the
+   state and the tabs travel together at the right edge. And it keeps the tabs
+   there on the Saved and compare screens, which render no name block at all —
+   with space-between and one child left, the tabs would drop to the left edge
+   and jump sideways every time the producer changed tab. */
 .save-state {
   font-size: 12px;
   color: var(--muted);
   white-space: nowrap;
   flex: 0 0 auto;
-  margin-left: 6px;
+  /* Bottom-aligned with the tabs by .app-head's align-items, then lifted clear
+     of the header rule so it reads on the tab LABELS' line rather than sitting
+     on the rule the tab boxes stand on. */
+  margin: 0 8px 10px auto;
 }
 
 .save-state.dirty {
@@ -1363,6 +1461,60 @@ input.invalid {
 }
 
 /* ---- saved scenarios & compare ----------------------------------------- */
+
+/* ---- filtering the saved list ------------------------------------------ */
+
+.scn-filter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0 0;
+}
+
+.scn-filter-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* The placeholder names five things you can filter by, which is a long line on
+   a phone. It is shrunk on its own rather than by taking the input down with
+   it: the 16px on `input` is what stops iOS Safari zooming the page on focus,
+   and that is keyed to the INPUT's font-size, not the placeholder's. Do not
+   "simplify" these two into one rule. */
+@media (max-width: 899px) {
+  .scn-filter-input {
+    min-height: 38px;
+    padding: 6px 9px;
+  }
+
+  .scn-filter-input::placeholder {
+    font-size: 13px;
+  }
+}
+
+/* The handle keeps its place while reordering is off, rather than being pulled
+   out of the row. Removing it would re-flow every row the moment a filter was
+   typed into, so the list would appear to shuffle itself in answer to a search
+   that is only supposed to be hiding things. */
+.scn-list.filtered .scn-grip {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.scn-empty,
+.scn-hidden-note {
+  margin: 10px 0 0;
+}
+
+/* Selected-but-hidden is a discrepancy between the button's count and what is
+   on screen, so it takes the same warm mark the baseline rule does rather than
+   sitting in the page as one more grey line. */
+.scn-hidden-note {
+  background: var(--clay-bg);
+  border-left: 3px solid var(--clay);
+  border-radius: 0 6px 6px 0;
+  padding: 9px 11px;
+}
 
 .scn-list {
   display: grid;
@@ -2105,6 +2257,78 @@ body.modal-open {
     align-items: stretch;
   }
 
+  /* The year drops to its own row, which leaves the title the full width of the
+     phone instead of the half it was sharing. Two short things side by side on
+     a 360px screen is how a budget called "Corn, no-till, north quarter" ends
+     up showing "Corn, no-t".
+
+     `flex: 1 1 0` and the zero is the whole trick. Flexbox breaks LINES before
+     it shrinks anything: an item is placed by its hypothetical main size, and
+     only once the lines exist does shrinking happen. With `flex-basis: auto`
+     the name block's hypothetical size is its full content width, so a long
+     budget name plus "Unsaved changes" overflowed the container and the save
+     state was pushed onto a row of its own — no shrink factor anywhere could
+     have prevented that, because the decision was already made. A basis of zero
+     means the two always fit on one line, and `flex-grow` then hands this block
+     everything the save state does not need.
+
+     The title is what gives, and it gives by truncating: see .scenario-name's
+     text-overflow. */
+  .name-wrap {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    flex: 1 1 0;
+    min-width: 0;
+    align-self: baseline;
+  }
+
+  /* The year row can be wider than the title row on a narrow phone, and in a
+     column flex box a child is sized to its own content and will happily hang
+     out of its parent. Truncating the caption is the safe end of that. */
+  .year-edit {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .year-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Beside the title rather than beside the whole two-row block.
+     BOTH items take `baseline`, and that is load-bearing: a baseline group of
+     one is placed at the start of the line, so setting it on the save state
+     alone would leave it at the TOP of a 37px title box rather than on the
+     title's own line. With .name-wrap in the group too, its baseline resolves
+     through .title-row to the name input's text, and the two line up as text. */
+  .save-state {
+    align-self: baseline;
+    /* Flush with the enterprise card's OUTER edge, not with the "Remove" link
+       15px inside it. The header and the cards are both children of <main> and
+       neither is inset, so the two edges are the same line and a right margin
+       of zero is what puts the state on it. */
+    margin: 0 0 0 auto;
+  }
+
+  /* The title's text starts 9px in: 1px of transparent border plus the input's
+     8px of left padding. The year caption is not in a box, so without this it
+     began 9px to the left of the title above it and the two rows read as
+     misaligned. Tied to .scenario-name's padding — change one, change both. */
+  .year-edit {
+    padding-left: 9px;
+  }
+
+  /* The row goes full width so a long name can GROW into it. The box itself
+     stays sized to its text by sizeNameInput() — an empty input spanning the
+     screen reads as a form field you must fill in, which is the thing the
+     content sizing exists to avoid. What changes here is the ceiling, not the
+     box. */
+  .title-row {
+    width: 100%;
+  }
+
   .app-nav {
     width: 100%;
     justify-content: flex-start;
@@ -2203,9 +2427,16 @@ body.modal-open {
   .mode-toggle,
   .chev,
   .scn-grip,
+  /* App state, not budget data. "Unsaved changes" on a printed budget is a
+     sentence about a browser tab that no longer exists. */
+  .save-state,
   .edit-name,
   .edit-icon,
   .overlay,
+  /* The box is a control, so it goes. The hint line stays, and while a filter
+     is running it reads "Showing 3 of 12 budgets" — which is the only thing on
+     paper that explains why nine budgets are missing from a printed list. */
+  .scn-filter,
   .footer button {
     display: none !important;
   }

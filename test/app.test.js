@@ -67,6 +67,14 @@ function textOf(selector) {
   return doc.querySelector(selector)?.textContent?.trim() ?? null
 }
 
+/**
+ * The settled save state, tick and all. Spelled out here rather than imported
+ * from main.js, because main.js is imported fresh into a new DOM on every boot
+ * and has no export to reach for — but written as a constant so the tick cannot
+ * be dropped from the app without a test saying so.
+ */
+const SAVED_LABEL = '✓ Saved'
+
 describe('the app boots', () => {
   beforeEach(async () => {
     await boot()
@@ -434,7 +442,7 @@ describe('saving, duplicating and comparing', () => {
     type('enterprises.0.acres', '500')
     click('[data-action="save-scenario"]')
 
-    assert.equal(textOf('#saveState'), 'Saved')
+    assert.equal(textOf('#saveState'), SAVED_LABEL)
     click('[data-action="go-scenarios"]')
     assert.equal(doc.querySelectorAll('.scn').length, 1)
     // The saved list renames in place, so the name is an input's value rather
@@ -664,9 +672,9 @@ describe('folding cards away', () => {
 
   test('folding is not part of the budget, so it never marks it unsaved', () => {
     click('[data-action="save-scenario"]')
-    assert.equal(textOf('#saveState'), 'Saved')
+    assert.equal(textOf('#saveState'), SAVED_LABEL)
     click('.ent [data-action="toggle-enterprise"]')
-    assert.equal(textOf('#saveState'), 'Saved')
+    assert.equal(textOf('#saveState'), SAVED_LABEL)
   })
 })
 
@@ -682,11 +690,11 @@ describe('only a real change marks a budget unsaved', () => {
   test('an input event that changes nothing leaves the budget saved', () => {
     type('enterprises.0.acres', '500')
     click('[data-action="save-scenario"]')
-    assert.equal(textOf('#saveState'), 'Saved')
+    assert.equal(textOf('#saveState'), SAVED_LABEL)
 
     // Same value again, as a focus or an arrow key on a number box produces.
     type('enterprises.0.acres', '500')
-    assert.equal(textOf('#saveState'), 'Saved')
+    assert.equal(textOf('#saveState'), SAVED_LABEL)
   })
 
   test('a different value still marks it unsaved', () => {
@@ -711,10 +719,10 @@ describe('only a real change marks a budget unsaved', () => {
     option.dispatchEvent(new win.MouseEvent('click', { bubbles: true }))
 
     click('[data-action="save-scenario"]')
-    assert.equal(textOf('#saveState'), 'Saved')
+    assert.equal(textOf('#saveState'), SAVED_LABEL)
 
     type('fixed.equipment.0.salvageValue', '50000')
-    assert.equal(textOf('#saveState'), 'Saved')
+    assert.equal(textOf('#saveState'), SAVED_LABEL)
   })
 })
 
@@ -930,6 +938,260 @@ describe('the saved list', () => {
     assert.ok(help, 'the ? sits beside the Open a budget file link')
     help.dispatchEvent(new win.MouseEvent('click', { bubbles: true }))
     assert.match(doc.querySelector('.modal-body').textContent, /\.json file/)
+  })
+})
+
+describe('filtering the saved list', () => {
+  let saved
+
+  beforeEach(async () => {
+    await boot()
+    saved = 0
+  })
+
+  /** Save one budget per entry, then land on the Saved tab. */
+  function saveBudgets(entries) {
+    for (const entry of entries) {
+      // The app boots holding one blank budget; every one after that has to be
+      // started, and "+ New budget" only exists on the Saved tab.
+      if (saved > 0) {
+        click('[data-action="go-scenarios"]')
+        click('[data-action="new-scenario"]')
+      }
+      type('name', entry.name)
+      if (entry.crop) type('enterprises.0.crop', entry.crop)
+      if (entry.year) type('scenarioYear', entry.year)
+      click('[data-action="save-scenario"]')
+      saved += 1
+    }
+    click('[data-action="go-scenarios"]')
+  }
+
+  /** Six budgets: enough for the filter box to appear at all. */
+  function sixBudgets() {
+    saveBudgets([
+      { name: 'North quarter', crop: 'Corn' },
+      { name: 'South quarter', crop: 'Soybeans' },
+      { name: 'Home place', crop: 'Corn' },
+      { name: 'Rented ground', crop: 'Spring wheat' },
+      { name: 'Creek field', crop: 'Oats' },
+      { name: 'Hill pasture', crop: 'Grass hay' },
+    ])
+  }
+
+  function filterTo(value) {
+    const box = doc.querySelector('[data-scn-filter]')
+    assert.ok(box, 'there is a filter box')
+    box.value = value
+    box.dispatchEvent(new win.Event('input', { bubbles: true }))
+    return box
+  }
+
+  const visible = () =>
+    [...doc.querySelectorAll('.scn')]
+      .filter((row) => !row.hidden)
+      .map((row) => row.querySelector('.scn-name-input').value)
+
+  test('the box is there from the first saved budget, but not before', () => {
+    // A control that materialises partway down a list is one a producer has to
+    // notice arriving. Over nothing at all it has nothing to filter.
+    click('[data-action="go-scenarios"]')
+    assert.equal(doc.querySelector('[data-scn-filter]'), null, 'nothing saved, nothing to filter')
+
+    click('[data-action="go-build"]')
+    saveBudgets([{ name: 'One' }])
+    assert.ok(doc.querySelector('[data-scn-filter]'), 'and from then on it is always there')
+  })
+
+  test('the scenario year and the year it was saved are two different filters', () => {
+    // A 2031 plan written today is not a 2026 budget, and a producer reaching
+    // for either of those numbers should find it. Nothing derives one from the
+    // other, which is the whole reason scenarioYear exists as a stored field.
+    saveBudgets([
+      { name: 'North quarter', year: '2031' },
+      { name: 'South quarter' },
+    ])
+
+    assert.match(textOf('.scn-year'), /2031/, 'and it is printed on the row it can be found by')
+
+    filterTo('2031')
+    assert.deepEqual(visible(), ['North quarter'], 'found by the year it is FOR')
+
+    filterTo(String(new Date().getFullYear()))
+    assert.equal(visible().length, 2, 'and both are still found by the day they were saved')
+  })
+
+  test('a year finds the budgets saved in it', () => {
+    saveBudgets([{ name: 'North quarter' }, { name: 'South quarter' }])
+    const year = String(new Date().getFullYear())
+
+    filterTo(year)
+    assert.deepEqual(visible().sort(), ['North quarter', 'South quarter'])
+
+    filterTo(String(Number(year) - 1))
+    assert.deepEqual(visible(), [], 'and does not find the ones saved in another')
+
+    // The month is offered the way it is said out loud, not the way the row
+    // prints it: "8/5/2026" fed in digit by digit would have "5" return every
+    // budget touched on the fifth of a month.
+    filterTo(new Date().toLocaleString(undefined, { month: 'long' }))
+    assert.equal(visible().length, 2)
+  })
+
+  test('typing hides the rows that do not match, without re-rendering', () => {
+    sixBudgets()
+    const box = filterTo('quarter')
+    assert.deepEqual(visible().sort(), ['North quarter', 'South quarter'])
+    // The box the producer is typing into must survive its own keystroke. A
+    // render() here would replace it and take the caret and the mobile keyboard
+    // with it.
+    assert.equal(doc.querySelector('[data-scn-filter]'), box, 'the same box, not a new one')
+    assert.equal(box.value, 'quarter')
+  })
+
+  test('a crop finds a budget whose name never mentions it', () => {
+    // "Which of these had soybeans in it" is the actual question, and the
+    // budget's own name frequently cannot answer it.
+    sixBudgets()
+    filterTo('soybeans')
+    assert.deepEqual(visible(), ['South quarter'])
+  })
+
+  test('the filter matches named fields, not whatever the row happens to print', () => {
+    // The row also carries an acreage and a profit figure. Matching on rendered
+    // text would have "acres" return every budget, and a digit return whichever
+    // ones have it somewhere in a dollar amount.
+    sixBudgets()
+    filterTo('acres')
+    assert.deepEqual(visible(), [], 'the word next to the number is not searchable')
+    filterTo('profit')
+    assert.deepEqual(visible(), [])
+  })
+
+  test('nothing matching says so rather than showing an empty list', () => {
+    sixBudgets()
+    filterTo('alfalfa')
+    assert.deepEqual(visible(), [])
+    const empty = doc.querySelector('[data-scn-empty]')
+    assert.equal(empty.hidden, false)
+    assert.match(empty.textContent, /No saved budget matches "alfalfa"/)
+  })
+
+  test('reordering is off while filtered, and comes straight back', () => {
+    // Moving a row while most of the list is hidden is an operation whose
+    // result the producer cannot see: the arrow swaps it past a budget that is
+    // not on screen and appears to do nothing at all.
+    sixBudgets()
+    const grips = () => [...doc.querySelectorAll('.scn-grip')]
+    const arrows = () => [...doc.querySelectorAll('.scn-move')]
+
+    filterTo('corn')
+    assert.equal(
+      grips().every((g) => g.draggable === false),
+      true,
+      'the handle is dead'
+    )
+    assert.equal(
+      arrows().every((a) => a.disabled),
+      true,
+      'and so are the arrows'
+    )
+    assert.match(textOf('[data-scn-hint]'), /Showing 2 of 6 budgets\. Reordering is off/)
+
+    click('[data-action="clear-scn-filter"]')
+    assert.equal(
+      grips().every((g) => g.draggable === true),
+      true,
+      'the handle works again'
+    )
+    // The ends stay disabled, because that was never about the filter.
+    const up = doc.querySelectorAll('[data-action="move-scenario-up"]')
+    const down = doc.querySelectorAll('[data-action="move-scenario-down"]')
+    assert.equal(up[0].disabled, true, 'the first row still cannot go up')
+    assert.equal(up[1].disabled, false, 'but the second one can')
+    assert.equal(down[down.length - 1].disabled, true, 'the last row still cannot go down')
+    assert.equal(down[0].disabled, false)
+    assert.match(textOf('[data-scn-hint]'), /Reorder the list with the ▲▼ arrows/)
+  })
+
+  test('Clear puts every budget back and keeps the ticks', () => {
+    sixBudgets()
+    const tick = (name) => {
+      const row = [...doc.querySelectorAll('.scn')].find(
+        (r) => r.querySelector('.scn-name-input').value === name
+      )
+      const box = row.querySelector('[data-compare-id]')
+      box.checked = true
+      box.dispatchEvent(new win.Event('change', { bubbles: true }))
+    }
+
+    tick('North quarter')
+    filterTo('soybeans')
+    click('[data-action="clear-scn-filter"]')
+
+    assert.equal(visible().length, 6)
+    assert.equal(doc.querySelector('[data-scn-filter]').value, '')
+    // Clearing in place rather than re-rendering is what keeps this true.
+    assert.equal(doc.querySelectorAll('[data-compare-id]:checked').length, 1)
+  })
+
+  test('a selected budget hidden by the filter is still compared, and says so', () => {
+    // Hiding a row does not untick it: "select two corn budgets, filter to
+    // soybeans, select two more" is a real way to build a comparison. But a
+    // comparison that quietly contains budgets nobody can see is the failure
+    // this app is careful about, so the discrepancy is named on screen.
+    sixBudgets()
+    const tickVisible = () => {
+      for (const row of doc.querySelectorAll('.scn')) {
+        if (row.hidden) continue
+        const box = row.querySelector('[data-compare-id]')
+        box.checked = true
+        box.dispatchEvent(new win.Event('change', { bubbles: true }))
+      }
+    }
+
+    filterTo('corn')
+    tickVisible() // North quarter, Home place
+    filterTo('soybeans')
+    tickVisible() // South quarter
+
+    const note = doc.querySelector('[data-scn-hidden-note]')
+    assert.equal(note.hidden, false)
+    assert.match(note.textContent, /2 budgets you have selected are hidden/)
+    assert.match(textOf('[data-action="compare-selected"]'), /Compare 3 budgets/)
+
+    click('[data-action="compare-selected"]')
+    assert.match(textOf('.compare .title'), /Comparing 3 budgets/)
+  })
+
+  test('hiding a row actually hides it', () => {
+    // Everything else in this block asserts `row.hidden`, and in jsdom that is
+    // true the moment the property is set because jsdom loads no CSS at all. In
+    // a browser the UA rule `[hidden] { display: none }` is outranked by any
+    // author rule that sets a display, and `.scn` is display:flex — so the
+    // filter set the attribute on every non-matching row and the list did not
+    // change. The stylesheet is the only place this can be proved.
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+    assert.match(
+      css.replace(/\s+/g, ' '),
+      /\[hidden\] \{ display: none !important; \}/,
+      'the attribute has to be given enough weight to beat .scn and .typ-option'
+    )
+  })
+
+  test('a budget saved while the list is filtered is never filtered out of sight', () => {
+    // Otherwise the row arrives hidden and the save reads as having failed.
+    sixBudgets()
+    filterTo('corn')
+    click('[data-action="new-scenario"]')
+    type('name', 'Bottom field')
+    type('enterprises.0.crop', 'Sunflowers')
+    click('[data-action="save-scenario"]')
+    click('[data-action="go-scenarios"]')
+
+    assert.equal(doc.querySelector('[data-scn-filter]').value, '', 'the box was emptied')
+    assert.ok(visible().includes('Bottom field'), 'and the new budget is on screen')
+    assert.equal(visible().length, 7)
   })
 })
 

@@ -136,6 +136,10 @@ export function newScenario(name = 'My Budget Scenario') {
     schemaVersion: SCHEMA_VERSION,
     id: makeId('scn'),
     name,
+    // The crop year this plan is FOR, which is not the year it was written in.
+    // Blank like every other field: nothing auto-fills here, and a year the app
+    // guessed would be indistinguishable on screen from one the producer chose.
+    scenarioYear: '',
     createdAt: now,
     updatedAt: now,
     enterprises: [newEnterprise()],

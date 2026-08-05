@@ -43,6 +43,8 @@ export function scenarioToCSV(scenario) {
 
   rows.push(['SDSHC Farm Plan Budget'])
   rows.push(['Budget name', scenario.name])
+  // The crop year the plan is FOR, which the export date below does not imply.
+  if (scenario.scenarioYear) rows.push(['Scenario year', scenario.scenarioYear])
   rows.push(['Exported', new Date().toLocaleString()])
   rows.push([])
 

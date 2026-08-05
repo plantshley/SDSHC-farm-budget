@@ -113,6 +113,19 @@ function migrate(scenario) {
     scenario.schemaVersion = 3
   }
 
+  // v3 → v4: budgets gained `scenarioYear`, the crop year the plan is FOR.
+  //
+  // Nothing is written here either, and specifically NOT a year guessed from
+  // createdAt. A 2027 plan is routinely built in 2026, so a timestamp is
+  // evidence of when someone was at the keyboard and no evidence at all of what
+  // they were planning for. Filling it in would put a fact on the budget that
+  // the producer never stated, and the filter would then find that budget under
+  // a year they did not choose. Blank is the honest answer, and blank is what
+  // the absent key already reads as everywhere it is shown.
+  if (Number(scenario.schemaVersion) < 4) {
+    scenario.schemaVersion = 4
+  }
+
   return scenario
 }
 

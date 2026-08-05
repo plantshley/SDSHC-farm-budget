@@ -31,7 +31,7 @@ which also records what was deliberately NOT shipped and why.
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 446 tests: the economic model, storage, data, and a DOM smoke test
+npm test           # 460 tests: the economic model, storage, data, and a DOM smoke test
 npm run build      # -> dist/
 ```
 
@@ -195,7 +195,7 @@ into it.
 Producers have saved work in their own browsers. When the scenario shape changes:
 bump `SCHEMA_VERSION` in `calc.js` **and** add a step to `migrate()` in
 `src/storage.js`. Never drop a scenario because it is old. One corrupt record is
-skipped, never fatal to the list. Currently at **3**; the tests assert against the
+skipped, never fatal to the list. Currently at **4**; the tests assert against the
 exported constant, not a literal, so a bump does not break three of them.
 
 A step that writes nothing is still a step worth adding — see v2 → v3, where the
@@ -224,6 +224,143 @@ position. A save also returns
 producer before overwriting; `{force: true}` proceeds. Saving is a
 read-modify-write of one key, so without that check a second tab could silently
 replace the first tab's work.
+
+### The Saved-tab filter, and the two things it is not allowed to do
+
+A filter box sits above the saved list from the **first saved budget onward**,
+and is absent only on the empty state, where there is nothing to filter. It was
+briefly gated on a row count; a control that materialises partway down a list is
+one a producer has to notice arriving, and there was no obvious number for it to
+arrive at.
+
+**It filters in place and never calls `render()`.** Same rule `updateOutputs()`
+exists for: replacing the DOM under the box being typed into moves the caret and
+drops the mobile keyboard. It would also take every compare tick with it, so a
+search made mid-selection would silently undo the selection it was helping with.
+`applyScenarioFilter()` in `main.js` hides rows, rewrites the hint, and is
+re-run at the end of `render()` because the list rebuilds for reasons that have
+nothing to do with the filter.
+
+**Matching is on `data-scn-search`, a named field list baked into the row, never
+on its rendered text.** The row also prints an acreage and a profit figure, so
+matching what is on screen would have "acres" return every budget and a digit
+return whichever ones have it somewhere in a dollar amount. `searchText()` reads
+enterprise names and crops **off the scenario, not through
+`enterpriseLabel()`** — that falls back to "Enterprise 1", and a filter of
+"enterprise" matching every budget on the device is worse than no filter.
+
+**Two different years are searchable and they are not interchangeable.**
+`scenarioYear` is the crop year the budget is FOR, stated by the producer;
+`updatedAt` is when they were last at the keyboard. For a 2027 plan written in
+2026 those are different numbers, and both are things somebody reaches for. Both
+are printed on the row, so a filter can never match something invisible.
+
+**The saved date contributes its year and month name, never the slashed form the
+row prints.** "2026" and "august" are how a producer says a date out loud.
+Feeding in "8/5/2026" digit by digit would have a filter of "5" return every
+budget touched on the fifth of a month, which is the same spurious-digit problem
+one field over.
+
+### `scenarioYear` is stated, never inferred
+
+The crop year a budget is for is a fact about the plan, and **nothing derives it
+from a timestamp.** A 2027 budget is routinely built in 2026, so `createdAt` is
+evidence of when someone was at the keyboard and no evidence at all of what they
+were planning for. It starts blank like every other field (see *Nothing
+auto-fills*), with the current year only as a placeholder, and the **v3 → v4
+migration deliberately writes nothing** — backfilling from `createdAt` would put
+a year on the budget the producer never chose and then let the filter find it
+under that year. Asserted in `test/storage.test.js` under *v4 migration*.
+
+It lives in the header with the budget name because it is the same kind of
+thing: a label for the whole budget rather than a figure in it. `calc.js`
+ignores it entirely.
+
+**`.name-wrap` is a row on a computer and a column on a phone**, which is why
+the name has a `.title-row` wrapper of its own rather than sitting directly in
+it. On a 360px screen the year beside the title left the name about half the
+width, so "Corn, no-till, north quarter" showed as "Corn, no-t". The mobile rule
+widens the *row*, not the box: `sizeNameInput()` still sizes the input to its
+text, because an empty input spanning the screen reads as a form field you must
+fill in, which is the thing that content sizing exists to avoid.
+
+**`.scenario-year` is `8ch` wide and that is not slack.** `*` sets
+`box-sizing: border-box`, so the width has to cover the padding and the border
+as well as four bold digits. At `5.5ch` it resolved to about thirty pixels of
+content and cut the year off. Same failure as `.sub-title`'s `min-height`, one
+element over.
+
+**The save state lands in a different place at each width, and it is one element
+in one place in the DOM.** Left of the Budget tab on a computer; on the end of
+the title row on a phone. It cannot be rendered twice — `updateStatus()` and
+`flashSaved()` address it by id — so it is a direct child of `.app-head`,
+between the name block and the nav, and the flex rules do the moving:
+
+- **`margin-left: auto` on `.save-state`** collapses the free space *before* it,
+  so it and the tabs travel together at the right edge. That also keeps the tabs
+  right on the Saved and compare screens, which render no name block at all;
+  under `space-between` with one child left, the tabs would drop to the left
+  edge and jump sideways every time the producer changed tab.
+- **On mobile, `.name-wrap` and `.save-state` both take `align-self: baseline`,
+  and both halves are needed.** A baseline group of one is placed at the start
+  of its line, so setting it on the save state alone would leave it at the top
+  of a 37px title box instead of on the title's line. With `.name-wrap` in the
+  group its baseline resolves through `.title-row` to the name input's text, and
+  the two align as text. `.name-wrap` is `flex: 1 1 auto` rather than
+  `width: 100%` for the same reason: full width would push the save state onto
+  its own row.
+- **On mobile it is flush with the enterprise card's outer edge**, not with the
+  "Remove" link 15px inside it. The header and the cards are both children of
+  `<main>` and neither is inset, so those are the same line and a right margin
+  of zero is what lands on it.
+- **It never moves to a row of its own, and `.name-wrap { flex: 1 1 0 }` on
+  mobile is what guarantees that.** The zero is the trick, and no shrink factor
+  can substitute for it. **Flexbox breaks lines before it shrinks anything:** an
+  item is placed on a line by its *hypothetical* main size, and only once the
+  lines exist does shrinking happen. At `flex-basis: auto` the name block's
+  hypothetical size is its full content width, so a long budget name plus
+  "Unsaved changes" (three times the width of "✓ Saved") overflowed the
+  container and the state was pushed down — the decision having been made
+  before any shrink factor was consulted. A basis of zero puts both on one line
+  always; `flex-grow` then gives the name block whatever the state does not
+  need. The **title** absorbs it, by truncating with an ellipsis.
+- **`.year-edit` carries `padding-left: 9px` on mobile**, which is
+  `.scenario-name`'s 1px transparent border plus its 8px of left padding. The
+  caption is not in a box, so without it the year row started 9px left of the
+  title above it. Change one, change both.
+
+It is hidden in print: app state, not budget data.
+
+**Reordering is off while a filter is running** (`setReorderEnabled()`, plus a
+guard in both drag paths). A manual arrangement is an arrangement of the whole
+list, and moving a row while most of it is hidden is an operation whose result
+the producer cannot see: ▲ swaps the row past a budget that is not on screen and
+appears to do nothing at all. The hint says so, and clearing the box restores
+the arrows by recomputing first-and-last from the full row list.
+
+**The filter is cleared whenever the set of saved budgets grows** — on a
+successful save, a duplicate, and an import. A newly saved budget arriving
+filtered out of sight reads as the save having failed. It is otherwise UI state
+like `collapsedEnterprises`: not in the scenario, not in `localStorage`, and it
+deliberately survives a render.
+
+**A hidden row keeps its compare tick, and the discrepancy is named on screen.**
+"Select two corn budgets, filter to soybeans, select two more" is a real way to
+build a comparison, so unticking on hide would destroy work to answer a lookup.
+But a comparison quietly containing budgets nobody can see is the failure this
+app is careful about, so `refreshCompareButton()` writes a
+`[data-scn-hidden-note]` line saying how many of the selected budgets are off
+screen.
+
+**`[hidden] { display: none !important }` is load-bearing, and its absence was a
+shipped bug.** The browser's own `[hidden]` rule is in the UA stylesheet, and
+any author rule setting a display beats it — the cascade ranks author sheets
+above UA sheets before specificity is considered. `.scn` is `display: flex` and
+`.typ-option` is `display: grid`, so **the land-rent county search had been
+setting `hidden` on non-matching options and leaving them all on screen.**
+jsdom cannot catch this, because it loads no CSS and `el.hidden` reads true
+there whatever the stylesheet says. Pinned by an assertion against the
+stylesheet source in `test/app.test.js` under *hiding a row actually hides it*.
 
 ### Reordering is implemented twice, and has to be
 
@@ -587,7 +724,7 @@ smoke test catches it.
 
 ## Tests
 
-446 tests across six files:
+460 tests across six files:
 
 - `test/calc.test.js` — the model against real Excel output, plus the deliberate
   divergences and the regressions listed above.
@@ -599,7 +736,7 @@ smoke test catches it.
   conflicts.
 - `test/app.test.js` — boots the real app in jsdom and drives it. Now also
   covers the results/sticky-bar agreement, folding, inline rename, drag
-  reordering and the unit-aware typical-value picker.
+  reordering, the unit-aware typical-value picker, and the Saved-tab filter.
 - `test/typical-values.test.js` — the shape and provenance of every shipped
   figure: a citation on everything, no negative or non-finite values, sentinels
   that `ui/modals.js` can actually resolve, and the land-rent extraction checked
