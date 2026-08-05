@@ -140,7 +140,6 @@ export function scenarioToCSV(scenario) {
   rows.push([
     'Note: profit per acre is weighted by acres, and equipment interest is included in total profit.',
   ])
-  rows.push(['These differ from the original spreadsheet — see "How this differs" in the app.'])
 
   return csvRows(rows)
 }

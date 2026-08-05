@@ -14,35 +14,22 @@ screen and runs with **no signal**.
 ## What it does
 
 - **One budget per enterprise** — corn, silage, soybeans, grazing. As many as you
-  need (the spreadsheet it replaces stopped at four).
+  need.
 - **Every term explained** — tap the `?` beside anything confusing: gross margin,
   salvage value, why a machine costs you both depreciation *and* interest.
 - **Typical values, if you want them** — some fields offer published figures.
   Nothing is ever filled in for you, and every list says where its numbers came
   from.
 - **Save and compare scenarios** — Field Corn vs. Silage Corn, Tillage vs.
-  No-Till. This is the part a spreadsheet can't do well.
-- **Export** — CSV for a spreadsheet, print for paper or PDF, or a budget file to
-  move onto another device.
+  No-Till. Change one thing, and see what it costs.
+- **Export** — CSV, print for paper or PDF, or a budget file to move onto another
+  device.
 
 ### Your budgets stay on your device
 
 Saved budgets live in your browser and are **not sent anywhere**. That also means
 they won't appear on your other phone or computer, and clearing your browsing
 data will delete them. Export anything you want to keep.
-
----
-
-## Based on a spreadsheet, with corrections
-
-This reproduces the `SimpleFarmPlanBudget` spreadsheet formula for formula — with
-a few deliberate fixes. If you hold the two side by side, some numbers will
-differ. The **How this differs** note on the results screen explains each one.
-
-The largest: the spreadsheet leaves equipment interest out of its Total Profit,
-even though it includes it in Total Fixed Costs. On a farm with a few hundred
-thousand dollars of machinery, that alone can be the difference between showing a
-profit and showing a loss.
 
 ---
 
@@ -66,8 +53,8 @@ a broken calculation blocks the deploy.
 | `src/state.js`, `src/storage.js` | The working budget, and saving it |
 | `src/ui/` | Screens: enterprises, fixed costs, results, compare, modals |
 | `src/data/` | Definitions, typical values, the how-to guide |
-| `test/` | Model tests against real Excel output, plus a DOM smoke test |
-| `CLAUDE.md` | Architecture, contracts, and every divergence from the sheet |
+| `test/` | Model tests against a golden fixture, plus a DOM smoke test |
+| `CLAUDE.md` | Architecture, contracts, and why the model does what it does |
 | `TYPICAL-VALUES.md` | Where each suggested value came from |
 
 ---

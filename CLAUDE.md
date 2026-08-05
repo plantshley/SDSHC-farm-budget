@@ -31,7 +31,7 @@ which also records what was deliberately NOT shipped and why.
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 447 tests: the economic model, storage, data, and a DOM smoke test
+npm test           # 446 tests: the economic model, storage, data, and a DOM smoke test
 npm run build      # -> dist/
 ```
 
@@ -53,8 +53,16 @@ move it back.
 
 **These are corrections, not drift. Do not "fix" them back to match the
 .xlsx.** Every one is asserted in `test/calc.test.js` under *deliberate
-divergences*, and explained to producers by the `?` on the results screen
-(`showDifferences()` in `src/ui/results.js`).
+divergences*.
+
+**This section is now the only record of them.** The app used to disclose them to
+producers through a `showDifferences()` guide on the results screen and a
+`.differs-note` that opened it; both were removed once the corrections were
+signed off, because the app is not presented as a version of a spreadsheet its
+users may never have opened. Nothing about the model changed with them. If a
+future change to `calc.js` moves a producer's number, that is a different
+question from these six and needs its own answer — do not treat the absence of
+the guide as licence to diverge quietly.
 
 1. **`P78` Total Profit omitted equipment interest.** The sheet subtracts
    `SUM(P44,P35,O33,P61,P69,P71:P74)` — `P52` is missing — while its own
@@ -366,9 +374,9 @@ separate*.
 definitions at once — the fixed-costs one opens seven — so `openInfo()` renders
 each as a closed `<details>` whenever there is more than one. Flat, that is four
 screens of prose to scroll past to reach the term you actually tapped for; the
-list of headings is itself the answer to "what is on this card?". `showDifferences()`
-and the how-to guide use the same rule via `openGuide({ collapsible: true })`
-with no `firstOpen`. **A single definition is never folded** — tapping `?` and
+list of headings is itself the answer to "what is on this card?". The how-to
+guide uses the same rule via `openGuide({ collapsible: true })` with no
+`firstOpen`. **A single definition is never folded** — tapping `?` and
 then tapping again to read the answer is not an improvement. Asserted in
 `test/app.test.js` under *a card `?` is a list of terms, not a wall of prose*.
 
@@ -396,12 +404,12 @@ carried as a `table: '1a' | '1b'` flag that the tests key on instead.
 (*"seed, fertilizer, chemicals, fuel"*) is a different construction and takes no
 extra comma — don't add an "and" to make one fit the rule.
 
-**The app no longer mentions the spreadsheet except where it has to.** Producers
-here have not necessarily seen the .xlsx, and a definition that explains itself
-by contrast with a document you have never opened explains nothing. The one place
-it is still named is `showDifferences()` on the results screen and the
-`.differs-note` that opens it, which exist for exactly that purpose. Definitions
-and the how-to guide stand on their own.
+**The app does not mention the spreadsheet at all.** Producers here have not
+necessarily seen the .xlsx, and a definition that explains itself by contrast
+with a document you have never opened explains nothing. Nothing on screen, in a
+modal, in the how-to guide, in an export, or in README.md names it. The cell
+references in `calc.js` comments stay: they are how a future change is checked
+against the source, and nobody reads them but us.
 
 ### Nothing auto-fills
 
@@ -499,7 +507,7 @@ has no layout, so the test can only prove the boxes are measured at all.
 
 **Print strips browser chrome, not just buttons.** The `@media print` block
 disables number-input spinners and the select `▾` as well as hiding `.help-btn`,
-`.tip`, `.chev` and `.differs-note`. On screen a spinner says "you can change
+`.tip` and `.chev`. On screen a spinner says "you can change
 this"; on paper it is ink on top of the producer's figures, and a `▾` beside a
 value reads as part of it.
 
@@ -579,7 +587,7 @@ smoke test catches it.
 
 ## Tests
 
-447 tests across six files:
+446 tests across six files:
 
 - `test/calc.test.js` — the model against real Excel output, plus the deliberate
   divergences and the regressions listed above.

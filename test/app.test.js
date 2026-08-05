@@ -421,13 +421,6 @@ describe('help affordances stay separate', () => {
     assert.match(body, /Silage/i)
     assert.match(body, /No-Till/i)
   })
-
-  test('the divergence note explains the equipment interest correction', () => {
-    click('[data-action="show-differences"]')
-    const body = doc.querySelector('.overlay.open .modal-body').textContent
-    assert.match(body, /equipment interest/i)
-    assert.match(body, /weighted/i)
-  })
 })
 
 describe('saving, duplicating and comparing', () => {
@@ -1241,8 +1234,8 @@ describe('a card `?` is a list of terms, not a wall of prose', () => {
     assert.ok(doc.querySelector('.modal-body .def h3'), 'the answer is simply shown')
   })
 
-  test('the divergence guide opens with every section shut', () => {
-    click('[data-action="show-differences"]')
+  test('a multi-section guide opens with every section shut', () => {
+    click('[data-action="how-to"]')
     const folds = doc.querySelectorAll('.modal-body details.def-fold')
     assert.ok(folds.length >= 5)
     assert.equal([...folds].every((d) => !d.open), true)

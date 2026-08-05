@@ -29,7 +29,7 @@ import {
 } from './storage.js'
 import { renderEnterprises } from './ui/enterprise.js'
 import { renderFixed, OVERHEAD_LINES } from './ui/fixed.js'
-import { renderResults, showDifferences, renderWarningsInto } from './ui/results.js'
+import { renderResults, renderWarningsInto } from './ui/results.js'
 import { renderScenarioList, renderCompare } from './ui/scenarios.js'
 import { openInfo, openTypical, openGuide } from './ui/modals.js'
 import { usd, usdCents, esc, signClass } from './ui/format.js'
@@ -1046,10 +1046,6 @@ function handleAction(action, btn) {
       // Folded shut so the whole guide is one screen of headings you can pick
       // from, rather than several screens of scrolling to reach the last one.
       openGuide('How to use this calculator', HOW_TO_SECTIONS, { collapsible: true })
-      break
-
-    case 'show-differences':
-      showDifferences()
       break
 
     case 'export-csv':
