@@ -239,7 +239,7 @@ function renderPreharvest(e, entPath) {
       </div>
       ${
         auto
-          ? `<p class="hint">Calculated from the preharvest costs above. Hauling, drying and marketing are excluded.</p>`
+          ? `<p class="hint">Calculated from the preharvest costs above. Hauling, drying, and marketing are excluded.</p>`
           : ''
       }
     </div>`

@@ -335,7 +335,7 @@ describe('Iowa State A3-29 figures, as published', () => {
     for (const cls of [
       'Plows and subsoilers',
       'Other tillage',
-      'Planter, drill or sprayer',
+      'Planter, drill, or sprayer',
       'Mower or chopper',
       'Baler',
       'Swather or rake',
@@ -357,7 +357,7 @@ describe('Iowa State A3-29 figures, as published', () => {
     const BOUNDS = {
       'Plows and subsoilers': [0.26, 0.47],
       'Other tillage': [0.16, 0.61],
-      'Planter, drill or sprayer': [0.29, 0.65],
+      'Planter, drill, or sprayer': [0.29, 0.65],
       'Mower or chopper': [0.21, 0.47],
       Baler: [0.16, 0.56],
       'Swather or rake': [0.15, 0.49],

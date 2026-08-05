@@ -266,7 +266,7 @@ function footer() {
       <button type="button" class="tip" data-action="export-json">Save budget file</button>
       ·
       <button type="button" class="tip" data-action="print">Print</button>
-      <p>South Dakota Soil Health Coalition · budgets are saved on this device only</p>
+      <p>South Dakota Soil Health Coalition</p>
     </div>`
 }
 
@@ -657,12 +657,92 @@ app.addEventListener('dragend', (e) => {
     return
   }
 
+  commitOrder(list)
+})
+
+/* ──────────────────── the same reorder, by finger ──────────────────────── */
+
+/**
+ * HTML5 drag-and-drop does not exist on touch, and these budgets are mostly
+ * reordered on a phone, so the handle needs a second implementation rather than
+ * being decoration there.
+ *
+ * The whole gesture has to be claimed on POINTERDOWN. A touch the browser is
+ * allowed to turn into a scroll is gone for good: it fires `pointercancel` and
+ * there is no way to ask for it back. `touch-action: none` on `.scn-grip` (see
+ * styles.css) is the half of this that says "never scroll from here"; this code
+ * is the half that then owns every move until the finger lifts.
+ *
+ * A mouse is left entirely to the native implementation above. Running both for
+ * one device would start two drags from one gesture.
+ */
+let touchDrag = null
+
+app.addEventListener('pointerdown', (e) => {
+  if (e.pointerType === 'mouse') return
+  const grip = e.target.closest?.('.scn-grip')
+  const row = grip?.closest('.scn')
+  const list = row?.closest('[data-scn-list]')
+  if (!list) return
+
+  e.preventDefault()
+  touchDrag = { row, list, moved: false }
+  row.classList.add('dragging')
+  list.classList.add('dragging-active')
+  // Capture keeps the events coming to the handle after the row has slid out
+  // from under the finger. Not fatal if the browser refuses it.
+  try {
+    grip.setPointerCapture(e.pointerId)
+  } catch {
+    /* the gesture still works, it just ends early if the finger leaves */
+  }
+})
+
+app.addEventListener('pointermove', (e) => {
+  if (!touchDrag) return
+  e.preventDefault()
+  // A captured pointer reports the HANDLE as its target for the whole gesture,
+  // so the row under the finger has to be found by coordinate instead.
+  const over = document.elementFromPoint?.(e.clientX, e.clientY)?.closest?.('.scn')
+  if (!over || over === touchDrag.row || !touchDrag.list.contains(over)) return
+  // Insert before or after depending on which half of the row we are over, so
+  // the row follows the finger instead of jumping a place late.
+  const box = over.getBoundingClientRect()
+  const after = e.clientY > box.top + box.height / 2
+  touchDrag.list.insertBefore(touchDrag.row, after ? over.nextSibling : over)
+  touchDrag.moved = true
+})
+
+app.addEventListener('pointerup', () => endTouchDrag(true))
+app.addEventListener('pointercancel', () => endTouchDrag(false))
+
+function endTouchDrag(commit) {
+  if (!touchDrag) return
+  const { row, list, moved } = touchDrag
+  touchDrag = null
+  row.classList.remove('dragging')
+  list.classList.remove('dragging-active')
+
+  // A tap on the handle that went nowhere is not a reorder, and writing every
+  // row's position back for one would be a storage write for no change.
+  if (!moved) return
+
+  // A cancelled gesture has already moved the rows, and only this code can put
+  // them back — same reasoning as Escape on the mouse path.
+  if (!commit) {
+    render()
+    return
+  }
+  commitOrder(list)
+}
+
+function commitOrder(list) {
   const order = [...list.querySelectorAll('.scn')].map((el) => el.getAttribute('data-scn-id'))
   if (!reorderScenarios(order).ok) {
     alert('This browser would not save the new order.')
     render()
   }
-})
+}
 
 /* ─────────────────────────── actions ───────────────────────────────────── */
 

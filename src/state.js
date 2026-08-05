@@ -130,7 +130,7 @@ export function newBuilding() {
   }
 }
 
-export function newScenario(name = 'My farm budget') {
+export function newScenario(name = 'My Budget Scenario') {
   const now = new Date().toISOString()
   return {
     schemaVersion: SCHEMA_VERSION,

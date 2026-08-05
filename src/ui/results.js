@@ -208,13 +208,7 @@ export function showDifferences() {
         'The spreadsheet has a Total Gross Margin label but no cell that adds the enterprises together. That total is calculated here.',
       ],
     },
-    {
-      heading: 'What was left alone',
-      body: [
-        'Interest on equipment is charged on its average value, (purchase price + salvage) ÷ 2. Buildings are charged on half their purchase price. The spreadsheet treats the two differently and so does this calculator: both are defensible, and changing it would move your numbers for no clear gain.',
-        'Land rent is still one rate applied across all your acres.',
-      ],
-    },
+
     ],
     // All shut. Six sections opened flat is more scrolling than reading, and the
     // list of headings is itself the answer to "what changed?" — you open the

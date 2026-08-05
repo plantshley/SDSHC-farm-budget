@@ -31,7 +31,7 @@ which also records what was deliberately NOT shipped and why.
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 445 tests: the economic model, storage, data, and a DOM smoke test
+npm test           # 446 tests: the economic model, storage, data, and a DOM smoke test
 npm run build      # -> dist/
 ```
 
@@ -217,6 +217,32 @@ producer before overwriting; `{force: true}` proceeds. Saving is a
 read-modify-write of one key, so without that check a second tab could silently
 replace the first tab's work.
 
+### Reordering is implemented twice, and has to be
+
+HTML5 drag-and-drop does not exist on touch, and these budgets are mostly
+reordered on a phone. `main.js` therefore carries a native `dragstart`/`dragover`
+/`dragend` path for a mouse and a `pointerdown`/`pointermove`/`pointerup` path
+for touch, gated on `e.pointerType === 'mouse'` so one gesture never starts both.
+Both finish through `commitOrder()`.
+
+**`touch-action: none` on `.scn-grip` is load-bearing.** A touch the browser is
+allowed to interpret as a scroll is gone: it fires `pointercancel` and there is
+no way to claim it back, which is why the handle previously did nothing on a
+phone but scroll the page. The property has to be declared on the element up
+front, not decided when the gesture starts, and it is scoped to the handle alone
+so the rest of the list still scrolls. `preventDefault()` on `pointerdown` is the
+other half.
+
+A captured pointer reports the *handle* as its target for the whole gesture, so
+`pointermove` finds the row under the finger with `document.elementFromPoint()`
+rather than `e.target`. jsdom has no layout and no `elementFromPoint`, so the
+test supplies one; everything either side of that is the real code path.
+
+The **arrows are still the primary control** — they work from a keyboard, from a
+screen reader, and without a steady hand, and they keep the full 44px on touch.
+The handle is the shortcut. It is now visible on touch too, which costs the row
+about 30px of height; a hidden control cannot be the one people ask for.
+
 ### The typical-value picker knows its units
 
 Each variable-expense spec in `data/typical-values.js` declares `appliesTo:
@@ -362,8 +388,20 @@ calculated, then a worked number. **No em-dashes** (full stop, comma or colon
 instead), no hedging openers, no editorialising, and **no source citations in the
 prose** — a source belongs in a spec's `source` field, which the picker prints in
 its footer, and in TYPICAL-VALUES.md. Same rule for group labels: a picker row
-says *"Planter, drill or sprayer"*, not *"…— Iowa State Table 1b"*. Provenance is
+says *"Planter, drill, or sprayer"*, not *"…— Iowa State Table 1b"*. Provenance is
 carried as a `table: '1a' | '1b'` flag that the tests key on instead.
+
+**The serial comma is required** on any list ending in "and" or "or":
+*"hauling, drying, and marketing"*. A list written without a final conjunction
+(*"seed, fertilizer, chemicals, fuel"*) is a different construction and takes no
+extra comma — don't add an "and" to make one fit the rule.
+
+**The app no longer mentions the spreadsheet except where it has to.** Producers
+here have not necessarily seen the .xlsx, and a definition that explains itself
+by contrast with a document you have never opened explains nothing. The one place
+it is still named is `showDifferences()` on the results screen and the
+`.differs-note` that opens it, which exist for exactly that purpose. Definitions
+and the how-to guide stand on their own.
 
 ### Nothing auto-fills
 
@@ -541,7 +579,7 @@ smoke test catches it.
 
 ## Tests
 
-445 tests across six files:
+446 tests across six files:
 
 - `test/calc.test.js` — the model against real Excel output, plus the deliberate
   divergences and the regressions listed above.

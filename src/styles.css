@@ -1363,6 +1363,12 @@ input.invalid {
   flex: 0 0 auto;
 }
 
+/* `touch-action: none` is what makes dragging work by finger at all, and it has
+   to be declared up front rather than decided once the gesture starts. Without
+   it the browser treats the first movement as a page scroll, cancels the
+   pointer stream, and there is no way to ask for it back — which is exactly the
+   handle-does-nothing-but-scroll behaviour this used to have. Scoped to the
+   handle, so the rest of the list still scrolls normally under a finger. */
 .scn-grip {
   cursor: grab;
   color: var(--muted);
@@ -1370,6 +1376,8 @@ input.invalid {
   line-height: 1;
   padding: 1px 2px;
   user-select: none;
+  touch-action: none;
+  -webkit-touch-callout: none;
 }
 
 .scn-grip:active {
@@ -1395,13 +1403,19 @@ input.invalid {
   cursor: default;
 }
 
-/* Touch has no drag-and-drop, so the handle is decoration there — the arrows
-   above and below it are the control that actually works, and on touch they are
-   the ONLY way to reorder, so they get the full 44px. Dropping the grip makes
-   room for that without the row growing. */
+/* The arrows are the primary control and get the full 44px on touch: they work
+   from a keyboard, they work without a steady hand, and they are the only one of
+   the two a screen reader can drive.
+
+   The handle is real on touch as well, which it was not before. Dragging is
+   what a phone reaches for first, and a handle that only lets the page scroll
+   under the finger reads as the app being broken rather than as an invitation to
+   use the arrows. It costs the row about 30px of height; the alternative was
+   hiding it, and a hidden control cannot be the one people ask for. */
 @media (hover: none) {
   .scn-grip {
-    display: none;
+    padding: 7px 12px;
+    font-size: 17px;
   }
 
   .scn-move {
@@ -2078,6 +2092,38 @@ body.modal-open {
   .scn-btns {
     width: 100%;
     justify-content: flex-end;
+  }
+
+  /* Tables are the one place the page still has to hold several columns at
+     phone width, and the only place left where .tbl-scroll takes over and the
+     right-hand figures go off the edge. A point off the type buys the room
+     back. The compare figures come down further than the rest: their 16px is
+     sized to be read off a projector at the back of a classroom, which is not
+     the job on a phone held at arm's length. */
+  .tbl,
+  .tbl th {
+    font-size: 13px;
+  }
+
+  .tbl th,
+  .tbl td {
+    padding: 6px;
+  }
+
+  .compare-tbl td:not(:first-child) {
+    min-width: 92px;
+  }
+
+  .compare-tbl td.num {
+    font-size: 14px;
+  }
+
+  .compare-tbl tr.total td.num {
+    font-size: 15px;
+  }
+
+  .delta {
+    font-size: 11px;
   }
 }
 

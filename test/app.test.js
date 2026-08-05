@@ -804,7 +804,9 @@ describe('the saved list', () => {
   test('the baseline rule is stated where budgets are picked', () => {
     click('[data-action="save-scenario"]')
     click('[data-action="go-scenarios"]')
-    assert.match(textOf('.baseline-note').replace(/\s+/g, ' '), /first one you tick becomes the\s*baseline/i)
+    // The RULE has to be on screen; the verb it is phrased with is free to
+    // change with the rest of the copy.
+    assert.match(textOf('.baseline-note').replace(/\s+/g, ' '), /first one you \w+ becomes the\s*baseline/i)
   })
 
   test('rows can be dragged, and the order survives leaving the tab', () => {
@@ -860,6 +862,59 @@ describe('the saved list', () => {
     click('[data-action="go-build"]')
     click('[data-action="go-scenarios"]')
     assert.deepEqual(names(), ['Third', 'First', 'Second'])
+  })
+
+  test('the handle reorders by finger, not just by mouse', () => {
+    type('name', 'First')
+    click('[data-action="save-scenario"]')
+    for (const name of ['Second', 'Third']) {
+      click('[data-action="go-scenarios"]')
+      click('[data-action="new-scenario"]')
+      type('name', name)
+      click('[data-action="save-scenario"]')
+    }
+    click('[data-action="go-scenarios"]')
+
+    const list = doc.querySelector('[data-scn-list]')
+    const rows = [...list.querySelectorAll('.scn')]
+    const grip = rows[2].querySelector('.scn-grip')
+    assert.ok(grip, 'the handle exists at every width, not desktop only')
+
+    const touch = (type, props = {}) => {
+      const e = new win.MouseEvent(type, { bubbles: true, cancelable: true })
+      Object.defineProperty(e, 'pointerType', { value: 'touch' })
+      for (const [k, v] of Object.entries(props)) Object.defineProperty(e, k, { value: v })
+      grip.dispatchEvent(e)
+      return e
+    }
+
+    const down = touch('pointerdown')
+    // The half that was actually broken: unless the gesture is claimed here, the
+    // browser turns the first movement into a page scroll and never gives it
+    // back. `touch-action: none` on the handle is the other half, in styles.css.
+    assert.equal(down.defaultPrevented, true, 'the browser is not left to scroll the page')
+    assert.equal(rows[2].classList.contains('dragging'), true, 'the row is picked up')
+
+    // jsdom has no layout, so the row under the finger has to be supplied. A
+    // real browser answers this from the coordinates.
+    doc.elementFromPoint = () => rows[0]
+    touch('pointermove', { clientY: 0 })
+    assert.deepEqual(
+      [...list.querySelectorAll('.scn')].map((r) => r.querySelector('.scn-name-input').value),
+      ['First', 'Third', 'Second'],
+      'the row follows the finger'
+    )
+
+    touch('pointerup')
+    assert.equal(rows[2].classList.contains('dragging'), false, 'and is put back down')
+
+    // Saved, not just shuffled on screen.
+    click('[data-action="go-build"]')
+    click('[data-action="go-scenarios"]')
+    assert.deepEqual(
+      [...doc.querySelectorAll('.scn-name-input')].map((i) => i.value),
+      ['First', 'Third', 'Second']
+    )
   })
 
   test('opening a budget file explains what one is', () => {

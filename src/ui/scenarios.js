@@ -24,7 +24,7 @@ export function renderScenarioList(currentId) {
   return `
     <section class="box">
       <header class="block-head">
-        <h2 class="title">Saved budgets</h2>
+        <h2 class="title">Saved scenarios</h2>
         <!-- Sized to its own text rather than the full width .btn-add normally
              takes. Full width it read as the primary thing to do on a page whose
              actual subject is the list underneath it. -->
@@ -36,14 +36,14 @@ export function renderScenarioList(currentId) {
       ${
         all.length
           ? `<p class="hint">
-               Saved on this device only. Tap a name to rename it. Renames save immediately.
+               Saved on this device only. Tap a name to rename it.
                Reorder the list with the ▲▼ arrows, or by dragging the handle.
              </p>
              <div class="scn-list" data-scn-list>
                ${all.map((s, i) => renderScenarioRow(s, currentId, i, all.length)).join('')}
              </div>
              <p class="hint baseline-note">
-               Tick two or more to compare them. <b>The first one you tick becomes the
+               Select two or more to compare them. <b>The first one you select becomes the
                baseline.</b> Every other budget is shown as a difference from it.
              </p>
              <div class="scn-actions">
@@ -53,8 +53,8 @@ export function renderScenarioList(currentId) {
                ${openFile}
              </div>`
           : `<p class="hint">
-               No saved budgets yet. Build one, name it, and save it. Then duplicate it to
-               compare a different set of assumptions.
+               No saved budget scenarios yet. Build one, name it, and save it. Then duplicate it to
+               compare different scenarios.
              </p>
              ${openFile}`
       }
@@ -69,10 +69,12 @@ function renderScenarioRow(s, currentId, index, total) {
   return `
     <div class="scn ${isCurrent ? 'current' : ''}" data-scn-id="${esc(s.id)}">
       <div class="scn-order">
-        <!-- HTML5 drag-and-drop does not exist on touch, and these budgets are
-             mostly reordered on a phone. The arrows are the real control; the
-             drag handle is the shortcut for anyone on a mouse. Arrows also make
-             this reachable from a keyboard, which dragging never is. -->
+        <!-- Two ways to do one thing, deliberately. The arrows are the control
+             that always works: from a keyboard, from a screen reader, and
+             without a steady hand. The handle is the shortcut, and it is driven
+             by native drag-and-drop on a mouse and by pointer events on touch
+             (main.js), because HTML5 drag-and-drop does not exist on touch and
+             these budgets are mostly reordered on a phone. -->
         <button type="button" class="scn-move" data-action="move-scenario-up"
           data-id="${esc(s.id)}" ${index === 0 ? 'disabled' : ''}
           aria-label="Move ${esc(s.name)} up">▲</button>

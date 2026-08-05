@@ -7,6 +7,10 @@
  * HOUSE STYLE, and it is a requirement rather than a preference:
  *   - Say what the thing is, then how it is calculated, then a worked number.
  *   - No em-dashes. Use a full stop, a comma, or a colon.
+ *   - SERIAL COMMA on every list that ends in "and" or "or": "hauling, drying,
+ *     and marketing", never "hauling, drying and marketing". A list written
+ *     without a final conjunction ("seed, fertilizer, chemicals, fuel") is a
+ *     different construction and takes no extra comma.
  *   - No hedging openers ("if you want", "you might"), no editorialising
  *     ("that beats any table", "this is the most useful thing here").
  *   - No source citations in the prose. Sources belong in the `source` field of
@@ -21,7 +25,6 @@ export const DEFINITIONS = {
     title: 'Enterprise name',
     body: [
       'A label for this column. It changes no numbers.',
-      'It is separate from the crop because two enterprises can grow the same crop. If you are comparing tillage systems, "No-till corn" and "Conventional corn" tell you which column is which. "Corn" twice does not.',
       'Leave it blank and the crop name is used instead.',
     ],
   },
@@ -41,7 +44,6 @@ export const DEFINITIONS = {
     body: [
       'Hired help for the whole farm. Do not include your own hours unless you intend to charge the business for your time.',
       'Enter the figure the way you know it. For someone working ten hours a week, choose "hours / week" and enter 10. The calculator converts it to a yearly total.',
-      'The original spreadsheet asks for an annual total, which means doing that conversion first. That is where a budget picks up a factor-of-twelve error.',
     ],
   },
 
@@ -70,7 +72,7 @@ export const DEFINITIONS = {
   enterpriseBudget: {
     title: 'Enterprise budget',
     body: [
-      'An enterprise is one crop or activity budgeted on its own: corn, soybeans, silage, a grazing enterprise.',
+      'An enterprise is one crop or activity budgeted on its own: corn, soybeans, silage, a grazing enterprise, etc.',
       'Budgeting each one separately shows which enterprises make money, instead of only showing whether the whole farm did.',
       'Add as many as you need. Income and variable expenses belong to a single enterprise. Fixed costs are shared across all of them.',
     ],
@@ -126,7 +128,6 @@ export const DEFINITIONS = {
     body: [
       'What a machine will still be worth when you are done with it. Its trade-in or resale value at the end of its useful life.',
       'It is not what you paid, and for most farm equipment it is not zero. A tractor bought for $285,000 might still be worth $95,000 after twelve years.',
-      'It matters because you only wear out the difference. The cost is the part of the purchase price that disappears, not the whole of it.',
       'Buildings in this calculator depreciate to zero, so they have no salvage value.',
     ],
   },
@@ -155,7 +156,6 @@ export const DEFINITIONS = {
     body: [
       'EQUIPMENT is machinery you operate: tractors, combines, planters, drills, tillage tools, grain carts, augers, skid loaders, sprayers, trucks.',
       'BUILDINGS are permanent structures: machine sheds, grain bins, shops, barns, fencing, permanent water systems.',
-      'The practical difference here is salvage value. Equipment keeps one. Buildings depreciate to zero.',
       'The test for an unclear item: would it sell separately at an auction? If so, enter it as equipment.',
       'Include only items used for the enterprises in this budget, and enter the share that belongs to this operation.',
     ],
@@ -165,7 +165,7 @@ export const DEFINITIONS = {
     title: 'Land rent',
     body: [
       'What the land costs you per acre for the year.',
-      'If you rent, use your cash rent. If you own the ground, use what you could rent it out for. Owning land does not make it free: you are giving up the rent someone else would pay.',
+      'If you rent, use your cash rent. If you own the ground, use what you could rent it out for.',
       'This calculator applies one rate across all acres. Where rented and owned ground differ, use a weighted average.',
     ],
   },
@@ -173,9 +173,9 @@ export const DEFINITIONS = {
   preharvestInterest: {
     title: 'Interest on preharvest costs',
     body: [
-      'Seed, fertilizer and chemicals are paid for in the spring. The crop is not paid for until after harvest. Interest is the cost of carrying those expenses in between, either on an operating loan or on your own money.',
-      'It is calculated here: preharvest costs × interest rate × months ÷ 12. The original spreadsheet assumed 8 months at 10%.',
-      'Hauling, drying and marketing are excluded. They happen at or after harvest, so they are not carried through the season.',
+      'Seed, fertilizer, and chemicals are paid for preharvest. Interest is the cost of carrying those expenses in between, either on an operating loan or on your own money.',
+      'It is calculated here: preharvest costs × interest rate × months ÷ 12.',
+      'Hauling, drying, and marketing are excluded. They happen at or after harvest, so they are not carried through the season.',
       'Change the rate and months to match your operating note, or switch the line to entering the figure yourself.',
     ],
   },
@@ -194,7 +194,6 @@ export const DEFINITIONS = {
     body: [
       'Total farm profit divided by total acres. What is left after every variable and fixed cost is paid.',
       'It is weighted by acreage. With corn on 500 acres and soybeans on 300, the corn figure carries more weight.',
-      'This is calculated differently from the original spreadsheet, which added each enterprise per-acre figure together. That only works when every enterprise has the same acreage. The results screen has a note explaining the difference.',
     ],
   },
 
@@ -202,7 +201,7 @@ export const DEFINITIONS = {
     title: 'Total profit',
     body: [
       'Total gross margin minus total fixed costs. The bottom line for the whole operation.',
-      'A negative number is not a calculation error. It means the enterprises as entered are not covering the full cost of the land, labor and machinery behind them.',
+      'A negative number is not a calculation error. It means the enterprises as entered are not covering the full cost of the land, labor, and machinery behind them.',
     ],
   },
 }

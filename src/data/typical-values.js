@@ -538,7 +538,7 @@ export const TYPICAL_VALUES = {
         { label: 'Plows and subsoilers', cats: ['tillage'], ten: 0.33, twelve: 0.32, fifteen: 0.29 },
         { label: 'Other tillage', cats: ['tillage'], ten: 0.3, twelve: 0.26, fifteen: 0.22 },
         {
-          label: 'Planter, drill or sprayer',
+          label: 'Planter, drill, or sprayer',
           cats: ['planting', 'spraying'],
           ten: 0.4,
           twelve: 0.38,
