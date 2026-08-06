@@ -31,7 +31,7 @@ which also records what was deliberately NOT shipped and why.
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 460 tests: the economic model, storage, data, and a DOM smoke test
+npm test           # 505 tests: the economic model, storage, data, and a DOM smoke test
 npm run build      # -> dist/
 ```
 
@@ -195,7 +195,7 @@ into it.
 Producers have saved work in their own browsers. When the scenario shape changes:
 bump `SCHEMA_VERSION` in `calc.js` **and** add a step to `migrate()` in
 `src/storage.js`. Never drop a scenario because it is old. One corrupt record is
-skipped, never fatal to the list. Currently at **4**; the tests assert against the
+skipped, never fatal to the list. Currently at **5**; the tests assert against the
 exported constant, not a literal, so a bump does not break three of them.
 
 A step that writes nothing is still a step worth adding — see v2 → v3, where the
@@ -361,6 +361,382 @@ setting `hidden` on non-matching options and leaving them all on screen.**
 jsdom cannot catch this, because it loads no CSS and `el.hidden` reads true
 there whatever the stylesheet says. Pinned by an assertion against the
 stylesheet source in `test/app.test.js` under *hiding a row actually hides it*.
+
+### Folders are sections on one page, never a screen you navigate into
+
+Built on the `opal` branch from FOLDERS-PLAN.md, which still holds the long
+argument for each decision. Membership is one `folderId` on the budget; the
+folders themselves live in their own `sdshc-fb-folders` key.
+
+**There is no "inside a folder".** The decisive reason is Compare:
+`compare-selected` reads `[data-compare-id]:checked` off the document, so the
+selection lives in the DOM and navigating away throws it out. "Compare my 2025
+corn against my 2026 corn" is the most valuable thing the Saved tab does and it
+has to keep working across folders. The other two reasons: with every row on one
+page the visible top-to-bottom order is still a valid global order, so the
+reorder code survives; and folding is the idiom the app already uses everywhere.
+
+**Every invariant is a variation on one rule: an organising feature must never
+be able to lose a budget.**
+
+- **`deleteFolder()` never deletes a budget.** Members are un-filed first, and a
+  failure there abandons the whole operation with nothing changed. The
+  confirmation says so in as many words, including the count. There is no
+  cascade delete and no configuration that produces one.
+- **The ungrouped pile is built as "everything no section claimed", not
+  "everything with no `folderId`".** Those differ in exactly one case and it is
+  the one that matters: a budget naming a folder that has been deleted — here, in
+  another tab, or by a partial write. Defined this way it lands in the pile and
+  is on screen; defined the other way it would belong to a section that is never
+  rendered, and it would be gone. `sectionOf()` in `main.js` resolves it the same
+  way, because the arrows would otherwise hunt for section-mates in a section
+  that is nowhere on screen.
+- **A corrupt folders key costs the folders, never the budgets.** They are
+  separate localStorage keys precisely so that can be true. `listFolders()`
+  returns `[]` on a parse failure and skips individual malformed entries; with no
+  folders the Saved tab is the flat list it was before, still holding everything.
+- **`icon` and `color` are token keys, never a glyph and never a hex.** A stored
+  `#2e7d32` cannot be re-rendered for dark mode. An unrecognised key falls back
+  to the plain folder and the neutral swatch — same rule as `perYearFactor()`
+  returning 1 for a basis it does not know.
+
+**`moveScenarioToFolder()` is modelled on `renameScenario()`, not
+`saveScenario()`** — the Saved tab files a row that may not be the budget open on
+the Budget tab. It differs in one way: **it does not bump `updatedAt`.** Filing
+is not editing. The date on the row is when the producer last worked on that
+farm, so filing never resets it, never disturbs the newest-first fallback, and
+never manufactures a save conflict in another tab.
+
+**`saveScenario()` lets the stored `folderId` win, in both directions.** Open a
+budget, go to Saved, file it, come back and save: the working copy was read
+before the move and would un-file it. The `else delete record.folderId` half is
+the same hazard run backwards, after a move *out*. Identical to the trap
+`sortIndex` already guards against, one field over.
+
+**`folderId` is stripped on export and on import.** A folder organises one
+device's list; an id from another device means nothing here except by an unlucky
+collision.
+
+#### What the arrows and the drag each had to change
+
+**▲▼ swap a budget with its neighbour IN ITS OWN SECTION.** `sortIndex` is still
+one global rank shared by every budget, so the row above this one on screen can
+belong to another folder — trading ranks with it moves nothing anybody can see
+and changes neither budget's folder. That is the same "appears to do nothing"
+failure that turns reordering off while a filter is running. A swap, not a
+splice-move: the two rows trade places and nothing else shifts.
+
+**A shut folder still renders its rows and hides them with CSS, and that is
+load-bearing.** `commitOrder()` sends every row on the page as a complete global
+order. `reorderScenarios()` appends ids it was not given, so a partial list would
+rewrite the rank of every budget the producer cannot see, with nothing on screen
+to say so. FOLDERS-PLAN §5 proposes a `mergeVisibleOrder()` for this; it is
+**not** needed here, and the only reason is that the rows never leave the DOM. If
+a future change stops rendering a shut folder's contents, the bug is back and the
+merge becomes mandatory.
+
+**A drop across a section does `moveScenarioToFolder()` first, then the
+reorder**, so a failed reorder can never leave a row drawn in a folder it is not
+in. A drop *within* a section refreshes in place (compare ticks survive, same
+rule as the filter box); a drop *across* one takes the full `render()` — not for
+the counts, which update in place perfectly well, but for the drop targets.
+
+**The ungrouped pile is drawn whenever it has members and whenever any folder
+exists.** Left to hide when empty it disappeared exactly when every budget had
+been filed, taking the drop target for "drag one back out" with it — a shortcut
+that works until the moment you need it.
+
+**With no folders at all it gets no heading**, just the rows: "Not in a folder"
+over the entire list, with nothing to contrast it against, is a fold to open and
+a label answering a question nobody asked, and that is the state most producers
+here will be in permanently. The `<section>` and the `.scn-list` stay, so the
+drag, filter and reorder code all see the structure they always see — only the
+`<header>` is missing, and `.scn-section-bare` drops the indent and left rule
+that exist to tie a list to a heading.
+
+**A headless section is always open, and that is a guard rather than a
+detail.** `applySectionVisibility()` checks for the class before consulting
+`expandedFolders`. Without it: shut the ungrouped pile while a folder exists,
+then delete that folder, and the pile returns headless *and* still marked shut —
+every budget on the device behind a control that is no longer on the page. Pinned
+by *deleting the last folder cannot leave the budgets folded out of sight*.
+
+#### Folders start shut, and the filter has to reach inside them
+
+This is the **opposite of FOLDERS-PLAN §9**, which argued for open. Shut is what
+was asked for, and it makes two other things load-bearing:
+
+- **`expandedFolders` is a set of OPEN ids, not closed ones.** With shut as the
+  resting state, "not in the set" is the default and a folder the app forgot to
+  seed cannot spring open. The ungrouped pile is seeded open at module level
+  because it is not a folder: it is where a budget saved a moment ago lands.
+- **A filter forces a section holding a match open, and hides one holding
+  none.** Without it a search reports nothing while the row sits in a closed
+  fold — the exact failure `wireSearch()` already fixed for the land-rent county
+  list. None of it touches `expandedFolders`: a search is a question, not a
+  decision about how the list should sit, so clearing the box restores the
+  producer's own arrangement. The per-folder count is rewritten to "2 of 3
+  budgets" for the same reason the hint line is.
+- **A budget can now be off screen two ways** — filtered out, or folded away —
+  and `refreshCompareButton()` counts both into `[data-scn-hidden-note]`. Folding
+  is deliberately *in place*, never a `render()`, so ticks survive it, which is
+  what makes the note necessary rather than decorative.
+
+Fold state is UI state, like `collapsedEnterprises`: module-level in `main.js`,
+not in the scenario, not in `localStorage`.
+
+#### The palette, and the one colour that is not on offer
+
+**Twelve glyphs and twelve swatches, and the counts must stay equal.** The editor
+lays them out as two rows of the same width and they read as a matched pair;
+twelve and nine would look like one of them had failed to load. Pinned by a test.
+
+To change either, there is a **header comment at the top of `ui/folders.js`**
+that names every place involved. In short: a glyph is one entry in `PATHS` and
+one in `ICON_LABELS`; a colour is one entry in `FOLDER_COLORS` and `COLOR_LABELS`
+**plus three things in `styles.css`** — the `--fld-<key>` / `--fld-<key>-bg` pair
+in `:root`, the same pair under `[data-theme="dark"]`, and a `.fld-c-<key>` class
+mapping them onto `--fld-ink` / `--fld-wash`.
+
+**A colour key with no `.fld-c-` class renders with no colour at all** — no
+error, no fallback, just a chip the same shade as the card. It is the one failure
+in this feature nothing warns you about, so a test walks `FOLDER_COLORS` against
+the stylesheet source and asserts all four pieces exist. jsdom loads no CSS, so
+that check has nowhere else to live.
+
+Icons are **inline SVG, never emoji** — `prefs.js` already rejected emoji for the
+theme toggle, and a row of twelve emoji folder icons across Windows, Android and
+iOS is three different-looking apps. They are stroke-only on a 24-unit box and
+tinted through `currentColor`, so one glyph carries any colour and there is no
+per-colour asset.
+
+The swatches walk the wheel with **pink where red would be**, closing on slate
+and grey. Red is the omission and it is not squeamishness: `--green` means a
+positive dollar figure and `--cost` a negative one, and a red folder mark on a
+page whose every row prints a profit or a loss re-opens the question the palette
+exists to settle. A test asserts red is absent under four of its names.
+
+**Every swatch is its own value, the blue and the green included.** They began as
+`--sky` and `--olive`, which cost no new tokens but tied a folder's colour to the
+app's chrome: a "blue" folder was the same blue as every `?` button and every KPI
+edge, an "olive" one the same as every section rule. A folder colour is a label
+the producer chose. It should not read as furniture, and it should not move if
+the brand ever does.
+
+**The ink is the same in both themes; only the wash flips.** Every other colour
+token in `styles.css` has a `[data-theme="dark"]` override, and these twelve
+deliberately do not — a producer who made the pink folder should find a pink
+folder in either theme, because the colour is a label they chose rather than
+part of the furniture. The dark block carries the twelve `-bg` washes and no
+inks, and a test asserts the absence rather than trusting it to stay absent.
+
+The constraint that follows: each ink has to carry on a white card **and** on a
+dark one, so they run mid-tone rather than the darker shades a light theme alone
+would pick. They are stroked glyphs and filled dots with the folder's name in
+ordinary text beside them, never text themselves, so a mid-tone reads fine on
+both — but change one and check it against both washes.
+
+**Colour appears on the section header and nowhere else.** Tinting fifteen rows
+by folder next to fifteen profit figures is the same collision by another route.
+And **colour is never the only signal**: the folder's name is always beside it in
+ordinary text, so a producer who cannot tell the swatches apart loses decoration
+and no information — which is the whole test of whether colour was doing a job it
+should not have been.
+
+**The fold caret is drawn, never typed.** `.chev` builds it from two borders of a
+box rotated 45 degrees, so the span takes **no text** — a `▾` placed inside it as
+well renders a second caret about twice the size underneath the real one, which
+shipped once and read as a broken font. Which way it points comes off
+`aria-expanded` in CSS, so there is one source of truth and nothing for JS to
+keep in step. ### A backtick in an HTML comment ends the template literal it sits in
+
+Every screen here is a template literal, and the comments explaining the awkward
+bits are HTML comments *inside* those literals. A backtick in one closes the
+literal early and everything after it is parsed as JavaScript. This has taken the
+whole saved list down twice — once from a comment about `.chev`, once from a
+comment about `.block-head` — and both times the smoke tests caught it as a
+hundred and twenty failures saying nothing about the cause.
+
+`no HTML comment carries a backtick` in `test/app.test.js` scans every module in
+`src/` and `src/ui/` and names it instead. Say it without the backticks, or put
+the comment in JS above the template.
+
+#### Move is offered only once there is somewhere to move to
+
+A deliberate departure from FOLDERS-PLAN §6, which put the button on every row
+unconditionally. Most producers here keep three to eight budgets and will never
+make a folder, and a fourth button on every row opening a modal that offers only
+"Not in a folder" costs all of them and pays none. The first folder is made from
+"+ New folder" in the header; from then on every filing is one trip, because the
+Move modal carries its own `+ New folder…` that creates and selects in one pass.
+
+**A shut folder prints expanded.** `@media print` sets `.scn-list[hidden] {
+display: grid !important }`, which has to out-specify the global `[hidden] {
+display: none !important }` — both author-origin and both `!important`, so it is
+decided on specificity, (0,2,0) against (0,1,0). Dropping either the attribute
+selector or the `!important` puts the folds back on paper. It is scoped to
+`.scn-list` on purpose: a row hidden by the *filter* stays hidden, where the hint
+line reads "Showing 3 of 12 budgets" and is the only thing explaining why nine
+are missing.
+
+### Dragging a row has to look like dragging a row
+
+Two problems, and neither was the drag logic being wrong.
+
+**The lifted row did not move.** It stayed exactly where it was until the finger
+crossed a neighbour's midpoint and then teleported a whole row, so the one thing
+on screen not moving was the thing being dragged — and a gesture that has not
+taken yet is indistinguishable from one that failed. `.scn.dragging` now carries
+`transform: translateY(var(--lift)) …`, and `main.js` writes nothing but the
+number. What a lifted row *looks* like stays in CSS with the border and the
+shadow it belongs with. It is never transitioned: the lift **is** the finger's
+position, so easing it puts the row behind the finger by the length of the ease.
+`--lift` stays 0 on the mouse path, where the browser draws its own drag image
+and translating the original as well would show the row in two places.
+
+**Everything else teleported too.** Reordering is a DOM move and a DOM move
+cannot be transitioned — the browser lays out the new order in one frame. So
+`slideRows()` does FLIP: measure every row, do the move, measure again, put each
+shifted row back where it was with a transform, force one reflow for the whole
+batch, then clear the transforms and let CSS carry them. The layout still happens
+once; what the eye follows is a compositor animation of a transform, which is the
+one thing a phone animates at frame rate without touching layout. **The
+transition lives on `.scn-list.dragging-active .scn:not(.dragging)`** — without
+it, `slideRows()` sets an offset and clears it in the same frame, which is an
+expensive way to draw nothing.
+
+**`pointermove` is coalesced to one update per frame.** A 120Hz panel reports at
+120Hz, and the old code did a hit test, a `getBoundingClientRect` and a DOM
+insertion on every event — several forced layouts per frame, on the device least
+able to afford them. The handler now records a coordinate; `dragFrame()` does the
+work. `endTouchDrag()` cancels any pending frame and runs it **synchronously**
+first, because the finger's last position before it lifted is usually the one
+that decides where the row lands.
+
+**A long list scrolls under the drag.** Without it a budget can only be moved as
+far as the screen already shows, and getting one from the bottom of thirty to the
+top means drop, scroll, pick up, repeat — not a worse version of dragging but a
+different and much worse operation. `edgeScroll()` ramps the speed with how far
+into the 76px margin the finger is, so resting just inside it creeps and pushing
+to the very edge moves quickly; a fixed speed makes the only usable choice a slow
+one. Two details are load-bearing:
+
+- **It returns what the page ACTUALLY scrolled, not what was asked for.** At the
+  top or bottom of the document it moves less than requested, or not at all, and
+  `grabY` is corrected by the real figure — otherwise the row drifts away from
+  the finger every frame the page refuses to move.
+- **It does not start until the finger has moved.** Rows are picked up near the
+  bottom of the screen all the time, because that is where the end of a list is,
+  and a grab that starts scrolling before the producer has moved at all reads as
+  the app taking the gesture away from them.
+
+Only the touch path needs it: native HTML5 drag-and-drop scrolls at the edges by
+itself, so the mouse has had this all along.
+
+**This is why the frame loop runs for the whole gesture** rather than being
+scheduled by movement. A held finger fires no events, and auto-scroll has to keep
+happening while it sits still. The loop skips its own work when neither the
+pointer nor the scroll position has changed since the last frame, so a stationary
+finger does not pay for a hit test sixty times a second.
+
+Two consequences worth knowing before touching this again. **`view()` reads the
+window through `app.ownerDocument.defaultView`**, not off `globalThis` — booted
+into a synthetic document the window globals are not aliased, so
+`globalThis.innerHeight` is `undefined` and every viewport measurement silently
+answers zero. Same reason `sizeNameInput()` does it. And **a drag left open keeps
+Node alive**: the loop reschedules itself, so a test that throws mid-gesture hung
+the whole suite for five minutes. `boot()` now calls `dom.window.close()` on the
+previous DOM, and `tick` stops itself if the row is no longer connected.
+
+`dragFrame()` also re-bases `grabY` after a reinsertion. The row's layout box has
+just moved by a full row height, and the lift is measured from where the finger
+grabbed it — without the correction the row jumps by exactly that amount at the
+one instant it most needs to look continuous.
+
+**The lift broke the hit test, and the fix is not optional.** Once the row
+follows the finger at `z-index: 2` it is the topmost element at those coordinates
+*every time*, so `document.elementFromPoint()` answers "the row you are already
+dragging", the target search returns early, and the drop lands the row exactly
+where it started. `dragFrame()` therefore sets `pointer-events: none` on the row
+around that one call and restores it immediately — toggled in JS rather than set
+in CSS, because `setPointerCapture` here is best-effort (it is in a `try`) and a
+row permanently transparent to pointers would end the gesture whenever capture
+was refused.
+
+This shipped once, and the reason the tests missed it is worth keeping: jsdom has
+no layout, so `elementFromPoint` is supplied by the test, and a stub that always
+names some *other* row cannot fail the way a browser does. It now returns the
+dragged row unless `pointer-events` says otherwise, which makes the test go red
+if the toggle is removed.
+
+### The saved list is a table, not a stack of cards
+
+Rows were mostly padding around controls. Every figure a producer scans down —
+acreage, profit, the year — compares better when the rows are close enough to
+read as a column, so `.scn` padding, `.scn-main` gap, the name box's height and
+the meta line all came in, and the compare tick went from 22px to 18px (a tick in
+a column of ticks, not a form control; the label around it keeps the tap target
+the full height of the row).
+
+**`.scn-order` stays at the far left, beside the tick, at every width.** It was
+briefly moved onto the actions line with `order: 3` to buy height back; it saved
+about thirty pixels and cost the row its shape, because the handle you grab to
+move a row belongs at the edge you drag from and not in among four text links.
+Being the first flex child is also what stops it wrapping at all.
+
+The height comes out of the controls instead: on touch the arrows are **44 wide
+by 30 tall**, not 44 square. Width is what a thumb misses on, so width is what is
+kept, and 30px is still comfortably past the 24px minimum.
+
+**On mobile the row is a GRID, and that is what centres the handle.** Under
+`flex-wrap` the controls were centred on their own wrapped line — the one holding
+the tick and the name — which sat noticeably above the middle of a row whose
+actions were on a second line below. As a two-row grid the column spans both, so
+`align-items: center` centres it on the whole row, which is where a thumb
+reaching for the handle expects it:
+
+```
+"order pick main"
+"order pick btns"
+```
+
+**Both left-hand columns span both rows**, so the tick centres the same way the
+handle does — they are the two things a finger goes for without reading. The
+actions sit under the name rather than under the tick as well, which lines them
+up with the text they belong to; they are right-aligned either way, so the far
+end does not move. The grid also removes the guesswork the flex version needed:
+the column no longer has to be shorter than the content to avoid setting the
+row's height, because grid rows grow to whichever is taller.
+
+**The handle gets more room than either arrow, and 8px of clear space either
+side.** It is the one control aimed at with a *moving* thumb rather than a
+settled one, and it was the smallest. The gap matters more than the size: a
+missed grip that finds nothing is a gesture that did not start, where a missed
+grip that finds ▲ is a reorder the producer never asked for.
+
+Mobile also steps the type down — the name to 14px, the meta line to 11.5px, the
+row's links to 11.5px — with the name still bold and still the largest thing on
+the row, so the hierarchy is unchanged and every line takes less room. **The
+links get vertical padding as they shrink**, which is not decoration: `.tip`
+ships with `padding: 2px 0 0`, so its tap target is its text and nothing else,
+and taking the type down without that would have left about fourteen pixels of
+height on the control that deletes a budget.
+
+**The folder heading carries a 2px rule in the folder's own colour**, the full
+width of the row. The chip is 26px of colour and easy to miss down a long list; a
+rule under the whole heading is what actually separates one section from the next
+when several are open. It reads `--fld-ink` off the `.fld-c-*` class on the
+section, and the ungrouped pile has no folder and therefore no class, so it falls
+back to the plain border — which is right, since giving it a colour would make it
+look like one more folder. Same 2px idiom as `.sub-title`, so a folder heading
+and a card heading read as the same kind of thing.
+
+**The folder header is one row too, `flex-wrap: nowrap`.** Edit and the ▲▼ belong
+*to* the heading they sit on; dropped onto a line of their own they read as
+controls for the budgets underneath, which is the one thing they are not. The
+folder name is what gives way, truncating with an ellipsis — the count keeps its
+width, which falls out of `flex: 0 0 auto` and is also right, since "2 budgets"
+never grows and a folder name has no upper bound.
 
 ### Reordering is implemented twice, and has to be
 
@@ -724,7 +1100,7 @@ smoke test catches it.
 
 ## Tests
 
-460 tests across six files:
+505 tests across six files:
 
 - `test/calc.test.js` — the model against real Excel output, plus the deliberate
   divergences and the regressions listed above.
@@ -736,7 +1112,11 @@ smoke test catches it.
   conflicts.
 - `test/app.test.js` — boots the real app in jsdom and drives it. Now also
   covers the results/sticky-bar agreement, folding, inline rename, drag
-  reordering, the unit-aware typical-value picker, and the Saved-tab filter.
+  reordering, the unit-aware typical-value picker, the Saved-tab filter, and
+  folders. `boot()` takes an optional seed callback that runs against the empty
+  store just before `main.js` is imported — the only way to reach a state the app
+  cannot be driven into from its own boot, which is what a folder created in a
+  *previous* session is, and that is the one that starts shut.
 - `test/typical-values.test.js` — the shape and provenance of every shipped
   figure: a citation on everything, no negative or non-finite values, sentinels
   that `ui/modals.js` can actually resolve, and the land-rent extraction checked

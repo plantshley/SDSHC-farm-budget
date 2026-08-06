@@ -87,8 +87,14 @@ export const COST_BASIS = [
  * v4 added `scenarioYear`, the crop year a budget is FOR. It is not derivable
  * from any timestamp — a 2027 plan is routinely built in 2026 — and the model
  * ignores it entirely; it exists to label and to find a budget by.
+ *
+ * v5 added `folderId`, which names the folder a budget is filed in on THIS
+ * device. Absent, null, or pointing at a folder that no longer exists all mean
+ * the same thing: not in a folder. The model ignores it entirely, and it is
+ * stripped on export — a folder organises one device's list and is not part of
+ * anybody's budget. See migrate() and listFolders() in storage.js.
  */
-export const SCHEMA_VERSION = 4
+export const SCHEMA_VERSION = 5
 
 /* ────────────────────────────── helpers ────────────────────────────────── */
 

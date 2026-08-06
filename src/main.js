@@ -26,7 +26,11 @@ import {
   importScenarioJSON,
   renameScenario,
   reorderScenarios,
+  listFolders,
+  reorderFolders,
+  moveScenarioToFolder,
 } from './storage.js'
+import { openMoveModal, openFolderEditor, folderCountText } from './ui/folders.js'
 import { renderEnterprises } from './ui/enterprise.js'
 import { renderFixed, OVERHEAD_LINES } from './ui/fixed.js'
 import { renderResults, renderWarningsInto } from './ui/results.js'
@@ -68,6 +72,23 @@ let collapseDefaultsApplied = false
  * GROWS, so a newly saved budget can never arrive filtered out of sight.
  */
 let scenarioFilter = ''
+
+/**
+ * Which folder sections are open, by id. The ungrouped pile is `''`.
+ *
+ * UI state, like the folds above and for the same reason: whether a section is
+ * open on this phone right now is not a fact about any farm, so it is neither in
+ * the scenario nor in localStorage.
+ *
+ * A set of OPEN ids rather than closed ones, because folders default shut and
+ * "not in the set" is then the resting state — a set of closed ids would have to
+ * be re-seeded every time a folder was created, and a folder the app forgot to
+ * seed would spring open. The ungrouped pile is seeded open here because it is
+ * not a folder: it is where a budget saved a moment ago lands, and a Saved tab
+ * whose every section is shut has hidden every piece of work the producer came
+ * to find.
+ */
+const expandedFolders = new Set([''])
 
 /**
  * One-shot messages saying why a figure just vanished from a card, by
@@ -135,7 +156,8 @@ function render() {
   const scenario = getScenario()
 
   if (screen === 'scenarios') {
-    app.innerHTML = header() + renderScenarioList(scenario.id, scenarioFilter) + footer()
+    app.innerHTML =
+      header() + renderScenarioList(scenario.id, scenarioFilter, expandedFolders) + footer()
   } else if (screen === 'compare') {
     const picked = compareIds.map((id) => getScenarioById(id)).filter(Boolean)
     app.innerHTML =
@@ -591,11 +613,11 @@ function dropStaleOverheadValue(key, period) {
  * the selection it was helping with.
  */
 function applyScenarioFilter() {
-  const list = app.querySelector('[data-scn-list]')
-  if (!list) return
+  const root = app.querySelector('[data-scn-sections]')
+  if (!root) return
 
   const query = scenarioFilter.trim().toLowerCase()
-  const rows = [...list.querySelectorAll('.scn')]
+  const rows = [...root.querySelectorAll('.scn')]
   let shown = 0
 
   for (const row of rows) {
@@ -603,6 +625,8 @@ function applyScenarioFilter() {
     row.hidden = !match
     if (match) shown += 1
   }
+
+  applySectionVisibility(root, Boolean(query))
 
   const hint = app.querySelector('[data-scn-hint]')
   if (hint) hint.textContent = scenarioHint(shown, rows.length, Boolean(query))
@@ -616,8 +640,62 @@ function applyScenarioFilter() {
   const clear = app.querySelector('[data-action="clear-scn-filter"]')
   if (clear) clear.hidden = !query
 
-  setReorderEnabled(rows, !query)
+  setReorderEnabled(root, !query)
   refreshCompareButton()
+}
+
+/**
+ * A filter has to reach inside a shut folder, or it is lying about the list.
+ *
+ * Folders start closed, so a match sitting inside one is invisible — the exact
+ * failure the land-rent county search already hit, where a search appeared to
+ * find nothing while the row sat in a closed fold. So while a filter is running:
+ * a section holding a match is forced open, and a section holding none is hidden
+ * whole rather than left as a heading over nothing.
+ *
+ * None of that touches `expandedFolders`. The producer's own arrangement is
+ * restored the moment the box is cleared, because a search is a question, not a
+ * decision about how the list should sit.
+ *
+ * The per-folder count is rewritten for the same reason the hint line is. Left
+ * alone it would read "3 budgets" over a fold showing one, and a producer has no
+ * way to tell whether the other two are hidden or gone.
+ */
+function applySectionVisibility(root, filtering) {
+  for (const section of root.querySelectorAll('.scn-section')) {
+    const id = section.getAttribute('data-scn-section') ?? ''
+    const list = section.querySelector('[data-scn-list]')
+    const all = [...section.querySelectorAll('.scn')]
+    const matching = all.filter((row) => !row.hidden).length
+
+    // An empty section stays on screen while nothing is being filtered: a folder
+    // because it is a place to file into, the ungrouped pile because it is the
+    // place a budget comes back out to. Both say so in their own hint. Only a
+    // filter takes a section away, and then only because it holds no match.
+    // A section with no heading cannot be folded, because there is nothing left
+    // to unfold it with. Without this: shut the ungrouped pile while a folder
+    // exists, then delete that folder, and the pile comes back headless AND
+    // still marked shut in `expandedFolders` — every budget on the device
+    // disappears behind a control that is no longer on the page.
+    const bare = section.classList.contains('scn-section-bare')
+
+    section.hidden = filtering && matching === 0
+    if (list) {
+      list.hidden = filtering ? matching === 0 : !bare && !expandedFolders.has(id)
+    }
+
+    // aria-expanded is the only thing set: the caret is drawn by CSS and points
+    // off that attribute, so it cannot fall out of step with the fold.
+    section.querySelector('.fld-toggle')?.setAttribute('aria-expanded', String(!list?.hidden))
+
+    // The ungrouped pile has no folder record and no count to keep honest when
+    // it is empty — it simply is not rendered.
+    const count = section.querySelector('[data-fld-count]')
+    if (count) count.textContent = folderCountText(matching, all.length, filtering)
+
+    const empty = section.querySelector('.fld-empty')
+    if (empty) empty.hidden = all.length > 0
+  }
 }
 
 /**
@@ -630,20 +708,41 @@ function applyScenarioFilter() {
  * can point at. Turning the controls off and saying so in the hint beats either
  * of those. Clearing the box gives them straight back.
  *
- * The arrows are restored by recomputing first-and-last from the full row list,
- * which is the same rule they were rendered with — the filter never changes
- * which budget is actually at the top.
+ * The arrows are restored SECTION BY SECTION, which is the same rule they were
+ * rendered with: an arrow moves a budget past its neighbour in its own folder,
+ * so it greys out at that folder's ends and not at the whole list's. Recomputing
+ * from the flat row list would leave the first budget in every folder but the
+ * top one with a live ▲ that trades global ranks with a row in another section
+ * and appears to do nothing.
  */
-function setReorderEnabled(rows, enabled) {
-  rows.forEach((row, i) => {
-    const grip = row.querySelector('.scn-grip')
-    if (grip) grip.draggable = enabled
-    const up = row.querySelector('[data-action="move-scenario-up"]')
-    const down = row.querySelector('[data-action="move-scenario-down"]')
-    if (up) up.disabled = !enabled || i === 0
-    if (down) down.disabled = !enabled || i === rows.length - 1
-  })
-  app.querySelector('[data-scn-list]')?.classList.toggle('filtered', !enabled)
+function setReorderEnabled(root, enabled) {
+  for (const list of root.querySelectorAll('[data-scn-list]')) {
+    const rows = [...list.querySelectorAll('.scn')]
+    rows.forEach((row, i) => {
+      const grip = row.querySelector('.scn-grip')
+      if (grip) grip.draggable = enabled
+      const up = row.querySelector('[data-action="move-scenario-up"]')
+      const down = row.querySelector('[data-action="move-scenario-down"]')
+      if (up) up.disabled = !enabled || i === 0
+      if (down) down.disabled = !enabled || i === rows.length - 1
+    })
+    list.classList.toggle('filtered', !enabled)
+  }
+}
+
+/**
+ * Which section a budget is actually DRAWN in, which is not the same question as
+ * what its `folderId` says.
+ *
+ * A folderId naming a folder that no longer exists — deleted here, deleted in
+ * another tab, or lost to a partial write — renders in the ungrouped pile,
+ * because the pile is built as "everything no section claimed". Anything
+ * reasoning about a budget's neighbours has to resolve it the same way, or the
+ * arrows will look for section-mates in a section that is nowhere on screen.
+ */
+function sectionOf(scenario, folderIds) {
+  const id = scenario?.folderId ?? ''
+  return id && folderIds.has(id) ? id : ''
 }
 
 /* ─────────────────── inline rename on the Saved tab ────────────────────── */
@@ -729,6 +828,65 @@ app.addEventListener(
 
 let draggingId = null
 
+function setDragActive(on) {
+  for (const list of app.querySelectorAll('[data-scn-list]')) {
+    list.classList.toggle('dragging-active', on)
+  }
+}
+
+/**
+ * Let the rows that got out of the way SLIDE, instead of teleporting.
+ *
+ * Reordering happens by moving a node in the DOM, and there is no CSS transition
+ * for that: the browser lays the new order out in one frame, so every row that
+ * shifted jumps a whole row-height instantly. Against a finger moving smoothly
+ * down the screen that reads as the list stuttering.
+ *
+ * FLIP is the fix. Measure where each row is, do the move, measure again, then
+ * put each row back where it was with a transform and let it transition to
+ * nothing. The layout was only ever done once; the movement the eye sees is a
+ * compositor animation of a transform, which is the one thing a phone can
+ * animate at frame rate without touching layout.
+ *
+ * The dragged row is excluded — it has a transform of its own, tracking the
+ * finger, and must not be animated back to anywhere.
+ */
+function measureRows(root) {
+  const seen = new Map()
+  for (const row of root.querySelectorAll('.scn')) {
+    if (!row.classList.contains('dragging')) seen.set(row, row.getBoundingClientRect().top)
+  }
+  return seen
+}
+
+function slideRows(root, before) {
+  const moved = []
+  for (const [row, was] of before) {
+    if (!row.isConnected || row.classList.contains('dragging')) continue
+    const delta = was - row.getBoundingClientRect().top
+    if (!delta) continue
+    row.style.transition = 'none'
+    row.style.transform = `translateY(${delta}px)`
+    moved.push(row)
+  }
+  if (!moved.length) return
+  // One forced reflow for the whole batch, so the browser takes the offsets
+  // above as a starting state rather than collapsing them into the end state.
+  void root.offsetWidth
+  for (const row of moved) {
+    row.style.transition = ''
+    row.style.transform = ''
+  }
+}
+
+/** Every row back to plain, whichever way the drag ended. */
+function clearRowTransforms(root) {
+  for (const row of root.querySelectorAll('.scn')) {
+    row.style.transition = ''
+    row.style.transform = ''
+  }
+}
+
 app.addEventListener('dragstart', (e) => {
   const row = e.target.closest?.('.scn')
   if (!row) return
@@ -738,8 +896,10 @@ app.addEventListener('dragstart', (e) => {
   draggingId = row.getAttribute('data-scn-id')
   row.classList.add('dragging')
   // Dims the rows that are NOT moving, so the lifted one is the only thing at
-  // full strength. Removed on dragend whichever way the drag ends.
-  row.closest('[data-scn-list]')?.classList.add('dragging-active')
+  // full strength. Every section, not just the one the row started in — a row
+  // can be dropped into any of them, and a folder left at full strength reads as
+  // one the drag cannot reach. Removed on dragend whichever way the drag ends.
+  setDragActive(true)
   // Optional: a synthetic dragstart carries no dataTransfer, and a missing
   // clipboard is no reason to abandon the drag.
   if (e.dataTransfer) {
@@ -753,14 +913,34 @@ app.addEventListener('dragover', (e) => {
   const list = e.target.closest?.('[data-scn-list]')
   if (!list || !draggingId) return
   e.preventDefault()
-  const dragged = list.querySelector('.dragging')
+  const dragged = app.querySelector('.scn.dragging')
+  if (!dragged) return
+  const root = app.querySelector('[data-scn-sections]')
   const over = e.target.closest('.scn')
-  if (!dragged || !over || over === dragged) return
+
+  // Over the empty part of a section — including a folder with nothing in it,
+  // which has no row to aim at and would otherwise be the one place a budget
+  // could not be dropped.
+  if (!over) {
+    if (list === dragged.parentElement) return
+    const before = measureRows(root)
+    list.appendChild(dragged)
+    slideRows(root, before)
+    return
+  }
+  if (over === dragged) return
+
   // Insert before or after depending on which half of the row we are over, so
   // the placeholder follows the pointer instead of jumping a row late.
   const box = over.getBoundingClientRect()
   const after = e.clientY > box.top + box.height / 2
-  list.insertBefore(dragged, after ? over.nextSibling : over)
+  const target = after ? over.nextSibling : over
+  // Already there. Without this the FLIP measurement runs on every dragover,
+  // which is several times a frame and all of it wasted.
+  if (target === dragged || dragged.nextSibling === target) return
+  const before = measureRows(root)
+  list.insertBefore(dragged, target)
+  slideRows(root, before)
 })
 
 app.addEventListener('drop', (e) => {
@@ -768,10 +948,12 @@ app.addEventListener('drop', (e) => {
 })
 
 app.addEventListener('dragend', (e) => {
-  const list = app.querySelector('[data-scn-list]')
+  const root = app.querySelector('[data-scn-sections]')
   app.querySelector('.scn.dragging')?.classList.remove('dragging')
-  list?.classList.remove('dragging-active')
-  if (!list || !draggingId) return
+  if (root) clearRowTransforms(root)
+  setDragActive(false)
+  if (!root || !draggingId) return
+  const movedId = draggingId
   draggingId = null
 
   // Escape cancels a drag, but the rows have already been moved by dragover, so
@@ -783,7 +965,7 @@ app.addEventListener('dragend', (e) => {
     return
   }
 
-  commitOrder(list)
+  commitOrder(root, movedId)
 })
 
 /* ──────────────────── the same reorder, by finger ──────────────────────── */
@@ -808,16 +990,28 @@ app.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'mouse') return
   const grip = e.target.closest?.('.scn-grip')
   const row = grip?.closest('.scn')
-  const list = row?.closest('[data-scn-list]')
-  if (!list) return
+  const root = row?.closest('[data-scn-sections]')
+  if (!root) return
   // draggable=false does nothing to a pointer gesture, so the touch path needs
   // the filter check itself.
   if (scenarioFilter.trim()) return
 
   e.preventDefault()
-  touchDrag = { row, list, moved: false }
+  // `grabY` is where in the row the finger landed, so the lift below can hold
+  // the row under that exact point rather than snapping its top to the finger.
+  touchDrag = {
+    row,
+    root,
+    moved: false,
+    grabY: e.clientY,
+    frame: 0,
+    y: e.clientY,
+    x: e.clientX,
+    pointerMoved: false,
+  }
   row.classList.add('dragging')
-  list.classList.add('dragging-active')
+  setDragActive(true)
+  startDragLoop()
   // Capture keeps the events coming to the handle after the row has slid out
   // from under the finger. Not fatal if the browser refuses it.
   try {
@@ -827,30 +1021,204 @@ app.addEventListener('pointerdown', (e) => {
   }
 })
 
+/** One frame at a time, for as long as the finger is down. */
+function startDragLoop() {
+  const tick = () => {
+    if (!touchDrag) return
+    // The row went out from under us — a re-render, or a delete in another tab.
+    // Nothing after this point can do anything useful with a detached node, and
+    // a loop that reschedules itself forever is worse than a dropped gesture.
+    if (!touchDrag.row.isConnected) {
+      touchDrag = null
+      return
+    }
+    dragFrame()
+    touchDrag.frame = view().requestAnimationFrame?.(tick) ?? 0
+  }
+  touchDrag.frame = view().requestAnimationFrame?.(tick) ?? 0
+}
+
+/**
+ * The event records where the finger is; a frame loop does the work.
+ *
+ * Two reasons, and the second one only became clear on a phone.
+ *
+ * A phone fires pointermove faster than it paints — 120Hz panels report at
+ * 120Hz — and the first version did a hit test, a getBoundingClientRect and a
+ * DOM insertion on every single one. Several forced layouts per frame, on the
+ * device least able to afford them.
+ *
+ * And a held finger fires NOTHING. Auto-scrolling at the edge of the screen has
+ * to keep happening while the finger sits still, which a move-driven update
+ * cannot do — so the loop runs for the whole gesture rather than being scheduled
+ * by movement.
+ */
 app.addEventListener('pointermove', (e) => {
   if (!touchDrag) return
   e.preventDefault()
-  // A captured pointer reports the HANDLE as its target for the whole gesture,
-  // so the row under the finger has to be found by coordinate instead.
-  const over = document.elementFromPoint?.(e.clientX, e.clientY)?.closest?.('.scn')
-  if (!over || over === touchDrag.row || !touchDrag.list.contains(over)) return
-  // Insert before or after depending on which half of the row we are over, so
-  // the row follows the finger instead of jumping a place late.
-  const box = over.getBoundingClientRect()
-  const after = e.clientY > box.top + box.height / 2
-  touchDrag.list.insertBefore(touchDrag.row, after ? over.nextSibling : over)
-  touchDrag.moved = true
+  touchDrag.x = e.clientX
+  touchDrag.y = e.clientY
+  touchDrag.pointerMoved = true
+  // No rAF at all (an old WebView, or a synthetic document): the loop never
+  // started, so do the work inline. Auto-scroll is what is lost, not the drag.
+  if (!touchDrag.frame) dragFrame()
 })
+
+/**
+ * How far a long list can be dragged: as far as you like.
+ *
+ * Without this a budget can only be moved as far as the screen already shows.
+ * Getting one from the bottom of a list of thirty to the top means dropping it,
+ * scrolling, picking it up again, and repeating — which is not a worse version
+ * of dragging, it is a different and much worse operation.
+ *
+ * Only the touch path needs it. Native HTML5 drag-and-drop scrolls the page at
+ * the edges by itself, so the mouse has had this all along.
+ *
+ * The speed ramps with how far into the margin the finger is, so resting just
+ * inside it creeps and pushing to the very edge moves quickly. A fixed speed
+ * makes the only usable choice a slow one.
+ */
+const EDGE_MARGIN = 76
+const EDGE_SPEED = 16
+
+/**
+ * The window the app is actually running in.
+ *
+ * Read through the document rather than off a bare global, for the same reason
+ * sizeNameInput() does: booted into a synthetic document, window globals are not
+ * aliased onto globalThis, so `globalThis.innerHeight` is undefined and every
+ * viewport measurement here silently answers zero.
+ */
+const view = () => app.ownerDocument?.defaultView ?? globalThis
+
+function edgeScroll(y) {
+  const win = view()
+  const height = win.innerHeight || 0
+  if (!height) return 0
+
+  let step = 0
+  if (y < EDGE_MARGIN) step = -((EDGE_MARGIN - y) / EDGE_MARGIN) * EDGE_SPEED
+  else if (y > height - EDGE_MARGIN) {
+    step = ((y - (height - EDGE_MARGIN)) / EDGE_MARGIN) * EDGE_SPEED
+  }
+  if (!step) return 0
+
+  // What the page ACTUALLY did, not what was asked for. At the top or the bottom
+  // of the document it scrolls by less than requested, or not at all, and the
+  // lift below has to be corrected by the real figure or the row drifts away
+  // from the finger every frame the page refuses to move.
+  const was = win.scrollY ?? 0
+  win.scrollBy?.(0, step)
+  return (win.scrollY ?? 0) - was
+}
+
+function dragFrame() {
+  if (!touchDrag) return
+  const { row, root, x } = touchDrag
+
+  // Not until the finger has actually moved. Rows are picked up near the bottom
+  // of the screen all the time — that is where the end of a list is — and a grab
+  // that starts scrolling the page before the producer has moved at all reads as
+  // the app taking the gesture away from them.
+  //
+  // Scrolling then moves the row's layout box under a finger that may not have
+  // moved, so the grab point travels with it; without that the row slides out
+  // from under the finger at exactly the speed of the scroll.
+  const scrolled = touchDrag.pointerMoved ? edgeScroll(touchDrag.y) : 0
+  touchDrag.grabY -= scrolled
+  const { y, grabY } = touchDrag
+
+  // Nothing moved and nothing scrolled since the last frame. The loop runs for
+  // the whole gesture now, so without this a stationary finger would pay for a
+  // hit test and a getBoundingClientRect sixty times a second to reach the same
+  // answer it already had.
+  if (!scrolled && touchDrag.lastX === x && touchDrag.lastY === y) return
+  touchDrag.lastX = x
+  touchDrag.lastY = y
+
+  // The row follows the finger. Without this it stays exactly where it was until
+  // the finger crosses a neighbour's midpoint and then teleports a whole row —
+  // so the thing being dragged is the only thing on screen not moving, and a
+  // gesture that has not "taken" yet is indistinguishable from one that failed.
+  // A transform, so nothing reflows: see `--lift` on .scn.dragging in styles.css.
+  row.style.setProperty('--lift', `${y - grabY}px`)
+
+  // A captured pointer reports the HANDLE as its target for the whole gesture,
+  // so what is under the finger has to be found by coordinate instead.
+  //
+  // The dragged row has to be taken OUT of the hit test first, and this is not
+  // optional: it now follows the finger, at z-index 2, so it is the topmost
+  // element at those coordinates every single time. Left in, every hit test
+  // answers "the row you are already dragging", the target search returns early,
+  // and the drop lands the row exactly where it started — which is the bug that
+  // arrived with the lift and could not have arrived before it.
+  //
+  // Toggled around the one call rather than set in CSS: pointer capture is only
+  // best-effort here (setPointerCapture is in a try), and a row that is
+  // permanently transparent to pointers would end the gesture the moment capture
+  // was refused. Nothing paints between these two lines.
+  const wasPointerEvents = row.style.pointerEvents
+  row.style.pointerEvents = 'none'
+  const under = document.elementFromPoint?.(x, y)
+  row.style.pointerEvents = wasPointerEvents
+
+  const list = under?.closest?.('[data-scn-list]')
+  if (!list || !root.contains(list)) return
+
+  const over = under.closest('.scn')
+  if (!over) {
+    // The empty part of a section, which for an empty folder is all of it.
+    if (list === row.parentElement) return
+    const before = measureRows(root)
+    list.appendChild(row)
+    slideRows(root, before)
+    touchDrag.moved = true
+    return
+  }
+  if (over === row) return
+
+  // Insert before or after depending on which half of the row we are over, so
+  // the list opens up ahead of the finger rather than a place late.
+  const box = over.getBoundingClientRect()
+  const after = y > box.top + box.height / 2
+  const target = after ? over.nextSibling : over
+  if (target === row || row.nextSibling === target) return
+
+  const before = measureRows(root)
+  const wasTop = row.getBoundingClientRect().top
+  list.insertBefore(row, target)
+  slideRows(root, before)
+
+  // Reinsertion moves the row's own layout box by a whole row height, and the
+  // lift is measured from where the finger first grabbed it — so without this
+  // the row jumps by exactly that amount at the moment it changes place, which
+  // is the one instant it most needs to look continuous. Both readings include
+  // the current lift, so the difference is the layout shift alone.
+  touchDrag.grabY += row.getBoundingClientRect().top - wasTop
+  row.style.setProperty('--lift', `${y - touchDrag.grabY}px`)
+  touchDrag.moved = true
+}
 
 app.addEventListener('pointerup', () => endTouchDrag(true))
 app.addEventListener('pointercancel', () => endTouchDrag(false))
 
 function endTouchDrag(commit) {
   if (!touchDrag) return
-  const { row, list, moved } = touchDrag
+
+  // Stop the loop, then run one last frame by hand. The finger's final position
+  // may have arrived after the last tick, and it is usually the one that decides
+  // where the row lands.
+  if (touchDrag.frame) view().cancelAnimationFrame?.(touchDrag.frame)
+  touchDrag.frame = 0
+  dragFrame()
+
+  const { row, root, moved } = touchDrag
   touchDrag = null
   row.classList.remove('dragging')
-  list.classList.remove('dragging-active')
+  row.style.removeProperty('--lift')
+  clearRowTransforms(root)
+  setDragActive(false)
 
   // A tap on the handle that went nowhere is not a reorder, and writing every
   // row's position back for one would be a storage write for no change.
@@ -862,15 +1230,61 @@ function endTouchDrag(commit) {
     render()
     return
   }
-  commitOrder(list)
+  commitOrder(root, row.getAttribute('data-scn-id'))
 }
 
-function commitOrder(list) {
-  const order = [...list.querySelectorAll('.scn')].map((el) => el.getAttribute('data-scn-id'))
+/**
+ * Write back both things a drop can change: which folder the row is in, and
+ * where everything sits.
+ *
+ * MEMBERSHIP FIRST. They are two writes, and if the reorder is the one that
+ * fails, a row drawn inside a folder it does not belong to is a lie about the
+ * producer's own filing. The other order leaves the arrangement right and the
+ * membership stale, which the next render corrects on its own.
+ *
+ * The order sent is every row on the page, top to bottom, which is a COMPLETE
+ * global order — and that is only true because a collapsed folder still renders
+ * its rows and hides them with CSS. If a future change ever stops rendering a
+ * shut folder's contents, this quietly starts sending a partial list, and
+ * reorderScenarios' documented contract appends the ids it was not given to the
+ * end: one drag would then rewrite the rank of every budget the producer cannot
+ * see, with nothing on screen to say so. Keep the rows in the DOM.
+ */
+function commitOrder(root, movedId) {
+  const rows = [...root.querySelectorAll('.scn')]
+  let filed = false
+
+  if (movedId) {
+    const row = rows.find((el) => el.getAttribute('data-scn-id') === movedId)
+    const landedIn = row?.closest('[data-scn-list]')?.getAttribute('data-folder-id') ?? ''
+    const wasIn = getScenarioById(movedId)?.folderId ?? ''
+    filed = landedIn !== wasIn
+    if (filed && !moveScenarioToFolder(movedId, landedIn).ok) {
+      alert('This browser would not save that move.')
+      render()
+      return
+    }
+  }
+
+  const order = rows.map((el) => el.getAttribute('data-scn-id'))
   if (!reorderScenarios(order).ok) {
     alert('This browser would not save the new order.')
     render()
+    return
   }
+
+  // A drop WITHIN a section is refreshed in place, never by render(), which
+  // would rebuild the list and take every compare tick with it: "tick two,
+  // reorder, tick two more" is a real way to build a comparison, and this is the
+  // same rule the filter box follows.
+  //
+  // A drop ACROSS one is a filing action and gets the full render, like the Move
+  // button. Not for the counts, which update in place perfectly well, but for
+  // the drop targets: emptying the ungrouped pile hides it, and a hidden section
+  // cannot be dragged back into. Dropping a budget somewhere and then finding
+  // nowhere to put it back is a worse trade than re-ticking two boxes.
+  if (filed) render()
+  else applyScenarioFilter()
 }
 
 /* ─────────────────────────── actions ───────────────────────────────────── */
@@ -1138,11 +1552,27 @@ function handleAction(action, btn) {
     case 'move-scenario-down': {
       flushRenames()
       const id = btn.getAttribute('data-id')
-      const order = listScenarios().map((s) => s.id)
+      const all = listScenarios()
+      const order = all.map((s) => s.id)
       const from = order.indexOf(id)
-      const to = action === 'move-scenario-up' ? from - 1 : from + 1
-      if (from < 0 || to < 0 || to >= order.length) break
-      order.splice(to, 0, ...order.splice(from, 1))
+      if (from < 0) break
+
+      // Swap with the neighbour IN THE SAME SECTION, not the neighbour in the
+      // list. `sortIndex` is one global rank shared by every budget, so the row
+      // above this one on screen can belong to another folder; trading ranks
+      // with it would move nothing anybody can see and would not change either
+      // budget's folder. Exchanging ranks with a section-mate makes the two rows
+      // trade places and leaves every other budget exactly where it was.
+      const folderIds = new Set(listFolders().map((f) => f.id))
+      const section = sectionOf(all[from], folderIds)
+      const mates = all.filter((s) => sectionOf(s, folderIds) === section)
+      const at = mates.findIndex((s) => s.id === id)
+      const swap = mates[action === 'move-scenario-up' ? at - 1 : at + 1]
+      if (!swap) break
+
+      const other = order.indexOf(swap.id)
+      ;[order[from], order[other]] = [order[other], order[from]]
+
       if (!reorderScenarios(order).ok) {
         alert('This browser would not save the new order.')
         break
@@ -1154,6 +1584,77 @@ function handleAction(action, btn) {
         .querySelector(
           `${attrSelect('data-action', action)}${attrSelect('data-id', id)}:not([disabled])`
         )
+        ?.focus()
+      break
+    }
+
+    /* ── folders ───────────────────────────────────────────────────────── */
+
+    case 'toggle-folder': {
+      // In place, never render(). Folding is a view over the list exactly as the
+      // filter box is, and a render here would rebuild every row and take the
+      // compare ticks with it.
+      const id = btn.getAttribute('data-id') ?? ''
+      const open = !expandedFolders.has(id)
+      if (open) expandedFolders.add(id)
+      else expandedFolders.delete(id)
+
+      const section = btn.closest('.scn-section')
+      const list = section?.querySelector('[data-scn-list]')
+      if (list) list.hidden = !open
+      btn.setAttribute('aria-expanded', String(open))
+      // A budget ticked for comparison and then folded out of sight is exactly
+      // what the note under the Compare button is for.
+      refreshCompareButton()
+      break
+    }
+
+    case 'new-folder':
+      openFolderEditor(null, (created) => {
+        // Opened, so the producer can see what they just made and file into it.
+        // The default-shut rule is about folders you have had for a while.
+        if (created) expandedFolders.add(created.id)
+        render()
+      })
+      break
+
+    case 'edit-folder': {
+      const id = btn.getAttribute('data-id')
+      const folder = listFolders().find((f) => f.id === id)
+      if (!folder) return
+      openFolderEditor(folder, () => render())
+      break
+    }
+
+    case 'move-scenario': {
+      const target = getScenarioById(btn.getAttribute('data-id'))
+      if (!target) return
+      openMoveModal(target, (folderId) => {
+        // A budget filed into a shut folder would leave the screen with nothing
+        // to show for the move but a row disappearing.
+        expandedFolders.add(folderId ?? '')
+        render()
+      })
+      break
+    }
+
+    case 'move-folder-up':
+    case 'move-folder-down': {
+      const id = btn.getAttribute('data-id')
+      const order = listFolders().map((f) => f.id)
+      const from = order.indexOf(id)
+      const to = action === 'move-folder-up' ? from - 1 : from + 1
+      if (from < 0 || to < 0 || to >= order.length) break
+      order.splice(to, 0, ...order.splice(from, 1))
+      if (!reorderFolders(order).ok) {
+        alert('This browser would not save the new folder order.')
+        break
+      }
+      render()
+      // Keep the keyboard on the button that just moved, so a folder can be
+      // walked up the list with repeated presses — same as the row arrows.
+      document
+        .querySelector(`${attrSelect('data-action', action)}${attrSelect('data-id', id)}`)
         ?.focus()
       break
     }
@@ -1237,21 +1738,31 @@ function refreshCompareButton() {
       checked.length < 2 ? 'Compare selected' : `Compare ${checked.length} budgets`
   }
 
-  // A row hidden by the filter keeps its tick. Clearing a deliberate selection
+  // A row that goes off screen keeps its tick. Clearing a deliberate selection
   // to answer a search would be destroying work to help with a lookup, and
   // "select two corn budgets, filter to soybeans, select two more" is a real
   // way to build a comparison. But a comparison that quietly contains budgets
   // the producer cannot see is exactly the kind of silently-wrong output this
-  // app is careful about, so the count above says four and this line says which
-  // of them are off screen.
+  // app is careful about, so the count above says four and this line says how
+  // many of them are not on the screen.
+  //
+  // Two ways to be off screen and they are counted together: filtered out (the
+  // row itself is hidden) and folded away inside a shut folder (the row is
+  // fine, its list is hidden). The second one only became possible with folders,
+  // and it is the more likely of the two now that folders start shut.
   const note = document.querySelector('[data-scn-hidden-note]')
   if (!note) return
-  const hidden = checked.filter((el) => el.closest('.scn')?.hidden).length
+  const hidden = checked.filter((el) => {
+    const row = el.closest('.scn')
+    return Boolean(
+      row?.hidden || row?.closest('[data-scn-list]')?.hidden || row?.closest('.scn-section')?.hidden
+    )
+  }).length
   note.hidden = hidden === 0
   note.textContent =
     hidden === 1
-      ? '1 budget you have selected is hidden by this filter, and it will still be compared.'
-      : `${hidden} budgets you have selected are hidden by this filter, and they will still be compared.`
+      ? '1 budget you have selected is not on screen right now, and it will still be compared.'
+      : `${hidden} budgets you have selected are not on screen right now, and they will still be compared.`
 }
 
 function flashSaved() {

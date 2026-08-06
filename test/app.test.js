@@ -9,7 +9,7 @@
 
 import { test, describe, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { JSDOM } from 'jsdom'
 
 const HTML = readFileSync(new URL('../index.html', import.meta.url), 'utf8')
@@ -19,8 +19,23 @@ let win
 let doc
 let app
 
-/** Boot index.html with a working localStorage, then import main.js into it. */
-async function boot() {
+/**
+ * Boot index.html with a working localStorage, then import main.js into it.
+ *
+ * @param {Function} [seed]  runs against the empty store just before main.js is
+ *   imported. The only way to test a state the app cannot be driven into from
+ *   its own boot — a folder created in a previous session, which is the one that
+ *   starts SHUT. Anything created in-session is deliberately left open.
+ */
+async function boot(seed) {
+  // Shut the previous one down. `pretendToBeVisual` gives each window a live
+  // requestAnimationFrame, and the drag loop keeps one scheduled for as long as
+  // a finger is down — so a test that throws mid-gesture would otherwise leave a
+  // frame loop running on an orphaned window, keeping Node alive and hanging the
+  // whole suite until the runner's timeout. This shipped as a five-minute run
+  // once. It also frees twenty-odd abandoned DOMs.
+  dom?.window?.close()
+
   dom = new JSDOM(HTML, {
     url: 'https://example.org/SDSHC-farm-budget/',
     pretendToBeVisual: true,
@@ -42,6 +57,7 @@ async function boot() {
   win.alert = globalThis.alert
 
   win.localStorage.clear()
+  seed?.(win.localStorage)
 
   // Fresh module graph each boot so state.js does not leak between tests.
   await import(`../src/main.js?bust=${Math.random()}`)
@@ -870,7 +886,9 @@ describe('the saved list', () => {
     assert.equal(rows[0].querySelector('[data-action="move-scenario-up"]').disabled, true)
     assert.equal(rows[2].querySelector('[data-action="move-scenario-down"]').disabled, true)
 
-    click('.scn:last-child [data-action="move-scenario-up"]')
+    // :last-of-type, not :last-child — the list now also carries its own
+    // empty-section hint, hidden while there are rows in it.
+    click('div.scn:last-of-type [data-action="move-scenario-up"]')
     assert.deepEqual(names(), ['Third', 'First', 'Second'])
 
     // The order is persisted, not just shuffled on screen.
@@ -879,7 +897,65 @@ describe('the saved list', () => {
     assert.deepEqual(names(), ['Third', 'First', 'Second'])
   })
 
-  test('the handle reorders by finger, not just by mouse', () => {
+  test('dragging to the edge of the screen scrolls the list', async () => {
+    // Without this a budget can only be moved as far as the screen already
+    // shows. Getting one from the bottom of a list of thirty to the top would
+    // mean drop, scroll, pick up, repeat — which is not a worse version of
+    // dragging, it is a different and much worse operation.
+    type('name', 'First')
+    click('[data-action="save-scenario"]')
+    click('[data-action="go-scenarios"]')
+
+    const grip = doc.querySelector('.scn-grip')
+    const touch = (kind, props = {}) => {
+      const e = new win.MouseEvent(kind, { bubbles: true, cancelable: true })
+      Object.defineProperty(e, 'pointerType', { value: 'touch' })
+      for (const [k, v] of Object.entries(props)) Object.defineProperty(e, k, { value: v })
+      grip.dispatchEvent(e)
+      return e
+    }
+    // The scroll happens in the drag's own frame loop, not in the event — a held
+    // finger fires no events at all, and it still has to keep scrolling. So the
+    // test waits for a frame exactly as the browser would.
+    const frame = () => new Promise((resolve) => win.requestAnimationFrame(resolve))
+
+    // jsdom does not scroll, so stand in for it and record what was asked for.
+    const asked = []
+    let scrollY = 400
+    Object.defineProperty(win, 'scrollY', { get: () => scrollY, configurable: true })
+    win.scrollBy = (_x, dy) => {
+      asked.push(dy)
+      scrollY += dy
+    }
+    doc.elementFromPoint = () => null
+
+    const bottom = win.innerHeight - 10
+
+    touch('pointerdown', { clientY: bottom })
+    await frame()
+    // Held at the bottom edge but never moved: a row picked up near the end of a
+    // list must not start scrolling before the producer has moved at all.
+    assert.deepEqual(asked, [], 'a grab alone does not scroll, however close to the edge')
+
+    touch('pointermove', { clientY: bottom })
+    await frame()
+    assert.equal(asked.length, 1, 'moving at the bottom edge scrolls')
+    assert.ok(asked[0] > 0, 'downwards')
+
+    touch('pointermove', { clientY: 5 })
+    await frame()
+    assert.ok(asked[asked.length - 1] < 0, 'and at the top edge, upwards')
+
+    // Well inside the page, nothing happens.
+    const before = asked.length
+    touch('pointermove', { clientY: Math.round(win.innerHeight / 2) })
+    await frame()
+    assert.equal(asked.length, before, 'the middle of the screen does not scroll')
+
+    touch('pointerup')
+  })
+
+  test('the handle reorders by finger, not just by mouse', async () => {
     type('name', 'First')
     click('[data-action="save-scenario"]')
     for (const name of ['Second', 'Third']) {
@@ -911,9 +987,24 @@ describe('the saved list', () => {
     assert.equal(rows[2].classList.contains('dragging'), true, 'the row is picked up')
 
     // jsdom has no layout, so the row under the finger has to be supplied. A
-    // real browser answers this from the coordinates.
-    doc.elementFromPoint = () => rows[0]
+    // real browser answers this from the coordinates — and crucially it answers
+    // with whatever is ON TOP there, which since the lift was added is the
+    // dragged row itself: it follows the finger at z-index 2, so it is the
+    // topmost element at those coordinates every time. main.js takes it out of
+    // the hit test with pointer-events for the duration of the call, and this
+    // stub honours that, because a stub that always names some other row cannot
+    // fail the way the browser did. Without the fix the row lands back where it
+    // started and this test goes red.
+    doc.elementFromPoint = () => (rows[2].style.pointerEvents === 'none' ? rows[0] : rows[2])
     touch('pointermove', { clientY: 0 })
+
+    // The move is answered in the drag's own frame, not in the event: a phone
+    // reports pointermove faster than it paints, and a held finger reports
+    // nothing at all while the page auto-scrolls under it. So the work is
+    // coalesced to one update per frame, and the test waits for that frame
+    // exactly as the browser would.
+    await new Promise((resolve) => win.requestAnimationFrame(resolve))
+
     assert.deepEqual(
       [...list.querySelectorAll('.scn')].map((r) => r.querySelector('.scn-name-input').value),
       ['First', 'Third', 'Second'],
@@ -1157,7 +1248,10 @@ describe('filtering the saved list', () => {
 
     const note = doc.querySelector('[data-scn-hidden-note]')
     assert.equal(note.hidden, false)
-    assert.match(note.textContent, /2 budgets you have selected are hidden/)
+    // "Not on screen" rather than "hidden by this filter": with folders there
+    // are now two ways for a ticked row to be invisible, and the note has to
+    // cover a budget folded away inside a shut folder as well.
+    assert.match(note.textContent, /2 budgets you have selected are not on screen/)
     assert.match(textOf('[data-action="compare-selected"]'), /Compare 3 budgets/)
 
     click('[data-action="compare-selected"]')
@@ -1669,5 +1763,652 @@ describe('a folded enterprise can still be taken away', () => {
     assert.ok(remove, 'Remove is present on a folded card')
     remove.dispatchEvent(new win.MouseEvent('click', { bubbles: true }))
     assert.equal(doc.querySelectorAll('.ent').length, 1)
+  })
+})
+
+describe('folders on the saved tab', () => {
+  let saved
+
+  beforeEach(async () => {
+    await boot()
+    saved = 0
+  })
+
+  /** Save one budget per name, then land on the Saved tab. */
+  function saveBudgets(names) {
+    for (const name of names) {
+      if (saved > 0) {
+        click('[data-action="go-scenarios"]')
+        click('[data-action="new-scenario"]')
+      }
+      type('name', name)
+      click('[data-action="save-scenario"]')
+      saved += 1
+    }
+    click('[data-action="go-scenarios"]')
+  }
+
+  /** Drive the folder editor: open it, fill it in, save. */
+  function newFolder(name, { icon, color } = {}) {
+    click('[data-action="new-folder"]')
+    doc.querySelector('#fldName').value = name
+    if (icon) click(`[data-icon="${icon}"]`)
+    if (color) click(`[data-color="${color}"]`)
+    click('.fld-save')
+  }
+
+  const rowNamed = (name) =>
+    [...doc.querySelectorAll('.scn')].find(
+      (r) => r.querySelector('.scn-name-input').value === name
+    )
+
+  /**
+   * Every section, top to bottom, as "Heading[budget,budget]".
+   *
+   * A section with no folders on the device has no heading at all, and shows as
+   * "[budget,budget]" — the whole point being that there is nothing above the
+   * rows to read.
+   */
+  const shape = () =>
+    [...doc.querySelectorAll('.scn-section')].map(
+      (s) =>
+        `${s.querySelector('.fld-name')?.textContent ?? ''}[${[
+          ...s.querySelectorAll('.scn-name-input'),
+        ]
+          .map((i) => i.value)
+          .join(',')}]`
+    )
+
+  /** File a budget through the Move modal, by folder name. */
+  function moveTo(budget, folderName) {
+    rowNamed(budget)
+      .querySelector('[data-action="move-scenario"]')
+      .dispatchEvent(new win.MouseEvent('click', { bubbles: true }))
+    const options = [...doc.querySelectorAll('.fld-option')]
+    const wanted = options.find((o) => o.textContent.trim().startsWith(folderName))
+    assert.ok(wanted, `the Move modal offers "${folderName}"`)
+    for (const o of options) o.querySelector('input').checked = false
+    wanted.querySelector('input').checked = true
+    click('.fld-save')
+  }
+
+  /** A whole mouse drag of `name` into the list belonging to `folderId`. */
+  function dragInto(name, folderId) {
+    const row = rowNamed(name)
+    const list = doc.querySelector(`[data-scn-list][data-folder-id="${folderId}"]`)
+    row.querySelector('.scn-grip').dispatchEvent(new win.MouseEvent('dragstart', { bubbles: true }))
+    const over = new win.MouseEvent('dragover', { bubbles: true, cancelable: true })
+    Object.defineProperty(over, 'target', { value: list })
+    list.dispatchEvent(over)
+    row.dispatchEvent(new win.MouseEvent('dragend', { bubbles: true }))
+  }
+
+  const folderIdNamed = (name) =>
+    [...doc.querySelectorAll('.scn-section')]
+      .find((s) => s.querySelector('.fld-name').textContent === name)
+      ?.getAttribute('data-scn-section')
+
+  test('a producer who never makes a folder sees the page they had before', () => {
+    // Most producers here keep three to eight budgets and folders are net
+    // negative for them, so the cost of the feature to somebody not using it has
+    // to be as close to nothing as it can be. One heading, and no fourth button
+    // on every row opening a modal with nowhere to move anything to.
+    saveBudgets(['North quarter', 'South quarter'])
+    // Newest first, which is the order this list has always had.
+    assert.deepEqual(shape(), ['[South quarter,North quarter]'])
+
+    // No heading over the list at all. "Not in a folder" above every budget
+    // there is, with nothing to contrast it against, is a fold to open and a
+    // label answering a question nobody asked — and this is the state most
+    // producers here will be in permanently.
+    assert.equal(doc.querySelector('.fld-head'), null, 'no section heading')
+    assert.equal(doc.querySelector('.fld-chev'), null, 'and nothing to fold')
+    assert.equal(doc.querySelectorAll('[data-action="move-scenario"]').length, 0)
+    assert.ok(doc.querySelector('[data-action="new-folder"]'), 'but a way in is on the header')
+
+    // The heading arrives with the first folder, because now it means something.
+    newFolder('Corn trials')
+    assert.deepEqual(shape(), [
+      'Not in a folder[South quarter,North quarter]',
+      'Corn trials[]',
+    ])
+  })
+
+  test('a new folder is a section, and Move appears once there is somewhere to go', () => {
+    saveBudgets(['North quarter'])
+    newFolder('Corn trials', { icon: 'sprout', color: 'pink' })
+
+    assert.deepEqual(shape(), ['Not in a folder[North quarter]', 'Corn trials[]'])
+    assert.equal(doc.querySelectorAll('[data-action="move-scenario"]').length, 1)
+
+    const section = doc.querySelector('[data-scn-section^="fld"]')
+    assert.match(section.className, /fld-c-pink/, 'the colour is a token key on the section')
+    assert.ok(section.querySelector('.fld-chip svg'), 'and the glyph is inline SVG, not an emoji')
+    assert.match(section.querySelector('.fld-empty').textContent, /No budgets in this folder yet/)
+  })
+
+  test('the ungrouped pile is at the top, and stays there once it is empty', () => {
+    // "I just saved it and it is gone" is the worst thing an organising feature
+    // can do, and a budget saved a moment ago lands in the pile.
+    saveBudgets(['North quarter'])
+    newFolder('Corn trials')
+    assert.equal(shape()[0], 'Not in a folder[North quarter]')
+
+    moveTo('North quarter', 'Corn trials')
+    // Emptied, and still on screen: it is the place a budget comes back OUT to,
+    // and hiding it would remove the drop target at exactly the moment the
+    // producer might want it.
+    assert.deepEqual(shape(), ['Not in a folder[]', 'Corn trials[North quarter]'])
+    assert.match(textOf('.fld-empty'), /take it back out of a folder/)
+  })
+
+  test('deleting the last folder cannot leave the budgets folded out of sight', () => {
+    // Shut the pile while a folder exists, then delete the folder. The pile
+    // comes back with no heading — and if it also came back still marked shut,
+    // every budget on the device would be behind a control no longer on the
+    // page. A section with nothing to unfold it is always open.
+    saveBudgets(['North quarter', 'South quarter'])
+    newFolder('Corn trials')
+    click('.fld-toggle[data-id=""]')
+    assert.equal(
+      doc.querySelector('[data-scn-list][data-folder-id=""]').hidden,
+      true,
+      'the pile folds while there is a heading to fold it with'
+    )
+
+    click('[data-action="edit-folder"]')
+    click('.fld-delete')
+
+    assert.equal(doc.querySelector('.fld-head'), null, 'no folders, so no heading')
+    assert.equal(
+      doc.querySelector('[data-scn-list][data-folder-id=""]').hidden,
+      false,
+      'and the budgets are on screen'
+    )
+    assert.deepEqual(shape(), ['[South quarter,North quarter]'])
+  })
+
+  test('Move files a budget, and the counts follow it', () => {
+    saveBudgets(['North quarter', 'South quarter'])
+    newFolder('Corn trials')
+    moveTo('North quarter', 'Corn trials')
+
+    assert.deepEqual(shape(), ['Not in a folder[South quarter]', 'Corn trials[North quarter]'])
+    assert.deepEqual(
+      [...doc.querySelectorAll('[data-fld-count]')].map((c) => c.textContent),
+      ['1 budget', '1 budget']
+    )
+  })
+
+  test('a folder made from inside the Move modal is created and chosen in one pass', () => {
+    // Filing into a folder that does not exist yet should not be a trip out to
+    // the header and back.
+    saveBudgets(['North quarter'])
+    newFolder('Corn trials')
+    rowNamed('North quarter')
+      .querySelector('[data-action="move-scenario"]')
+      .dispatchEvent(new win.MouseEvent('click', { bubbles: true }))
+
+    click('.fld-new')
+    doc.querySelector('#fldName').value = 'Soybean trials'
+    click('.fld-save')
+
+    // Back in the Move modal, with the folder that was just made selected.
+    const picked = doc.querySelector('input[name="fldTarget"]:checked')
+    assert.ok(picked, 'something is selected')
+    const label = picked.closest('.fld-option').textContent.trim()
+    assert.match(label, /Soybean trials/)
+
+    click('.fld-save')
+    assert.deepEqual(shape(), ['Not in a folder[]', 'Corn trials[]', 'Soybean trials[North quarter]'])
+  })
+
+  test('a folder from a previous session starts shut', async () => {
+    // Folders default closed. The one exception is a folder made in this
+    // session, which opens so the producer can see what they just made; that is
+    // about the moment of creation, not about how folders sit.
+    await boot((ls) => {
+      ls.setItem(
+        'sdshc-fb-folders',
+        JSON.stringify([{ id: 'fld-1', name: 'Corn trials', icon: 'wheat', color: 'teal', sortIndex: 0 }])
+      )
+      ls.setItem(
+        'sdshc-fb-scenarios',
+        JSON.stringify([
+          {
+            schemaVersion: 5,
+            id: 'scn-1',
+            name: 'North quarter',
+            folderId: 'fld-1',
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+            enterprises: [{ id: 'e1', name: '', crop: 'Corn', acres: 500, variable: {} }],
+            fixed: { labor: {}, annual: {}, annualBasis: {}, equipment: [], buildings: [] },
+          },
+        ])
+      )
+    })
+    click('[data-action="go-scenarios"]')
+
+    const section = doc.querySelector('[data-scn-section="fld-1"]')
+    const list = section.querySelector('[data-scn-list]')
+    const toggle = section.querySelector('.fld-toggle')
+    assert.equal(list.hidden, true, 'shut')
+    assert.equal(toggle.getAttribute('aria-expanded'), 'false')
+    assert.equal(section.querySelector('.fld-count').textContent, '1 budget', 'and it says what is inside')
+
+    toggle.dispatchEvent(new win.MouseEvent('click', { bubbles: true }))
+    assert.equal(list.hidden, false)
+    assert.equal(toggle.getAttribute('aria-expanded'), 'true')
+  })
+
+  test('folding a section keeps every compare tick', () => {
+    // Folding is a view over the list exactly as the filter box is. A render()
+    // here would rebuild every row and throw the selection away.
+    saveBudgets(['North quarter', 'South quarter'])
+    newFolder('Corn trials')
+    moveTo('North quarter', 'Corn trials')
+
+    for (const box of doc.querySelectorAll('[data-compare-id]')) {
+      box.checked = true
+      box.dispatchEvent(new win.Event('change', { bubbles: true }))
+    }
+    click(`.fld-toggle[data-id="${folderIdNamed('Corn trials')}"]`)
+
+    assert.equal(doc.querySelectorAll('[data-compare-id]:checked').length, 2, 'still ticked')
+    assert.match(textOf('[data-action="compare-selected"]'), /Compare 2 budgets/)
+  })
+
+  test('a budget ticked and then folded out of sight says so', () => {
+    // Two ways to be off screen now — filtered out, and folded away. A
+    // comparison quietly containing budgets nobody can see is the failure this
+    // app is careful about, so the discrepancy is named either way.
+    saveBudgets(['North quarter', 'South quarter'])
+    newFolder('Corn trials')
+    moveTo('North quarter', 'Corn trials')
+
+    for (const box of doc.querySelectorAll('[data-compare-id]')) {
+      box.checked = true
+      box.dispatchEvent(new win.Event('change', { bubbles: true }))
+    }
+    click(`.fld-toggle[data-id="${folderIdNamed('Corn trials')}"]`)
+
+    const note = doc.querySelector('[data-scn-hidden-note]')
+    assert.equal(note.hidden, false)
+    assert.match(note.textContent, /1 budget you have selected is not on screen/)
+  })
+
+  test('a filter reaches inside a shut folder, and hides one holding nothing', () => {
+    // The land-rent county search hit this exact failure: a search appeared to
+    // find nothing while the row sat inside a closed fold.
+    saveBudgets(['North quarter', 'South quarter'])
+    newFolder('Corn trials')
+    moveTo('North quarter', 'Corn trials')
+    const id = folderIdNamed('Corn trials')
+    click(`.fld-toggle[data-id="${id}"]`)
+    assert.equal(doc.querySelector(`[data-folder-id="${id}"]`).hidden, true, 'shut to start with')
+
+    const box = doc.querySelector('[data-scn-filter]')
+    box.value = 'north'
+    box.dispatchEvent(new win.Event('input', { bubbles: true }))
+
+    assert.equal(doc.querySelector(`[data-folder-id="${id}"]`).hidden, false, 'forced open')
+    assert.equal(rowNamed('North quarter').hidden, false)
+    assert.equal(
+      doc.querySelector('[data-scn-section=""]').hidden,
+      true,
+      'and a section with no match goes entirely'
+    )
+
+    box.value = ''
+    box.dispatchEvent(new win.Event('input', { bubbles: true }))
+    assert.equal(
+      doc.querySelector(`[data-folder-id="${id}"]`).hidden,
+      true,
+      'the fold comes back: a search is a question, not a decision about the list'
+    )
+  })
+
+  test('a filtered folder says how many of its budgets are showing', () => {
+    saveBudgets(['North corn', 'South corn', 'West beans'])
+    newFolder('Corn trials')
+    moveTo('North corn', 'Corn trials')
+    moveTo('South corn', 'Corn trials')
+    moveTo('West beans', 'Corn trials')
+
+    const box = doc.querySelector('[data-scn-filter]')
+    box.value = 'corn'
+    box.dispatchEvent(new win.Event('input', { bubbles: true }))
+    // Left alone it would read "3 budgets" over a fold showing two, and nothing
+    // would say whether the third was hidden or gone.
+    const count = doc.querySelector(`[data-fld-count="${folderIdNamed('Corn trials')}"]`)
+    assert.equal(count.textContent, '2 of 3 budgets')
+  })
+
+  test('the row arrows move a budget inside its own folder and nowhere else', () => {
+    saveBudgets(['A', 'B', 'C'])
+    newFolder('Corn trials')
+    moveTo('A', 'Corn trials')
+    moveTo('B', 'Corn trials')
+    assert.deepEqual(shape(), ['Not in a folder[C]', 'Corn trials[B,A]'])
+
+    // A is last in its folder, so ▼ is dead and ▲ swaps it with B — not with C,
+    // which is above it on the page but in another section. Trading ranks with C
+    // would move nothing anybody can see.
+    const a = rowNamed('A')
+    assert.equal(a.querySelector('[data-action="move-scenario-down"]').disabled, true)
+    a.querySelector('[data-action="move-scenario-up"]').dispatchEvent(
+      new win.MouseEvent('click', { bubbles: true })
+    )
+    assert.deepEqual(shape(), ['Not in a folder[C]', 'Corn trials[A,B]'])
+
+    // And a budget alone in its section has no neighbour to trade with at all.
+    const c = rowNamed('C')
+    assert.equal(c.querySelector('[data-action="move-scenario-up"]').disabled, true)
+    assert.equal(c.querySelector('[data-action="move-scenario-down"]').disabled, true)
+  })
+
+  test('the folder arrows reorder the sections and stop at the ends', () => {
+    saveBudgets(['A'])
+    newFolder('First')
+    newFolder('Second')
+    assert.deepEqual(shape(), ['Not in a folder[A]', 'First[]', 'Second[]'])
+
+    const arrows = [...doc.querySelectorAll('.fld-btns')]
+    assert.equal(arrows[0].querySelector('[data-action="move-folder-up"]').disabled, true)
+    assert.equal(arrows[1].querySelector('[data-action="move-folder-down"]').disabled, true)
+
+    click('[data-action="move-folder-down"]:not([disabled])')
+    assert.deepEqual(shape(), ['Not in a folder[A]', 'Second[]', 'First[]'])
+  })
+
+  test('a drag with a shut folder present does not disturb what is inside it', () => {
+    // The bug this feature would otherwise have shipped with. reorderScenarios
+    // appends ids it was not given, so a partial order rewrites the rank of
+    // every budget the producer cannot see. It is only safe because a shut
+    // folder still RENDERS its rows and hides them with CSS.
+    saveBudgets(['A', 'B', 'C', 'D'])
+    newFolder('Corn trials')
+    moveTo('A', 'Corn trials')
+    moveTo('B', 'Corn trials')
+    const inside = () =>
+      [...doc.querySelectorAll(`[data-folder-id="${folderIdNamed('Corn trials')}"] .scn-name-input`)].map(
+        (i) => i.value
+      )
+    const before = inside()
+    assert.deepEqual(before, ['B', 'A'])
+
+    click(`.fld-toggle[data-id="${folderIdNamed('Corn trials')}"]`)
+
+    // Reorder the two visible budgets, with the folder shut.
+    const c = rowNamed('C')
+    const d = rowNamed('D')
+    c.querySelector('.scn-grip').dispatchEvent(new win.MouseEvent('dragstart', { bubbles: true }))
+    d.parentElement.insertBefore(c, d.nextSibling)
+    c.dispatchEvent(new win.MouseEvent('dragend', { bubbles: true }))
+
+    assert.deepEqual(inside(), before, 'the shut folder is exactly as it was')
+    assert.deepEqual(shape()[0], 'Not in a folder[D,C]', 'and the visible rows did move')
+  })
+
+  test('a drag across a section boundary reorders and re-files in one gesture', () => {
+    saveBudgets(['A', 'B'])
+    newFolder('Corn trials')
+    const id = folderIdNamed('Corn trials')
+
+    dragInto('A', id)
+    assert.deepEqual(shape(), ['Not in a folder[B]', 'Corn trials[A]'])
+
+    // Membership is written, not just the arrangement: it has to survive a
+    // reload, and a save from the Budget tab.
+    const stored = JSON.parse(win.localStorage.getItem('sdshc-fb-scenarios'))
+    assert.equal(stored.find((s) => s.name === 'A').folderId, id)
+  })
+
+  test('a budget can be dragged back out of a folder', () => {
+    // The drop target has to still be there afterwards. Emptying the ungrouped
+    // pile hides it, and a hidden section cannot be dragged into — which is why
+    // a cross-section drop re-renders.
+    saveBudgets(['A'])
+    newFolder('Corn trials')
+    dragInto('A', folderIdNamed('Corn trials'))
+    assert.deepEqual(shape(), ['Not in a folder[]', 'Corn trials[A]'])
+
+    dragInto('A', '')
+    assert.deepEqual(shape(), ['Not in a folder[A]', 'Corn trials[]'])
+  })
+
+  test('comparing still works across two folders', () => {
+    // The reason folders are sections on one page and not a screen you navigate
+    // into. Selection lives in the DOM, so navigating would throw it away.
+    saveBudgets(['A', 'B'])
+    newFolder('First')
+    newFolder('Second')
+    moveTo('A', 'First')
+    moveTo('B', 'Second')
+
+    for (const box of doc.querySelectorAll('[data-compare-id]')) {
+      box.checked = true
+      box.dispatchEvent(new win.Event('change', { bubbles: true }))
+    }
+    click('[data-action="compare-selected"]')
+    assert.match(textOf('.compare .title'), /Comparing 2 budgets/)
+  })
+
+  test('a duplicate lands in the same folder as the budget it came from', () => {
+    saveBudgets(['North quarter'])
+    newFolder('Corn trials')
+    moveTo('North quarter', 'Corn trials')
+
+    rowNamed('North quarter')
+      .querySelector('[data-action="duplicate-scenario"]')
+      .dispatchEvent(new win.MouseEvent('click', { bubbles: true }))
+    click('[data-action="go-scenarios"]')
+
+    assert.deepEqual(shape(), ['Not in a folder[]', 'Corn trials[North quarter (copy),North quarter]'])
+  })
+
+  test('an imported budget lands in no folder', async () => {
+    // An exported file carries no folder, and an id from another device means
+    // nothing here.
+    saveBudgets(['North quarter'])
+    newFolder('Corn trials')
+    moveTo('North quarter', 'Corn trials')
+
+    const stored = JSON.parse(win.localStorage.getItem('sdshc-fb-scenarios'))[0]
+    const { importScenarioJSON } = await import(`../src/storage.js?bust=${Math.random()}`)
+    const result = importScenarioJSON(JSON.stringify(stored))
+    assert.equal(result.ok, true)
+    assert.equal(result.scenario.folderId, undefined)
+  })
+
+  test('a folder with an icon and colour this version has never heard of still draws', () => {
+    // The state after a hand-edited file, and after a future version writes a
+    // token this one does not know. Same rule as perYearFactor() returning 1 for
+    // an unrecognised basis: fall back, never crash and never render nothing.
+    return boot((ls) => {
+      ls.setItem(
+        'sdshc-fb-folders',
+        JSON.stringify([{ id: 'fld-1', name: 'From the future', icon: 'banana', color: '#ff0000', sortIndex: 0 }])
+      )
+    }).then(() => {
+      click('[data-action="go-scenarios"]')
+      // Nothing saved yet, so no list — make one so the sections render.
+      click('[data-action="go-build"]')
+      type('name', 'North quarter')
+      click('[data-action="save-scenario"]')
+      click('[data-action="go-scenarios"]')
+
+      const section = doc.querySelector('[data-scn-section="fld-1"]')
+      assert.ok(section, 'the folder is on screen')
+      assert.match(section.className, /fld-c-grey/, 'an unknown colour falls back to the neutral')
+      assert.ok(section.querySelector('.fld-chip svg'), 'and an unknown glyph to the plain folder')
+      assert.equal(section.querySelector('.fld-name').textContent, 'From the future')
+    })
+  })
+
+  test('a budget filed in a folder that no longer exists is drawn, not lost', () => {
+    // The pile is built as "everything no section claimed", NOT "everything with
+    // no folderId". Those differ in exactly this case, and the other definition
+    // would put this budget in a section that is never rendered.
+    return boot((ls) => {
+      ls.setItem(
+        'sdshc-fb-scenarios',
+        JSON.stringify([
+          {
+            schemaVersion: 5,
+            id: 'scn-1',
+            name: 'Orphan',
+            folderId: 'fld-deleted-in-another-tab',
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+            enterprises: [{ id: 'e1', name: '', crop: 'Corn', acres: 500, variable: {} }],
+            fixed: { labor: {}, annual: {}, annualBasis: {}, equipment: [], buildings: [] },
+          },
+        ])
+      )
+    }).then(() => {
+      click('[data-action="go-scenarios"]')
+      // No folders on this device at all, so no heading either — the budget is
+      // simply in the list, which is the honest rendering of "filed in nothing".
+      assert.deepEqual(shape(), ['[Orphan]'])
+    })
+  })
+
+  test('a shut folder prints expanded', () => {
+    // Paper has no chevron to tap, so a printed list that silently leaves out
+    // half the budgets is a wrong document. This has to out-specify
+    // `[hidden] { display: none !important }`, which is why the rule carries
+    // both the attribute selector and its own !important — jsdom loads no CSS,
+    // so the stylesheet source is the only thing that can be asserted.
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+    const print = css.slice(css.indexOf('@media print'))
+    assert.match(print, /\.scn-list\[hidden\]\s*\{\s*display:\s*grid\s*!important/)
+    // And a row hidden by the FILTER stays hidden, where the hint line explains
+    // why. Forcing `.scn[hidden]` open would print budgets the producer filtered
+    // out and left off the page on purpose.
+    assert.equal(/\.scn\[hidden\]/.test(print), false)
+  })
+})
+
+describe('the folder palette and glyph set', () => {
+  // Read the module directly. These are facts about the two lists and the
+  // stylesheet that has to keep up with them, and neither needs an app booted.
+  let FOLDER_ICONS
+  let FOLDER_COLORS
+  let css
+
+  beforeEach(async () => {
+    ;({ FOLDER_ICONS, FOLDER_COLORS } = await import(
+      `../src/ui/folders.js?bust=${Math.random()}`
+    ))
+    css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+  })
+
+  test('there are as many glyphs as there are colours', () => {
+    // The editor lays them out as two rows of the same width and they read as a
+    // matched pair. Twelve and nine would look like one of them failed to load.
+    assert.equal(FOLDER_ICONS.length, FOLDER_COLORS.length)
+    assert.equal(FOLDER_ICONS.length, 12)
+  })
+
+  test('every colour has its class and both its theme values', () => {
+    // The one failure in this feature that nothing warns you about: a key in
+    // FOLDER_COLORS with no `.fld-c-<key>` class renders with no colour at all —
+    // no error, no fallback, just a chip the same shade as the card. jsdom loads
+    // no CSS, so the stylesheet source is the only place this can be checked.
+    // Anchored to the start of a line, so the mention of the selector inside
+    // the token block's own comment does not get taken for the rule itself.
+    const darkAt = css.search(/^\[data-theme="dark"\]/m)
+    assert.ok(darkAt > 0, 'there is a dark theme block')
+    const light = css.slice(0, darkAt)
+    const dark = css.slice(darkAt, css.indexOf('\n}', darkAt))
+
+    for (const key of FOLDER_COLORS) {
+      assert.match(
+        css,
+        new RegExp(`\\.fld-c-${key}\\s*\\{`),
+        `${key} has no .fld-c-${key} class, so it would render uncoloured`
+      )
+      // Blue and green are deliberately their OWN values rather than --sky and
+      // --olive: a folder colour is a label the producer chose, and it should
+      // not read as the app's chrome or move if the brand ever does.
+      assert.match(light, new RegExp(`--fld-${key}:`), `${key} has no ink`)
+      assert.match(light, new RegExp(`--fld-${key}-bg:`), `${key} has no light wash`)
+      assert.match(dark, new RegExp(`--fld-${key}-bg:`), `${key} has no dark wash`)
+
+      // The ink is NOT overridden for dark, and that is the point rather than an
+      // omission: every other colour token in the file flips between themes, and
+      // these twelve deliberately do not, so a producer who made the pink folder
+      // finds a pink folder in either theme. Only the wash behind it changes.
+      assert.equal(
+        new RegExp(`--fld-${key}:`).test(dark),
+        false,
+        `${key} is overridden for dark, so the folder changes colour with the theme`
+      )
+    }
+  })
+
+  test('red is not on offer, under any of its names', () => {
+    // --green means a positive dollar figure and --cost a negative one. A red
+    // folder mark on a page whose every row prints a profit or a loss re-opens
+    // the question the palette exists to settle. Pink sits next to red on the
+    // wheel and carries none of it.
+    for (const forbidden of ['red', 'crimson', 'scarlet', 'ruby']) {
+      assert.equal(FOLDER_COLORS.includes(forbidden), false, `${forbidden} is on offer`)
+    }
+  })
+
+  test('the fold caret is drawn, never typed', () => {
+    // `.chev` builds the caret out of two borders of a rotated box. A ▾ put
+    // inside it as well renders a second caret roughly twice the size,
+    // underneath the real one — which shipped once and looked like a bug in the
+    // font. The span stays empty and the direction comes off aria-expanded.
+    return boot().then(() => {
+      type('name', 'North quarter')
+      click('[data-action="save-scenario"]')
+      click('[data-action="go-scenarios"]')
+      // A folder has to exist before anything has a heading to fold.
+      click('[data-action="new-folder"]')
+      doc.querySelector('#fldName').value = 'Corn trials'
+      click('.fld-save')
+
+      const chev = doc.querySelector('.fld-chev')
+      assert.ok(chev, 'the section has a caret')
+      assert.equal(chev.textContent.trim(), '', 'and it carries no glyph of its own')
+      assert.match(css, /\.fld-toggle\[aria-expanded="false"\] \.fld-chev/)
+    })
+  })
+})
+
+describe('markup written as template literals', () => {
+  // Every screen in this app is a template literal, and the comments explaining
+  // the awkward bits are HTML comments INSIDE those literals. A backtick in one
+  // ends the literal early, and what follows is parsed as JavaScript — so a
+  // comment about `.chev` took the whole saved list down, and a comment about
+  // `.block-head` did it again two weeks later.
+  //
+  // Both times the smoke tests caught it, as a hundred and twenty failures
+  // saying nothing about the cause. This one names it.
+  test('no HTML comment carries a backtick', () => {
+    const roots = [new URL('../src/', import.meta.url), new URL('../src/ui/', import.meta.url)]
+
+    let checked = 0
+    for (const dir of roots) {
+      for (const name of readdirSync(dir)) {
+        if (!name.endsWith('.js')) continue
+        const src = readFileSync(new URL(name, dir), 'utf8')
+        for (const [whole] of src.matchAll(/<!--[\s\S]*?-->/g)) {
+          checked += 1
+          assert.equal(
+            whole.includes('`'),
+            false,
+            `${name}: an HTML comment contains a backtick, which ends the ` +
+              `template literal it sits in. Say it without the backticks:\n${whole.slice(0, 160)}`
+          )
+        }
+      }
+    }
+    assert.ok(checked > 10, 'the scan actually found comments to check')
   })
 })

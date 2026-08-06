@@ -41,6 +41,65 @@
   --olive-bg: #f4f7e3;
   --clay-bg: #f6ede7;
   --brand-ink: var(--brown);
+
+  /* ---- folder swatches -------------------------------------------------
+     Twelve: a walk round the wheel with PINK where red would be, closing on
+     two neutrals. Red is the one colour not on offer and that is not
+     squeamishness — the palette above is semantic, --green means a positive
+     dollar figure and --cost a negative one, and a red folder mark on a page
+     whose every row prints a profit or a loss re-opens the question the
+     palette exists to settle. Pink sits beside red on the wheel and carries
+     none of it.
+
+     Every one of these is its OWN value, the blue and the green included. They
+     used to borrow --sky and --olive, which cost no new tokens but tied a
+     folder's colour to the app's chrome: a "blue" folder was the same blue as
+     every `?` button and every KPI edge. A folder colour is a label a producer
+     chose and should not read as furniture, or move if the brand ever does.
+
+     Each is a pair: the ink the glyph is stroked in, and the wash behind it.
+
+     THE INK IS THE SAME IN BOTH THEMES. Only the wash is overridden under
+     [data-theme="dark"], so a folder keeps the colour the producer picked
+     whichever theme they are looking at it in — which is the job of a colour
+     used as a LABEL rather than as chrome. Every other colour token in this file
+     flips between themes; these twelve are the deliberate exception, and the
+     reason is that a producer who made the pink folder should find a pink
+     folder.
+
+     The constraint that follows: each ink has to carry on a white card AND on a
+     dark one, so they run mid-tone rather than the darker shades a light theme
+     alone would choose. They are stroked glyphs and filled dots with the
+     folder's name in ordinary text beside them, never text themselves, so a
+     mid-tone reads fine on both. Change one and check it against BOTH washes.
+
+     Adding a colour means: the pair here, the -bg under [data-theme="dark"],
+     AND a .fld-c-<key> class in the folders block below. See the header comment
+     in ui/folders.js. */
+  --fld-pink: #ec5887;
+  --fld-pink-bg: #fdeaf3;
+  --fld-magenta: #ce18a7;
+  --fld-magenta-bg: #fae9f8;
+  --fld-violet: #b94dcf;
+  --fld-violet-bg: #f8eafb;
+  --fld-indigo: #6616bb;
+  --fld-indigo-bg: #eaedfa;
+  --fld-blue: #1668c4;
+  --fld-blue-bg: #e7f0fc;
+  --fld-teal: #11b2ac;
+  --fld-teal-bg: #e2f4f3;
+  --fld-green: #1db44d;
+  --fld-green-bg: #e6f5ea;
+  --fld-lime: #a6af2a;
+  --fld-lime-bg: #f0f6de;
+  --fld-yellow: #ffd24a;
+  --fld-yellow-bg: #fbf3dd;
+  --fld-orange: #f68e3e;
+  --fld-orange-bg: #fbeee2;
+  --fld-slate: #8b5942;
+  --fld-slate-bg: #e3d0b8;
+  --fld-grey: #959595;
+  --fld-grey-bg: #eef1ef;
   /* Text sitting ON a sky-filled button. White carries on the light theme's
      saturated #0fb2e2; on the lighter dark-theme blue it does not, so the two
      are separate tokens rather than a hardcoded #fff. */
@@ -83,6 +142,26 @@
   --clay-bg: #2b201a;
   --brand-ink: #dfe6e2;
   --on-sky: #0a1d24;
+
+  /* WASHES ONLY, and that is the whole point: the twelve inks are deliberately
+     NOT overridden here, so a folder is the same colour in either theme. See the
+     note beside them in :root. Each wash is its own ink at low lightness, so the
+     chip still reads as that colour rather than as a grey box. */
+  --fld-pink-bg: #33202a;
+  --fld-magenta-bg: #311f2f;
+  --fld-violet-bg: #2b2036;
+  --fld-indigo-bg: #221c33;
+  --fld-blue-bg: #17273c;
+  --fld-teal-bg: #16302f;
+  --fld-green-bg: #16301f;
+  --fld-lime-bg: #292c17;
+  --fld-yellow-bg: #322c17;
+  --fld-orange-bg: #33251a;
+  /* Slate is a warm brown in this palette, not a blue-grey — its light wash is
+     a tan. A blue-grey dark wash under a brown glyph was the one pair that did
+     not match its own ink. */
+  --fld-slate-bg: #2b2119;
+  --fld-grey-bg: #262c2e;
 }
 
 /* "Classic" = the Virtual Fence ROI tool's stack, for producers who prefer it
@@ -1137,6 +1216,17 @@ input.invalid {
   margin-bottom: 4px;
 }
 
+/* Two "+ " buttons on the Saved tab's header. They wrap together rather than
+   one at a time, so "+ New folder" never ends up alone on a line looking like
+   the heading for what is under it. */
+.head-btns {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex: 0 0 auto;
+}
+
 .block-head .title {
   flex: 1;
   margin: 0;
@@ -1516,19 +1606,239 @@ input.invalid {
   padding: 9px 11px;
 }
 
-.scn-list {
+/* ---- folders ------------------------------------------------------------ */
+
+/* Two swatch values per colour, resolved once here so every folder element —
+   the chip, the section's left edge, the editor's dot — reads the same pair.
+   One class per key in FOLDER_COLORS; a key with no class here renders with no
+   colour at all, which is the one failure in this feature that nothing warns
+   you about. */
+.fld-c-pink {
+  --fld-ink: var(--fld-pink);
+  --fld-wash: var(--fld-pink-bg);
+}
+.fld-c-magenta {
+  --fld-ink: var(--fld-magenta);
+  --fld-wash: var(--fld-magenta-bg);
+}
+.fld-c-violet {
+  --fld-ink: var(--fld-violet);
+  --fld-wash: var(--fld-violet-bg);
+}
+.fld-c-indigo {
+  --fld-ink: var(--fld-indigo);
+  --fld-wash: var(--fld-indigo-bg);
+}
+.fld-c-blue {
+  --fld-ink: var(--fld-blue);
+  --fld-wash: var(--fld-blue-bg);
+}
+.fld-c-teal {
+  --fld-ink: var(--fld-teal);
+  --fld-wash: var(--fld-teal-bg);
+}
+.fld-c-green {
+  --fld-ink: var(--fld-green);
+  --fld-wash: var(--fld-green-bg);
+}
+.fld-c-lime {
+  --fld-ink: var(--fld-lime);
+  --fld-wash: var(--fld-lime-bg);
+}
+.fld-c-yellow {
+  --fld-ink: var(--fld-yellow);
+  --fld-wash: var(--fld-yellow-bg);
+}
+.fld-c-orange {
+  --fld-ink: var(--fld-orange);
+  --fld-wash: var(--fld-orange-bg);
+}
+.fld-c-slate {
+  --fld-ink: var(--fld-slate);
+  --fld-wash: var(--fld-slate-bg);
+}
+.fld-c-grey {
+  --fld-ink: var(--fld-grey);
+  --fld-wash: var(--fld-grey-bg);
+}
+
+.scn-sections {
   display: grid;
-  gap: 8px;
+  gap: 10px;
   margin: 12px 0;
 }
 
+.scn-section {
+  min-width: 0;
+}
+
+/* One row, always. Edit and the ▲▼ belong TO the heading they sit on; dropped
+   onto a line of their own they read as controls for the budgets underneath,
+   which is the one thing on this page they are not. Nothing here wraps, so the
+   folder name is what gives way — it truncates, and it is the only part of the
+   row that can afford to. */
+.fld-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 10px;
+  min-width: 0;
+
+  /* The folder's own colour, carried the full width of the heading. The chip is
+     26px of it and easy to miss down a long list; a rule under the whole row is
+     what actually separates one section from the next when several are open at
+     once. Same 2px idiom as `.sub-title`, so a folder heading and a card heading
+     read as the same kind of thing.
+
+     `--fld-ink` comes from the .fld-c-* class on the section. The ungrouped pile
+     has no folder and therefore no class, so it falls back to the plain border —
+     which is right: it is a heading over budgets that are not in anything, and
+     giving it a colour would make it look like one more folder. */
+  border-bottom: 2px solid var(--fld-ink, var(--border));
+  padding-bottom: 0px;
+  margin-bottom: 8px;
+}
+
+/* The whole heading folds the section, not a chevron you have to hit. On a
+   phone that is the difference between a target the width of the card and one
+   about the width of a fingernail. */
+.fld-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 40px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.fld-toggle:hover {
+  background: var(--bg);
+}
+
+/* Bigger than the enterprise-card chevron, because it is the only mark on the
+   line that says the whole section folds — a card also has its title turning
+   into a button, and this one competes with a coloured chip beside it.
+   `.chev` DRAWS the caret from two borders of a rotated box; it takes no text,
+   and the ▾ that used to be inside it rendered a second caret twice this size
+   underneath the real one. */
+.fld-chev {
+  border-width: 0 2.5px 2.5px 0;
+  padding: 4px;
+  border-color: var(--brand-ink);
+  margin-right: 4px;
+}
+
+/* Which way it points comes off the attribute the fold already maintains, so
+   there is one source of truth and nothing for JS to keep in step. */
+.fld-toggle[aria-expanded="false"] .fld-chev {
+  transform: rotate(-45deg);
+}
+
+.fld-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  border-radius: 7px;
+  background: var(--fld-wash);
+  color: var(--fld-ink);
+}
+
+.fld-name {
+  font-weight: 700;
+  color: var(--brand-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* A count, not a figure. The only bold thing on a budget row is its profit, and
+   the same rule holds one level up. */
+.fld-count {
+  color: var(--muted);
+  font-size: 13.5px;
+  flex: 0 0 auto;
+}
+
+.fld-count::before {
+  content: "· ";
+}
+
+.fld-btns {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+/* The count keeps its full width and the NAME truncates, which is the way round
+   it falls out of `flex: 0 0 auto` above and is also the right one: "2 budgets"
+   is nine characters that never grow, where a folder name has no upper bound, so
+   letting the count shrink would buy about sixty pixels once and cost a
+   predictable row shape always. */
+.fld-count {
+  white-space: nowrap;
+}
+
+.fld-empty {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+
+.scn-list {
+  display: grid;
+  gap: 4px;
+  margin: 12px 0;
+}
+
+/* Inside a section the list is already spaced by the section gap above it, and
+   it is indented so the rows read as belonging to the heading rather than
+   sitting beside it. */
+.scn-section .scn-list {
+  margin: 2px 0 0;
+  padding-left: 13px;
+  border-left: 3px solid var(--fld-wash, var(--border));
+}
+
+/* The no-folders case: rows and nothing else. The indent and the left rule are
+   both there to tie a list to the heading above it, so with no heading they are
+   an inset with nothing on the other side of it.
+
+   Specificity of three, deliberately, so this beats the phone override of
+   `.scn-section .scn-list` further down the file without having to be repeated
+   inside that media query. */
+.scn-sections .scn-section-bare .scn-list {
+  margin: 12px 0;
+  padding-left: 0;
+  border-left: 0;
+}
+
+/* A list of budgets is closer to a table than to a stack of cards, and it was
+   being laid out as the second. Every figure a producer scans down — the
+   acreage, the profit, the year — reads better when the rows are near enough
+   together to compare by eye, and the old row spent most of its height on
+   padding around controls. Tightened here rather than by dropping anything:
+   the ▲▼ arrows keep their touch targets (see the `hover: none` block). */
 .scn {
   display: flex;
   align-items: center;
   gap: 8px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 8px 10px;
+  padding: 3px 8px;
   flex-wrap: wrap;
 }
 
@@ -1543,17 +1853,30 @@ input.invalid {
   background: var(--info-bg);
 }
 
+/* A tick in a column of ticks, not a form control. 22px next to a 15px name
+   made the selection the loudest thing on a row whose subject is a farm. 18 is
+   still comfortably above the 16px browsers draw by default, and the label
+   around it keeps the tap target the full height of the row. */
+.scn-pick {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  padding: 4px 2px;
+  cursor: pointer;
+}
+
 .scn-pick input {
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   min-height: 0;
+  margin: 0;
 }
 
 .scn-order {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1px;
+  gap: 0;
   flex: 0 0 auto;
 }
 
@@ -1566,9 +1889,9 @@ input.invalid {
 .scn-grip {
   cursor: grab;
   color: var(--muted);
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1;
-  padding: 1px 2px;
+  padding: 0 2px;
   user-select: none;
   touch-action: none;
   -webkit-touch-callout: none;
@@ -1584,7 +1907,7 @@ input.invalid {
   color: var(--muted);
   font-size: 11px;
   line-height: 1;
-  padding: 5px 6px;
+  padding: 2px 6px;
   cursor: pointer;
 }
 
@@ -1607,13 +1930,29 @@ input.invalid {
    use the arrows. It costs the row about 30px of height; the alternative was
    hiding it, and a hidden control cannot be the one people ask for. */
 @media (hover: none) {
-  .scn-grip {
-    padding: 7px 12px;
-    font-size: 17px;
+  /* The handle is the one control here aimed at with a moving thumb rather than
+     a settled one, and it was the smallest. It now has more room than either
+     arrow, and — the half that matters more — 8px of clear space either side, so
+     a thumb that lands slightly high or slightly low finds nothing at all rather
+     than finding ▲. A missed grip that presses an arrow is worse than a missed
+     grip that does nothing: one is a gesture that did not start, the other is a
+     reorder the producer did not ask for. */
+  .scn-order {
+    gap: 8px;
   }
 
+  .scn-grip {
+    padding: 10px 14px;
+    font-size: 18px;
+  }
+
+  /* 44 wide by 30 tall, not 44 square. Stacked, two 44px arrows with the handle
+     between them set the row's height at about 118px — on a row whose content is
+     a name and a line of figures, barely fifty. The width is what a thumb
+     actually misses on, so the width is what is kept; 30px of height is still
+     comfortably past the 24px minimum, and the row loses a third of its size. */
   .scn-move {
-    min-height: 44px;
+    min-height: 30px;
     min-width: 44px;
     font-size: 13px;
   }
@@ -1631,14 +1970,44 @@ input.invalid {
   border: 2px solid var(--sky);
   background: var(--info-bg);
   box-shadow: 0 10px 22px rgba(0, 0, 0, 0.22);
-  transform: rotate(-0.6deg) scale(1.01);
   cursor: grabbing;
+
+  /* `--lift` is how far the finger has carried the row from where it was picked
+     up. main.js writes the number and nothing else, so what a lifted row LOOKS
+     like stays here, in one place, with the border and the shadow it belongs
+     with. Zero on the mouse path, which never sets it: there the browser draws
+     its own drag image and translating the original as well would show the row
+     in two places at once. */
+  --lift: 0px;
+  transform: translateY(var(--lift)) rotate(-0.6deg) scale(1.02);
+
+  /* Never transitioned. The lift IS the finger's position, so easing it would
+     put the row behind the finger by the length of the easing — the exact lag
+     that reads as the drag being sluggish. */
+  transition: none;
+  /* Above its neighbours, so the shadow falls ON the list rather than under the
+     next row down, and above the section header when it is carried past one. */
+  position: relative;
+  z-index: 2;
+  will-change: transform;
 }
 
 /* The gap the row will drop into. Applied to the list while a drag is live, so
-   every other row settles back to plain and only the moving one is decorated. */
+   every other row settles back to plain and only the moving one is decorated.
+
+   The transform transition is what makes the rest of the list SLIDE out of the
+   way. Reordering is a DOM move and a DOM move cannot be transitioned — the
+   browser lays out the new order in a single frame — so main.js puts each
+   shifted row back where it was with a transform and lets this rule carry it to
+   its new place. See slideRows(). Without the transition there, that code sets
+   an offset and clears it in the same frame, which is a very expensive way to
+   draw nothing. */
 .scn-list.dragging-active .scn:not(.dragging) {
   opacity: 0.72;
+  transition:
+    transform 0.18s cubic-bezier(0.2, 0, 0, 1),
+    opacity 0.15s ease;
+  will-change: transform;
 }
 
 .scn-list.dragging-active {
@@ -1653,7 +2022,7 @@ input.invalid {
   flex: 1 1 220px;
   min-width: 0;
   display: grid;
-  gap: 2px;
+  gap: 0;
 }
 
 .scn-name-row {
@@ -1682,8 +2051,8 @@ input.invalid {
   border: 1px solid transparent;
   background: transparent;
   /* The right padding is the pencil's room, inside the box. */
-  padding: 5px 32px 5px 6px;
-  min-height: 36px;
+  padding: 2px 30px 2px 5px;
+  min-height: 26px;
   color: var(--brand-ink);
   flex: 0 1 auto;
   width: auto;
@@ -1717,17 +2086,31 @@ input.invalid {
    to be read down a list at a glance rather than as fine print under the name. */
 .scn-meta {
   display: block;
-  font-size: 13.5px;
+  font-size: 12.5px;
+  line-height: 1.3;
   color: var(--muted);
-  padding: 0 6px 4px;
+  padding: 0 5px 2px;
   min-width: 0;
 }
 
 .scn-btns {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 11px;
   flex: 0 0 auto;
+}
+
+/* The warm brown, which on this page means a secondary mark rather than an
+   action on the money. Open is the blue one, Delete is the red one, and Move is
+   the only one of the four that changes where a budget LIVES rather than what
+   is in it or whether it exists at all. */
+.scn-btns .scn-move-btn {
+  color: var(--clay);
+}
+
+.scn-btns .scn-move-btn:hover {
+  color: var(--clay);
+  text-decoration-thickness: 2px;
 }
 
 .scn-actions {
@@ -2067,6 +2450,120 @@ body.modal-open {
   margin: 8px 0 0;
 }
 
+/* ---- the folder modals -------------------------------------------------- */
+
+.fld-options {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.fld-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  min-height: 44px;
+}
+
+.fld-option:hover {
+  background: var(--bg);
+}
+
+.fld-option input {
+  width: 20px;
+  height: 20px;
+  min-height: 0;
+  flex: 0 0 auto;
+}
+
+.fld-option-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fld-field {
+  margin-bottom: 16px;
+}
+
+.fld-label {
+  display: block;
+  font-size: 13.5px;
+  color: var(--muted);
+  margin-bottom: 5px;
+}
+
+.fld-name-input {
+  width: 100%;
+}
+
+/* Spread across the full width rather than packed to the left, so the twelve
+   read as a palette and not as a queue. `auto-fit` fits as many columns as the
+   modal allows and stretches them to fill it, so both grids break at the same
+   place and the icon row and the colour row still line up column for column —
+   they are twelve and twelve on purpose. */
+.fld-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(43px, 1fr));
+  justify-items: center;
+  gap: 6px;
+}
+
+.fld-pick {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 43px;
+  height: 43px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.fld-pick:hover {
+  border-color: var(--sky);
+}
+
+/* Pressed is a ring, not a fill: a filled state on a swatch button would fight
+   the swatch's own colour for the same square. */
+.fld-pick[aria-pressed="true"] {
+  border-color: var(--sky);
+  box-shadow: 0 0 0 2px var(--info-bg), 0 0 0 3px var(--sky);
+  color: var(--text);
+}
+
+.fld-dot {
+  display: block;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--fld-ink);
+}
+
+/* Bottom right, where a dialog's confirm lives. Delete is pushed to the far
+   left by its own margin below, so the one irreversible button on the panel is
+   nowhere near the one you came here to press. */
+.modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+}
+
+/* Away from Save, so the one irreversible button on the panel is not the one
+   next to the button you came here to press. */
+.modal-actions .fld-delete {
+  margin-right: auto;
+}
+
 .modal-err {
   background: var(--cost-bg);
   color: var(--cost);
@@ -2355,9 +2852,143 @@ body.modal-open {
     min-width: 96px;
   }
 
+  /* The Saved tab's header goes to two centred rows. Side by side, the title
+     and two "+ " buttons leave the heading about a third of the width and both
+     buttons wrapping anyway, so the row reads as three things fighting rather
+     than a title with two actions under it. Scoped to `.saved-head` because
+     `.block-head` is shared with four other places that do not want this. */
+  .saved-head {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .saved-head > .title {
+    flex: 1 1 100%;
+    text-align: center;
+  }
+
+  .saved-head .head-btns {
+    justify-content: center;
+  }
+
+  /* The reorder controls stay at the far left, beside the tick, at every
+     width. They were briefly moved down onto the actions line to save height;
+     it saved about thirty pixels and cost the row its shape, because the handle
+     you grab to move a row belongs at the edge you drag from, not in among four
+     text links. The height comes out of the controls themselves instead — see
+     the `hover: none` block, where the arrows shrink but keep a target well
+     above the 24px minimum.
+
+     `.scn-btns` still takes a full line of its own: four text links plus the
+     name and the figures do not fit on one at phone width, and made to fit they
+     would each be too small to hit.
+
+     A GRID, not wrapped flex, and that is what centres the handle. Under
+     flex-wrap the controls were centred on their own wrapped LINE — the one
+     holding the tick and the name — which put them noticeably above the middle
+     of a row whose actions sat on a second line below. As a two-row grid the
+     column spans both, so `align-items: center` centres it on the whole row,
+     which is where a thumb reaching for the handle expects to find it. It also
+     removes the guesswork: the column no longer has to be shorter than the
+     content to avoid setting the height, because the grid rows simply grow to
+     fit whichever is taller. */
+  .scn {
+    display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr);
+    grid-template-areas:
+      "order pick main"
+      "order pick btns";
+    align-items: center;
+    column-gap: 8px;
+    row-gap: 1px;
+  }
+
+  .scn-order {
+    grid-area: order;
+  }
+
+  /* Both of the left-hand columns span the two rows, so both sit on the row's
+     middle rather than on the middle of its first line. The tick and the handle
+     are the two things a finger goes for without reading, and they should be
+     where the row looks like it is. */
+  .scn-pick {
+    grid-area: pick;
+  }
+
+  .scn-main {
+    grid-area: main;
+  }
+
+  /* Under the name rather than under the tick as well, which is what spanning
+     two columns used to do — the links now line up with the text they belong
+     to. Right-aligned either way, so the far end does not move. */
   .scn-btns {
-    width: 100%;
+    grid-area: btns;
     justify-content: flex-end;
+    gap: 13px;
+  }
+
+  /* Smaller type, since the row is a table row and not a card. The name stays
+     bold and stays the largest thing on it, so the hierarchy is unchanged; every
+     line just takes less room. */
+  .scn-name-input {
+    font-size: 14px;
+    min-height: 24px;
+    padding: 1px 26px 1px 5px;
+  }
+
+  .scn-meta {
+    font-size: 11.5px;
+    padding: 0 5px 1px;
+  }
+
+  /* Four of them on one line under the name, and they are the least of what a
+     row has to say — the name, the figures and the profit all outrank them.
+
+     The padding is not decoration. `.tip` ships with `padding: 2px 0 0`, so its
+     tap target is its text and nothing more; taking the type down to 11.5px
+     would have taken the target down with it, to about fourteen pixels of height
+     on the controls that delete a budget. The vertical padding puts it back to
+     roughly 26px without adding a pixel to the row, because the row is already
+     that tall for the name beside it. */
+  .scn-btns .tip {
+    font-size: 11.5px;
+    padding: 6px 0;
+  }
+
+  .scn-open-flag {
+    font-size: 11px;
+  }
+
+  /* Tighter, not stacked. An earlier version wrapped the controls onto their
+     own line to buy the name room; it bought about six more characters and cost
+     the heading its shape, so the name truncates instead. */
+  .fld-toggle {
+    gap: 6px;
+    padding: 2px 4px;
+    min-height: 34px;
+  }
+
+  .fld-chip {
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+  }
+
+  .fld-name,
+  .fld-count {
+    font-size: 13px;
+  }
+
+  .fld-btns {
+    gap: 6px;
+  }
+
+  /* Half the indent. On a phone the rows are already the full width of the
+     card, and every pixel taken off the left is one the profit figure at the
+     right-hand end does not have. */
+  .scn-section .scn-list {
+    padding-left: 7px;
   }
 
   /* Tables are the one place the page still has to hold several columns at
@@ -2437,8 +3068,27 @@ body.modal-open {
      is running it reads "Showing 3 of 12 budgets" — which is the only thing on
      paper that explains why nine budgets are missing from a printed list. */
   .scn-filter,
+  /* Folder controls are controls. The header itself stays — it is structure,
+     and it says which budgets below it belong together. */
+  .fld-btns,
   .footer button {
     display: none !important;
+  }
+
+  /* A collapsed folder PRINTS EXPANDED. Paper has no chevron to tap, so a
+     printed list that silently leaves out half the budgets is a wrong document,
+     not a tidy one.
+
+     This has to out-specify `[hidden] { display: none !important }` at the top
+     of the sheet. Both are author-origin and both are !important, so the winner
+     is decided on specificity: (0,2,0) here against (0,1,0) there. Dropping
+     either the attribute selector or the !important puts the folds back.
+
+     Scoped to `.scn-list` on purpose. A row hidden by the FILTER stays hidden
+     on paper, where the hint line reads "Showing 3 of 12 budgets" and is the
+     only thing explaining why nine are missing. */
+  .scn-list[hidden] {
+    display: grid !important;
   }
 
   /* Browser chrome that only makes sense to a cursor: the up/down spinners on a

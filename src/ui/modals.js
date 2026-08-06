@@ -84,7 +84,16 @@ function trapFocus(e) {
   }
 }
 
-function openModal(title, bodyHtml) {
+/**
+ * Returns the body element so a caller can wire its own controls up.
+ *
+ * Exported for ui/folders.js, which is the third kind of modal: one that writes
+ * to the FOLDER store rather than to a budget. It gets the component and none of
+ * the behaviour — the read-only rule for `?` and the one-field rule for "use
+ * typical value" are enforced by openInfo() and openTypical() being separate
+ * functions, and nothing here weakens that.
+ */
+export function openModal(title, bodyHtml) {
   const el = ensureOverlay()
   lastFocused = document.activeElement
   el.querySelector('.modal-title').textContent = title
@@ -97,6 +106,7 @@ function openModal(title, bodyHtml) {
   // from carrying on into the budget behind it and losing the producer's place.
   document.body.classList.add('modal-open')
   el.querySelector('.modal-close').focus()
+  return body
 }
 
 export function closeModal() {

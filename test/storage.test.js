@@ -47,10 +47,16 @@ const {
   exportScenarioJSON,
   renameScenario,
   reorderScenarios,
+  listFolders,
+  saveFolder,
+  deleteFolder,
+  reorderFolders,
+  moveScenarioToFolder,
 } = await import('../src/storage.js')
 const { SCHEMA_VERSION } = await import('../src/calc.js')
 
 const KEY = 'sdshc-fb-scenarios'
+const KEY_FOLDERS = 'sdshc-fb-folders'
 
 function makeScenario(id, name) {
   return {
@@ -433,5 +439,250 @@ describe('import and export', () => {
     assert.equal(storageAvailable(), true)
     store.failWrites = 'SecurityError'
     assert.equal(storageAvailable(), false)
+  })
+})
+
+describe('v5 migration', () => {
+  // v5 added `folderId`. A v4 budget is in no folder, and the step deliberately
+  // writes nothing — absence already says exactly that.
+  function v4Budget() {
+    return [
+      {
+        schemaVersion: 4,
+        id: 'a',
+        name: 'Existing',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        enterprises: [{ id: 'e1', name: '', crop: 'Corn', acres: 500, variable: {} }],
+        fixed: { labor: {}, annual: {}, annualBasis: {}, equipment: [], buildings: [] },
+      },
+    ]
+  }
+
+  test('a v4 budget comes forward filed nowhere, with nothing written', () => {
+    store.setItem(KEY, JSON.stringify(v4Budget()))
+    const [s] = listScenarios()
+    assert.equal(s.schemaVersion, SCHEMA_VERSION)
+    // Writing `folderId: null` across every stored record would be a full
+    // rewrite of the store to restate what it already said, on a device whose
+    // quota is the reason saveScenario has an error path at all.
+    assert.equal(s.folderId, undefined)
+    assert.equal(s.name, 'Existing', 'and nothing else moved')
+  })
+
+  test('a budget already filed keeps its folder through a read', () => {
+    const [budget] = v4Budget()
+    budget.folderId = 'fld-1'
+    store.setItem(KEY, JSON.stringify([budget]))
+    assert.equal(listScenarios()[0].folderId, 'fld-1')
+  })
+})
+
+describe('folders', () => {
+  beforeEach(() => {
+    store.clear()
+    store.failWrites = null
+  })
+
+  /** Make one folder and hand back the stored record, id and all. */
+  function folder(name, extra = {}) {
+    const result = saveFolder({ name, icon: 'sprout', color: 'green', ...extra })
+    assert.equal(result.ok, true, `saving ${name}`)
+    return result.folder
+  }
+
+  test('a folder is created, read back, and updated in place', () => {
+    const made = folder('Corn trials')
+    assert.equal(listFolders().length, 1)
+    assert.equal(listFolders()[0].name, 'Corn trials')
+    assert.equal(listFolders()[0].icon, 'sprout')
+
+    saveFolder({ ...made, name: 'Corn trials 2026', color: 'pink' })
+    assert.equal(listFolders().length, 1, 'updated, not duplicated')
+    assert.equal(listFolders()[0].name, 'Corn trials 2026')
+    assert.equal(listFolders()[0].color, 'pink')
+    assert.equal(listFolders()[0].icon, 'sprout', 'and the icon it was not asked about is kept')
+  })
+
+  test('a new folder goes to the bottom', () => {
+    folder('First')
+    folder('Second')
+    assert.deepEqual(
+      listFolders().map((f) => f.name),
+      ['First', 'Second']
+    )
+  })
+
+  test('reordering assigns a rank, and never loses a folder it was not told about', () => {
+    const a = folder('A')
+    folder('B')
+    const c = folder('C')
+    // Only two of the three named — the same guarantee reorderScenarios makes,
+    // for the same reason: another tab may have created one between render and
+    // press, and it must not disappear because of that.
+    assert.equal(reorderFolders([c.id, a.id]).ok, true)
+    assert.deepEqual(
+      listFolders().map((f) => f.name),
+      ['C', 'A', 'B']
+    )
+    assert.deepEqual(
+      listFolders().map((f) => f.sortIndex),
+      [0, 1, 2]
+    )
+  })
+
+  test('DELETING A FOLDER LEAVES EVERY BUDGET IN IT', () => {
+    // The one that matters most. This app holds a producer's saved work in one
+    // browser with no server behind it; an organising feature that can lose a
+    // budget is worse than no organising feature.
+    const f = folder('Corn trials')
+    saveScenario(makeScenario('a', 'North quarter'))
+    saveScenario(makeScenario('b', 'South quarter'))
+    moveScenarioToFolder('a', f.id)
+    moveScenarioToFolder('b', f.id)
+
+    assert.equal(deleteFolder(f.id).ok, true)
+    assert.equal(listFolders().length, 0)
+
+    const left = listScenarios()
+    assert.equal(left.length, 2, 'both budgets survive')
+    assert.deepEqual(
+      left.map((s) => s.folderId),
+      [undefined, undefined],
+      'and come back un-filed'
+    )
+    assert.equal(getScenarioById('a').enterprises.length, 1, 'with their contents intact')
+  })
+
+  test('deleting a folder that is already gone reports rather than throws', () => {
+    assert.deepEqual(deleteFolder('nope'), { ok: false, error: 'NotFound' })
+  })
+
+  test('a folderId naming a folder that no longer exists is still readable', () => {
+    // The state after a folder is deleted in another tab, and after an unlucky
+    // partial write. The record must survive; the Saved tab draws it in the
+    // ungrouped pile (see the app tests).
+    saveScenario(makeScenario('a', 'Orphan'))
+    moveScenarioToFolder('a', 'fld-gone')
+    assert.equal(listFolders().length, 0)
+    assert.equal(listScenarios().length, 1)
+    assert.equal(getScenarioById('a').folderId, 'fld-gone')
+  })
+
+  test('a corrupt folders key costs the folders and not one budget', () => {
+    saveScenario(makeScenario('a', 'Keep me'))
+    for (const junk of ['not json', '{}', '"a string"', 'null']) {
+      store.setItem(KEY_FOLDERS, junk)
+      assert.deepEqual(listFolders(), [], `${junk} reads as no folders`)
+      assert.equal(listScenarios().length, 1, `${junk} leaves the budgets alone`)
+    }
+  })
+
+  test('one malformed folder is skipped, not fatal to the rest', () => {
+    store.setItem(
+      KEY_FOLDERS,
+      JSON.stringify([
+        { id: 'f1', name: 'Good' },
+        null,
+        42,
+        { name: 'no id' },
+        { id: 'f2', name: 'Also good' },
+      ])
+    )
+    assert.deepEqual(
+      listFolders().map((f) => f.name),
+      ['Good', 'Also good']
+    )
+  })
+
+  test('every folder write reports a full store instead of throwing', () => {
+    const f = folder('Corn trials')
+    saveScenario(makeScenario('a', 'North'))
+    moveScenarioToFolder('a', f.id)
+    store.failWrites = 'QuotaExceededError'
+
+    for (const [label, run] of [
+      ['saveFolder', () => saveFolder({ name: 'New' })],
+      ['saveFolder update', () => saveFolder({ ...f, name: 'Renamed' })],
+      ['reorderFolders', () => reorderFolders([f.id])],
+      ['deleteFolder', () => deleteFolder(f.id)],
+      ['moveScenarioToFolder', () => moveScenarioToFolder('a', '')],
+    ]) {
+      const result = run()
+      assert.equal(result.ok, false, `${label} reports`)
+      assert.equal(result.error, 'QuotaExceededError', `${label} says why`)
+    }
+  })
+
+  test('filing a budget is not editing it, so the saved date does not move', () => {
+    // The date on the row is the producer's record of when they last worked on
+    // that farm. Bumping it would also manufacture a save conflict in another
+    // tab over an operation that changed no figure.
+    saveScenario(makeScenario('a', 'North'))
+    const before = getScenarioById('a').updatedAt
+    const f = folder('Corn trials')
+    assert.equal(moveScenarioToFolder('a', f.id).ok, true)
+    assert.equal(getScenarioById('a').updatedAt, before)
+  })
+
+  test('filing writes only that budget, never the whole working scenario over it', () => {
+    // The Saved tab files a row that may not be the budget open on the Budget
+    // tab. Same hazard renameScenario() is built to avoid.
+    const original = makeScenario('a', 'North')
+    original.enterprises[0].acres = 500
+    saveScenario(original)
+    saveScenario(makeScenario('b', 'South'))
+
+    const f = folder('Corn trials')
+    moveScenarioToFolder('a', f.id)
+
+    assert.equal(getScenarioById('a').enterprises[0].acres, 500)
+    assert.equal(getScenarioById('b').name, 'South')
+    assert.equal(getScenarioById('b').folderId, undefined)
+  })
+
+  test('moving to no folder un-files rather than storing an empty string', () => {
+    const f = folder('Corn trials')
+    saveScenario(makeScenario('a', 'North'))
+    moveScenarioToFolder('a', f.id)
+    assert.equal(moveScenarioToFolder('a', '').ok, true)
+    assert.equal(getScenarioById('a').folderId, undefined)
+  })
+
+  test('filing a budget that is gone reports rather than throws', () => {
+    assert.deepEqual(moveScenarioToFolder('nope', 'fld-1'), { ok: false, error: 'NotFound' })
+  })
+
+  test('saving from the Budget tab cannot un-file a budget, or re-file it', () => {
+    // Open a budget, go to Saved, file it, come back and save. The working copy
+    // in memory was read BEFORE the move and still says the old folder — so the
+    // stored value has to win, in both directions.
+    const working = makeScenario('a', 'North')
+    saveScenario(working)
+    const f = folder('Corn trials')
+    moveScenarioToFolder('a', f.id)
+
+    saveScenario(working) // still carrying no folderId at all
+    assert.equal(getScenarioById('a').folderId, f.id, 'the filing survives the save')
+
+    moveScenarioToFolder('a', '')
+    saveScenario({ ...working, folderId: f.id }) // now the stale copy, the other way round
+    assert.equal(getScenarioById('a').folderId, undefined, 'and so does the un-filing')
+  })
+
+  test('a folder never travels in an exported budget file', () => {
+    const f = folder('Corn trials')
+    saveScenario(makeScenario('a', 'North'))
+    moveScenarioToFolder('a', f.id)
+
+    const text = exportScenarioJSON(getScenarioById('a'))
+    assert.equal(text.includes('folderId'), false, 'nothing about folders goes out')
+
+    // And a file that carries one anyway — hand-edited, or written by some
+    // future version — lands un-filed. An id from another device means nothing
+    // here except by an unlucky collision.
+    const back = importScenarioJSON(JSON.stringify({ ...getScenarioById('a'), folderId: f.id }))
+    assert.equal(back.ok, true)
+    assert.equal(back.scenario.folderId, undefined)
   })
 })

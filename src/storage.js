@@ -17,6 +17,17 @@ const KEY = 'sdshc-fb-scenarios'
 const KEY_LAST = 'sdshc-fb-last-open'
 
 /**
+ * Folders live in their OWN key, never inside a scenario.
+ *
+ * A folder is metadata about this device's list. It must not travel in an
+ * exported budget file, it must not mark a budget dirty, and it has to be
+ * readable and writable without touching the scenarios key at all — so that a
+ * folders key which fails to parse costs the producer their folders and not one
+ * single budget.
+ */
+const KEY_FOLDERS = 'sdshc-fb-folders'
+
+/**
  * The `updatedAt` we last read or wrote for each scenario, so a save can tell
  * whether someone else changed that record in the meantime.
  *
@@ -32,17 +43,17 @@ const KEY_LAST = 'sdshc-fb-last-open'
 const lastKnownUpdatedAt = new Map()
 
 /** localStorage throws in Safari private mode and when the quota is full. */
-function readRaw() {
+function readKey(key) {
   try {
-    return localStorage.getItem(KEY)
+    return localStorage.getItem(key)
   } catch {
     return null
   }
 }
 
-function writeRaw(value) {
+function writeKey(key, value) {
   try {
-    localStorage.setItem(KEY, value)
+    localStorage.setItem(key, value)
     return { ok: true }
   } catch (err) {
     // QuotaExceededError is the realistic failure: dozens of scenarios, or a
@@ -51,6 +62,9 @@ function writeRaw(value) {
     return { ok: false, error: err?.name || 'StorageError' }
   }
 }
+
+const readRaw = () => readKey(KEY)
+const writeRaw = (value) => writeKey(KEY, value)
 
 /**
  * Bring an older stored scenario up to the current shape.
@@ -126,6 +140,18 @@ function migrate(scenario) {
     scenario.schemaVersion = 4
   }
 
+  // v4 → v5: budgets gained `folderId`, naming the folder they are filed in.
+  //
+  // Nothing is written here, and the reason is the same one as v2 → v3: absence
+  // is already the correct representation of the new state. A v4 budget is in no
+  // folder, `folderId: null` says exactly what a missing key says, and writing
+  // it across every stored record would be a full rewrite of the store to
+  // restate what it already said — on a device whose quota is the reason
+  // saveScenario() has an error path at all.
+  if (Number(scenario.schemaVersion) < 5) {
+    scenario.schemaVersion = 5
+  }
+
   return scenario
 }
 
@@ -164,6 +190,183 @@ export function reorderScenarios(idsInOrder) {
     s.sortIndex = i
   })
   return writeRaw(JSON.stringify(arranged))
+}
+
+/* ─────────────────────────── folders ───────────────────────────────────── */
+
+/**
+ * Folders, in list order. A record that cannot be read is skipped.
+ *
+ * The whole point of this function is that it can fail quietly. A folders key
+ * that will not parse costs the producer their folders and nothing else: with
+ * `[]` returned, the Saved tab is exactly the flat list it was before folders
+ * existed, still holding every budget. Nothing in here can take a budget with
+ * it, because budgets are not in this key.
+ *
+ * `icon` and `color` are token KEYS, never a glyph and never a hex. A stored
+ * `#2e7d32` cannot be re-rendered for dark mode and strands the record if the
+ * palette ever moves; `'olive'` resolves through the same custom properties as
+ * the rest of the app, in whichever theme is on. An unrecognised key is left
+ * alone here and falls back at render time (see folderIcon/folderColor in
+ * ui/folders.js) — the same rule as perYearFactor() returning 1 for a basis it
+ * does not know, rather than 0 or a crash.
+ */
+export function listFolders() {
+  const raw = readKey(KEY_FOLDERS)
+  if (!raw) return []
+
+  let parsed
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return []
+  }
+  if (!Array.isArray(parsed)) return []
+
+  const out = []
+  for (const f of parsed) {
+    if (!f || typeof f !== 'object' || !f.id) continue
+    out.push({
+      ...f,
+      id: String(f.id),
+      name: String(f.name ?? ''),
+    })
+  }
+  return out.sort(byFolderOrder)
+}
+
+/**
+ * Folders are arranged by arrow only (there is no third drag implementation on
+ * this page), so `sortIndex` is always set by the time there is anything to
+ * compare. Creation order is the fallback for a hand-edited or partly written
+ * file, and it is stable: a folder made later belongs below one made earlier.
+ */
+function byFolderOrder(a, b) {
+  const ai = Number.isFinite(Number(a.sortIndex)) ? Number(a.sortIndex) : null
+  const bi = Number.isFinite(Number(b.sortIndex)) ? Number(b.sortIndex) : null
+  if (ai !== null && bi !== null) return ai - bi
+  if (ai !== null) return -1
+  if (bi !== null) return 1
+  return String(a.createdAt).localeCompare(String(b.createdAt))
+}
+
+function writeFolders(list) {
+  return writeKey(KEY_FOLDERS, JSON.stringify(list))
+}
+
+let folderCounter = 0
+
+function makeFolderId() {
+  folderCounter += 1
+  return `fld-${Date.now().toString(36)}-${folderCounter}`
+}
+
+/**
+ * Create or update one folder by id. Returns `{ok, folder}`.
+ *
+ * A new folder goes to the BOTTOM of the list rather than the top. Making one is
+ * a decision about where things will go from now on, not a thing you then want
+ * sitting above the budgets you were already looking at.
+ */
+export function saveFolder(folder) {
+  if (!folder || typeof folder !== 'object') return { ok: false, error: 'MissingFolder' }
+
+  const all = listFolders()
+  const index = folder.id ? all.findIndex((f) => f.id === folder.id) : -1
+
+  const record = {
+    ...(index >= 0 ? all[index] : {}),
+    ...folder,
+    id: folder.id || makeFolderId(),
+    name: String(folder.name ?? ''),
+  }
+
+  if (index >= 0) {
+    all[index] = record
+  } else {
+    record.createdAt = new Date().toISOString()
+    const indices = all.map((f) => Number(f.sortIndex)).filter(Number.isFinite)
+    record.sortIndex = indices.length ? Math.max(...indices) + 1 : 0
+    all.push(record)
+  }
+
+  const result = writeFolders(all)
+  return result.ok ? { ok: true, folder: record } : result
+}
+
+/**
+ * Remove a folder. Every budget in it survives, un-filed.
+ *
+ * There is no cascade delete, no "also delete contents" option, and no
+ * configuration that produces one. This app holds a producer's saved work in one
+ * browser with no server behind it, and an organisational feature that can lose
+ * a budget is worse than no organisational feature.
+ *
+ * The members are cleared FIRST, and a failure there abandons the whole
+ * operation with nothing changed. The other order can leave budgets pointing at
+ * a folder that is gone — survivable, because a dangling folderId reads as "not
+ * in a folder" everywhere, but it is a state nobody can see or clean up. An
+ * emptied folder that would not delete is at least still on screen, and the
+ * producer can press Delete again.
+ */
+export function deleteFolder(id) {
+  const all = listFolders()
+  if (!all.some((f) => f.id === id)) return { ok: false, error: 'NotFound' }
+
+  const scenarios = listScenarios()
+  const members = scenarios.filter((s) => s.folderId === id)
+  if (members.length) {
+    for (const s of members) delete s.folderId
+    const cleared = writeRaw(JSON.stringify(scenarios))
+    if (!cleared.ok) return cleared
+  }
+
+  return writeFolders(all.filter((f) => f.id !== id))
+}
+
+/**
+ * Persist the folder arrangement. Mirrors reorderScenarios: ids not named keep
+ * their order and are appended, so a reorder can never make a folder vanish
+ * because another tab created one between render and press.
+ */
+export function reorderFolders(idsInOrder) {
+  const all = listFolders()
+  const rank = new Map(idsInOrder.map((id, i) => [id, i]))
+  const arranged = [
+    ...all.filter((f) => rank.has(f.id)).sort((a, b) => rank.get(a.id) - rank.get(b.id)),
+    ...all.filter((f) => !rank.has(f.id)),
+  ]
+  arranged.forEach((f, i) => {
+    f.sortIndex = i
+  })
+  return writeFolders(arranged)
+}
+
+/**
+ * File one budget, by id. `folderId` of null or '' means "not in a folder".
+ *
+ * Modelled on renameScenario() and NOT on saveScenario(), for the same reason:
+ * the Saved tab is filing a row that may not be the budget currently open on the
+ * Budget tab, and routing it through saveScenario() would write the whole
+ * working scenario over the stored one — including Budget-tab edits the producer
+ * has not saved.
+ *
+ * It differs from renameScenario() in one way that matters: it does NOT bump
+ * `updatedAt`. Filing a budget is not editing it. The date on the row is the
+ * producer's record of when they last worked on that farm, and moving it between
+ * folders must not reset it — which also means filing can never manufacture a
+ * save conflict in another tab, and never disturbs the newest-first fallback
+ * order.
+ */
+export function moveScenarioToFolder(id, folderId) {
+  const all = listScenarios()
+  const found = all.find((s) => s.id === id)
+  if (!found) return { ok: false, error: 'NotFound' }
+
+  if (folderId) found.folderId = String(folderId)
+  else delete found.folderId
+
+  return writeRaw(JSON.stringify(all))
 }
 
 /**
@@ -251,6 +454,17 @@ export function saveScenario(scenario, { force = false } = {}) {
     // The working scenario in memory has no idea where the producer dragged it
     // to; the stored record does. Saving must not undo a manual arrangement.
     if (existing.sortIndex != null) record.sortIndex = existing.sortIndex
+
+    // Membership is owned by the Saved tab, in both directions, so the stored
+    // value always wins — including when it is absent. Without this: open a
+    // budget, go to Saved, file it, come back and save. The working copy was
+    // read before the move and still carries the old folderId, so the save
+    // un-files it with nothing on screen to say so. The `else` half is the same
+    // hazard run backwards, after a move OUT of a folder. It is exactly the trap
+    // sortIndex already guards against, one field over.
+    if (existing.folderId != null) record.folderId = existing.folderId
+    else delete record.folderId
+
     all[index] = record
   } else {
     // A brand-new budget belongs at the top, alongside where the newest-first
@@ -305,8 +519,16 @@ export function storageAvailable() {
 
 /* ───────────────────── import / export (device transfer) ───────────────── */
 
+/**
+ * `folderId` is stripped on the way out and on the way back in.
+ *
+ * A folder organises one device's list. It is not part of a budget, it means
+ * nothing on the machine the file is opened on, and an id that happened to
+ * collide with a real folder there would file somebody else's budget into it.
+ */
 export function exportScenarioJSON(scenario) {
-  return JSON.stringify({ ...scenario, schemaVersion: SCHEMA_VERSION }, null, 2)
+  const { folderId, ...rest } = scenario
+  return JSON.stringify({ ...rest, schemaVersion: SCHEMA_VERSION }, null, 2)
 }
 
 /**
@@ -323,5 +545,9 @@ export function importScenarioJSON(text) {
   if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.enterprises)) {
     return { ok: false, error: 'That file is not a saved budget.' }
   }
+  // An imported budget lands in no folder — see exportScenarioJSON. A file the
+  // app wrote carries none; a hand-edited one is not evidence of anything about
+  // the folders on THIS device.
+  delete parsed.folderId
   return { ok: true, scenario: migrate(parsed) }
 }

@@ -1,6 +1,22 @@
 # Plan: organising the Saved tab into folders
 
-Status: **proposal, not built.** Nothing in `src/` implements this yet.
+Status: **built**, on the `opal` branch. Every phase in section 12 is done.
+
+This document is kept as written, because the argument for each decision is
+worth more than a tidy record of what shipped. Where the build departed from the
+plan it is marked **BUILT DIFFERENTLY** in place, with the reason. The short
+version:
+
+| | Planned | Built |
+|---|---|---|
+| Fold state (9) | folders default **open** | folders default **shut**, which makes the filter's reach into them load-bearing |
+| Colours (7) | six swatches: four brand, grey, violet | **twelve**, all their own values, matching twelve glyphs one for one |
+| Move button (6) | on every row | only once **one folder exists** |
+| Ungrouped pile (1) | hides when empty | stays once any folder exists, so there is somewhere to drag back out to |
+| `mergeVisibleOrder()` (5) | required | **not needed**, because a shut folder still renders its rows |
+
+The running record of how it all fits together is now the *Folders are sections
+on one page* section of CLAUDE.md.
 
 The ask: on the Saved tab, let a producer create folders, move budgets into
 them, and give each folder an icon and a colour. Must work on a phone and on a
@@ -215,6 +231,12 @@ organisational feature must never be able to lose a budget.**
    folder that is not being stored.
 6. **Collapsing a folder hides rows; it never changes their order.** See §5,
    which is the one place this is easy to get wrong.
+7. **BUILT, not planned: the ungrouped pile stays on screen once any folder
+   exists**, even with nothing in it. It was written to hide when empty, which
+   meant it disappeared at exactly the moment every budget had been filed,
+   taking the drop target for "drag one back out" with it and leaving a shortcut
+   that works right up until you need it. On a device with no folders it cannot
+   be empty, so this never puts a heading over nothing.
 
 ---
 
@@ -256,6 +278,25 @@ function mergeVisibleOrder(storedIds, visibleIds) {
 Both drag paths and both ▲▼ handlers already funnel through `commitOrder()` /
 `reorderScenarios()`, so this is one function and two call sites.
 
+> **BUILT DIFFERENTLY: the merge was not needed, and the reason is a rule to
+> keep.** This section assumes a collapsed folder's rows are absent from the DOM.
+> They are not: collapsing sets `hidden` on the `.scn-list` and CSS does the
+> rest, so `commitOrder()` reading every `.scn` on the page already has a
+> complete global order. `mergeVisibleOrder()` was written, found to be a no-op
+> against the actual markup, and dropped rather than kept as decoration.
+>
+> **That makes "a shut folder still renders its rows" load-bearing.** If a future
+> change ever stops rendering them, as an optimisation say, this bug is back
+> exactly as described above and the merge becomes mandatory. The test *a drag
+> with a shut folder present does not disturb what is inside it* is what would
+> catch it.
+>
+> The ▲▼ handlers needed a change of their own that this section did not
+> anticipate: they had to become a **swap with the neighbour in the same
+> section**. Left as a global splice, pressing ▲ on the first budget in a folder
+> traded ranks with a budget in another section and moved nothing anybody could
+> see, which is the same failure that turns reordering off while a filter runs.
+
 A cross-section drop needs one extra step after the merge: read the section the
 row landed in and call `moveScenarioToFolder()`. Order and membership are two
 writes, and the move goes **first** so that a failed reorder cannot leave a row
@@ -276,6 +317,14 @@ treatment.
 
 **Primary: a `Move` button on every budget row**, alongside Open / Duplicate /
 Delete in `.scn-btns`. It opens a modal:
+
+> **BUILT DIFFERENTLY: the button appears only once one folder exists.** Section
+> 0 is explicit that folders are net negative for a producer with five budgets,
+> and a fourth button on every row opening a modal that offers nothing but "Not
+> in a folder" is precisely that cost. The first folder is made from "+ New
+> folder" in the header, so the trip out and back is paid exactly once. Every
+> filing after that is one gesture, because the modal carries its own
+> `+ New folder…`.
 
 ```
 Move "2026 Corn, no-till" to a folder
@@ -345,7 +394,20 @@ reading a red loss and a green profit must not have to work out which of four
 browns means bad."*
 
 A green folder chip on the same row as a red profit figure re-opens exactly that
-question. So the six swatches are **`--sky`, `--olive`, `--clay`, `--brown`, a
+question.
+
+> **BUILT DIFFERENTLY: eight swatches, a rainbow with pink where red would be,
+> plus a neutral grey.** Eight rather than six so the colour row and the glyph
+> row line up one for one in the editor. Everything below survives intact and is
+> the reason **red is the one colour not on offer**: pink sits beside it on the
+> wheel and carries none of the meaning. Blue is `--sky` and green is `--olive`,
+> so two of the eight cost no new tokens and are theme-aware for free. `--clay`
+> and `--brown` were dropped, being the two hardest to tell from each other and
+> from the headings they already colour. The order is the rainbow's, so the row
+> reads as a spectrum rather than an arbitrary set, and grey sits at the end
+> because it is the opt-out.
+
+The six originally planned were **`--sky`, `--olive`, `--clay`, `--brown`, a
 neutral grey, and a violet added for the sixth**, and `--green` and `--cost` are
 deliberately not offered. Every one already has a dark-theme value, so folder
 colour is theme-aware for free and the "add a violet" step is the only new token
@@ -392,6 +454,24 @@ screen of inputs and the alternative is scrolling past a farm to reach the
 second. A folder is one line per budget, and a Saved tab that opens as five shut
 boxes has hidden every piece of work the producer came to find.
 
+> **BUILT DIFFERENTLY: folders default SHUT.** The objection above is real, and
+> three things answer it. All three had to be built because of this choice:
+>
+> - **The ungrouped pile is not a folder and starts open.** It is where a budget
+>   saved a moment ago lands, so the "I just saved it and it is gone" failure the
+>   pile's position guards against (14.2) is guarded here too.
+> - **Every header carries its count**, so a shut folder says how many budgets
+>   are inside rather than hiding that there are any.
+> - **The filter reaches inside a shut folder**, forcing open any section holding
+>   a match and hiding one holding none. Without that, a search reports nothing
+>   while the row sits in a closed fold, which is the exact bug `wireSearch()`
+>   already fixed for the land-rent county list. Default-shut is only safe with
+>   phase 1 already in place.
+>
+> The state is a set of **open** ids rather than closed ones. With shut as the
+> resting state, "not in the set" is the default, and a folder the app forgot to
+> seed cannot spring open.
+
 ---
 
 ## 10. What this touches elsewhere
@@ -411,8 +491,21 @@ boxes has hidden every piece of work the producer came to find.
 
 ## 11. Tests
 
-Roughly 45 to 55 new assertions. The existing 446 must all still pass unchanged;
-if one needs editing, that is a signal something above was violated.
+**Built: 38 new assertions**, and the existing 460 all still pass. Two needed
+editing, and both are recorded where they are rather than quietly adjusted:
+
+- the compare note now reads "not on screen" instead of "hidden by this filter",
+  because a ticked row can be folded away as well as filtered out;
+- one selector moved from `.scn:last-child` to `div.scn:last-of-type`, because a
+  section's list also holds its own empty-state hint.
+
+Neither is a rule from sections 1 to 8 being violated. Both are the markup
+genuinely changing shape, which is what the "if one needs editing, that is a
+signal" rule is there to make you stop and check.
+
+The original estimate was 45 to 55. The gap is the `mergeVisibleOrder()` tests
+that section 5 turned out not to need, and the storage tests that folded together
+once every write path could be checked for a full store in one loop.
 
 **`test/storage.test.js`**
 - create, rename, re-colour, reorder, and delete a folder
@@ -449,7 +542,8 @@ if one needs editing, that is a signal something above was violated.
 
 ## 12. Build order
 
-Each phase leaves the app shippable.
+Each phase leaves the app shippable. **All eight are built**: phase 1 shipped on
+`main`, phases 2 to 8 on `opal`.
 
 1. ~~**Filter box on the Saved tab.**~~ **Built.** Always present once anything
    is saved. Matches budget names, enterprise names, crops, and the year or
@@ -458,18 +552,21 @@ Each phase leaves the app shippable.
    CLAUDE.md. It also turned up a shipped bug it shares a mechanism with:
    `[hidden]` was being overridden by `.typ-option`'s `display: grid`, so the
    land-rent county search had never actually hidden anything. Fixed for both.
-2. **Storage layer.** `listFolders`, `saveFolder`, `deleteFolder`,
+2. ~~**Storage layer.**~~ **Built.** `listFolders`, `saveFolder`, `deleteFolder`,
    `reorderFolders`, `moveScenarioToFolder`, the `saveScenario` guard, the
    `SCHEMA_VERSION` bump, the export strip. Full test file first. No UI yet.
-3. **The `mergeVisibleOrder()` fix in `commitOrder()`**, with its test. Lands
-   before any section can collapse, so the bug never exists in a shipped build.
-4. **Sections, read-only.** Render folders and members. No creating, no moving.
+3. ~~**The `mergeVisibleOrder()` fix in `commitOrder()`**, with its test. Lands
+   before any section can collapse, so the bug never exists in a shipped
+   build.~~ **Built as a section-aware `commitOrder()`. The merge itself turned
+   out to be unnecessary — see section 5 — and the test that would have covered
+   it covers the reason instead.**
+4. ~~**Sections, read-only.**~~ **Built.** Render folders and members. No creating, no moving.
    Proves the partition, the ungrouped pile, and fold state.
-5. **Move.** The row button and the modal, including `+ New folder…`. This is
+5. ~~**Move.**~~ **Built.** The row button and the modal, including `+ New folder…`. This is
    the point at which the feature is usable, with no icons and no colours.
-6. **Folder editor.** Create, rename, delete, reorder by arrow.
-7. **Icons and colours.** Last, and cuttable. Nothing above depends on it.
-8. **Drag across sections.** The shortcut, once the primary control is proven.
+6. ~~**Folder editor.**~~ **Built.** Create, rename, delete, reorder by arrow.
+7. ~~**Icons and colours.**~~ **Built.** Last, and cuttable. Nothing above depends on it.
+8. ~~**Drag across sections.**~~ **Built.** The shortcut, once the primary control is proven.
 
 Phases 1 to 5 are the feature. 6 to 8 are the finish.
 
@@ -498,11 +595,11 @@ Phases 1 to 5 are the feature. 6 to 8 are the finish.
 | # | Question | Recommendation |
 |---|---|---|
 | 1 | ~~Build the filter box first?~~ | **Settled: built.** See phase 1. |
-| 2 | Ungrouped pile at the top or the bottom? | **Top.** A budget saved a moment ago lands there, and "I just saved it and it is gone" is the worst thing this feature can do. |
-| 3 | Inline SVG icons, or drop icons and ship colour only? | SVG, per `prefs.js`. But colour-only is a legitimate cut and loses little. |
-| 4 | Six swatches, or fewer? | Six. Four brand plus grey plus violet, with green and red withheld. |
-| 5 | Should folder fold state persist across sessions? | No, per the `collapsedEnterprises` precedent. Revisit only if someone with fifteen folders complains. |
-| 6 | Cap on folder count? | No cap, no counter. If someone makes thirty, the filter box from phase 1 is the answer. |
+| 2 | Ungrouped pile at the top or the bottom? | ~~**Top.**~~ **Settled: top**, and it stays on screen once any folder exists. |
+| 3 | Inline SVG icons, or drop icons and ship colour only? | ~~SVG, per `prefs.js`.~~ **Settled: eight inline SVG glyphs.** |
+| 4 | Six swatches, or fewer? | ~~Six.~~ **Settled: eight** — a rainbow with pink for red, plus grey. Red withheld; green is `--olive`, blue is `--sky`. |
+| 5 | Should folder fold state persist across sessions? | ~~No~~ **Settled: no**, per the `collapsedEnterprises` precedent. Sharper now that folders start shut: a producer who opens one is answering a question about right now. Revisit only if someone with fifteen folders complains. |
+| 6 | Cap on folder count? | ~~No cap, no counter.~~ **Settled: no cap.** If someone makes thirty, the filter box from phase 1 is the answer. |
 
 ---
 

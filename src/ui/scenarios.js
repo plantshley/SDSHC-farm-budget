@@ -9,8 +9,9 @@
 
 import { usd, usdCents, esc, signClass } from './format.js'
 import { calcScenario } from '../calc.js'
-import { listScenarios } from '../storage.js'
+import { listScenarios, listFolders } from '../storage.js'
 import { infoButton } from './fields.js'
+import { renderFolderSection } from './folders.js'
 
 /**
  * The line above the list, which has two things to say depending on whether a
@@ -27,8 +28,9 @@ export function scenarioHint(shown, total, filtering) {
   return `Showing ${shown} of ${total} budget${total === 1 ? '' : 's'}. Reordering is off while the list is filtered.`
 }
 
-export function renderScenarioList(currentId, filterQuery = '') {
+export function renderScenarioList(currentId, filterQuery = '', expandedFolders = new Set()) {
   const all = listScenarios()
+  const folders = listFolders()
 
   const openFile = `
     <span class="open-file">
@@ -61,22 +63,32 @@ export function renderScenarioList(currentId, filterQuery = '') {
 
   return `
     <section class="box">
-      <header class="block-head">
+      <!-- saved-head exists only so the phone layout can reach this one header.
+           block-head is shared with the enterprise cards, the fixed block, the
+           results and the compare view, and none of those wants the centred
+           two-row treatment. (No backticks in here: this is inside a template
+           literal, and one would end it.) -->
+      <header class="block-head saved-head">
         <h2 class="title">Saved budget scenarios / plans</h2>
         <!-- Sized to its own text rather than the full width .btn-add normally
              takes. Full width it read as the primary thing to do on a page whose
              actual subject is the list underneath it. -->
-        <button type="button" class="btn-add btn-add-inline" data-action="new-scenario">
-          + New budget
-        </button>
+        <span class="head-btns">
+          <button type="button" class="btn-add btn-add-inline" data-action="new-folder">
+            + New folder
+          </button>
+          <button type="button" class="btn-add btn-add-inline" data-action="new-scenario">
+            + New budget
+          </button>
+        </span>
       </header>
 
       ${
         all.length
           ? `${filter}
              <p class="hint" data-scn-hint>${esc(scenarioHint(all.length, all.length, false))}</p>
-             <div class="scn-list" data-scn-list>
-               ${all.map((s, i) => renderScenarioRow(s, currentId, i, all.length)).join('')}
+             <div class="scn-sections" data-scn-sections>
+               ${renderSections(all, folders, currentId, expandedFolders)}
              </div>
              <p class="hint scn-empty" data-scn-empty hidden></p>
              <p class="hint baseline-note">
@@ -99,7 +111,102 @@ export function renderScenarioList(currentId, filterQuery = '') {
     </section>`
 }
 
-function renderScenarioRow(s, currentId, index, total) {
+/**
+ * Partition every saved budget into sections, and render them.
+ *
+ * The ungrouped pile is built as "everything no section claimed", NOT as
+ * "everything with no folderId". Those differ in exactly one case and it is the
+ * one that matters: a budget carrying a folderId whose folder has been deleted —
+ * here, or in another tab, or by a partial write. Defined this way it lands in
+ * the ungrouped pile and is on screen. Defined the other way it would belong to
+ * a section that is never rendered, and it would be gone.
+ *
+ * The pile goes at the TOP. A budget saved a moment ago lands there, and "I just
+ * saved it and it has vanished" is the worst thing an organising feature can do.
+ *
+ * It is drawn whenever it has members, and also whenever ANY folder exists — so
+ * once there is filing to undo, there is somewhere to undo it to. Left to hide
+ * when empty it disappeared exactly when every budget had been filed, taking the
+ * drop target for "drag one back out" with it and leaving a shortcut that works
+ * until the moment you need it.
+ *
+ * **With no folders at all it gets no heading**, just the rows. "Not in a
+ * folder" over the entire list, with nothing to contrast it against, is a fold
+ * to open and a label answering a question nobody asked — and this is the state
+ * most producers here will be in permanently. The section element and the list
+ * stay, so every other piece of machinery sees the structure it always sees.
+ *
+ * `sortIndex` stays a single GLOBAL rank. Each section takes its members in that
+ * order, so folder order decides which section comes first and a budget's global
+ * rank decides where it sits inside its own. There is no second ordering
+ * concept, and the whole page is still one valid top-to-bottom order — which is
+ * what lets the drag code keep working (see commitOrder in main.js).
+ */
+function renderSections(all, folders, currentId, expandedFolders) {
+  const claimed = new Set()
+  const sections = []
+
+  for (const folder of folders) {
+    const members = all.filter((s) => s.folderId === folder.id)
+    members.forEach((s) => claimed.add(s.id))
+    sections.push({ folder, members })
+  }
+
+  const loose = all.filter((s) => !claimed.has(s.id))
+  const rows = (members) =>
+    members
+      .map((s, i) => renderScenarioRow(s, currentId, i, members.length, folders.length > 0))
+      .join('')
+
+  // Folders are shut until opened — see expandedFolders in main.js. The
+  // ungrouped pile is not a folder and starts open.
+  const out =
+    loose.length || folders.length
+      ? [
+          renderFolderSection(
+            null,
+            rows(loose),
+            loose.length,
+            expandedFolders.has(''),
+            0,
+            1,
+            folders.length > 0
+          ),
+        ]
+      : []
+
+  sections.forEach(({ folder, members }, i) => {
+    out.push(
+      renderFolderSection(
+        folder,
+        rows(members),
+        members.length,
+        expandedFolders.has(folder.id),
+        i,
+        sections.length
+      )
+    )
+  })
+  return out.join('')
+}
+
+/**
+ * @param {number} index  position WITHIN this section, and `total` its size.
+ *   The arrows swap a budget with its neighbour in the same section, so they
+ *   have to grey out at the section's ends. Given the whole list's index they
+ *   would stay live on a row that is first in its folder, and pressing one would
+ *   trade global ranks with a budget in a different section — which changes
+ *   nothing anybody can see. That is the same "appears to do nothing" failure
+ *   that turns reordering off while a filter is running.
+ * @param {boolean} hasFolders  whether "Move" is offered on this row at all.
+ *   Until the producer has made one folder there is nowhere to move anything,
+ *   and a fourth button on every row that opens a modal offering only "Not in a
+ *   folder" is a control that costs everybody and pays nobody. Most producers
+ *   here keep three to eight budgets and will never make a folder; for them the
+ *   Saved tab stays exactly the page it was. The first folder is made from
+ *   "+ New folder" in the header, and from then on every filing is one trip.
+ */
+function renderScenarioRow(s, currentId, index, total, hasFolders) {
   const r = calcScenario(s)
   const when = new Date(s.updatedAt || s.createdAt)
   const isCurrent = s.id === currentId
@@ -157,6 +264,11 @@ function renderScenarioRow(s, currentId, index, total) {
       </div>
       <div class="scn-btns">
         <button type="button" class="tip" data-action="open-scenario" data-id="${esc(s.id)}">Open Budget</button>
+        ${
+          hasFolders
+            ? `<button type="button" class="tip scn-move-btn" data-action="move-scenario" data-id="${esc(s.id)}">Move</button>`
+            : ''
+        }
         <button type="button" class="tip alt" data-action="duplicate-scenario" data-id="${esc(s.id)}">Duplicate</button>
         <button type="button" class="tip danger" data-action="delete-scenario" data-id="${esc(s.id)}">Delete</button>
       </div>
