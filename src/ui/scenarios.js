@@ -12,6 +12,35 @@ import { calcScenario } from '../calc.js'
 import { listScenarios, listFolders } from '../storage.js'
 import { infoButton } from './fields.js'
 import { renderFolderSection } from './folders.js'
+import { isDismissed } from '../prefs.js'
+
+/**
+ * The sentence explaining what a baseline is, with a way to put it away.
+ *
+ * It is worth saying once: which budget you tick first decides what every other
+ * column is measured against, and nothing else on screen says so. It is not
+ * worth saying forever. A producer who compares budgets regularly reads it on
+ * every visit to this tab, and a permanent instruction is one people stop
+ * seeing, which costs the genuinely useful notices beside it their credibility.
+ *
+ * Dismissal is a PREFERENCE and persists — see prefs.js. Per-session would mean
+ * showing it again tomorrow, which is the behaviour the button exists to stop.
+ */
+function baselineNote() {
+  if (isDismissed(BASELINE_NOTE_ID)) return ''
+  return `
+    <p class="hint baseline-note">
+      <span>
+        Select two or more to compare them. <b>The first one you select becomes the
+        baseline.</b> Every other budget is shown as a difference from it.
+      </span>
+      <button type="button" class="note-dismiss" data-action="dismiss-note"
+        data-note="${esc(BASELINE_NOTE_ID)}"
+        aria-label="Hide this note">Got it</button>
+    </p>`
+}
+
+export const BASELINE_NOTE_ID = 'baseline'
 
 /**
  * The line above the list, which has two things to say depending on whether a
@@ -20,10 +49,14 @@ import { renderFolderSection } from './folders.js'
  * Defined once and called from both the template and main.js, because the two
  * must never drift: the unfiltered version promises the ▲▼ arrows work, and
  * while a filter is on they deliberately do not.
+ *
+ * It is the TEXT only. The "upload a budget file" offer lives at the end of the
+ * same paragraph but outside the part this rewrites — see `hint` below — so
+ * that typing in the filter box cannot delete a control.
  */
 export function scenarioHint(shown, total, filtering) {
   if (!filtering) {
-    return 'Saved on this device only. Tap a name to rename it. Reorder the list with the ▲▼ arrows, or by dragging the handle.'
+    return 'Saved on this device only. Tap a name to rename it. Reorder the list with the ▲▼ arrows, or by dragging the handle, and organize your budgets into folders.'
   }
   return `Showing ${shown} of ${total} budget${total === 1 ? '' : 's'}. Reordering is off while the list is filtered.`
 }
@@ -31,6 +64,21 @@ export function scenarioHint(shown, total, filtering) {
 export function renderScenarioList(currentId, filterQuery = '', expandedFolders = new Set()) {
   const all = listScenarios()
   const folders = listFolders()
+
+  // Two forms of the same offer.
+  //
+  // On the populated list it is a clause on the end of the hint, because that
+  // paragraph is already the place a producer reads to find out what this
+  // screen can do, and a lone link floating beside the Compare button read as
+  // an action of equal weight to comparing budgets. It sits OUTSIDE
+  // [data-scn-hint-text], which the filter rewrites on every keystroke.
+  //
+  // On the empty state it stands alone, because there is no hint sentence to
+  // hang it off and importing is the only thing you can usefully do there.
+  const openFileClause = `
+    You can also
+    <button type="button" class="tip" data-action="import-scenario">upload a budget file</button>
+    ${infoButton('budgetFile', 'a budget file')}`
 
   const openFile = `
     <span class="open-file">
@@ -47,15 +95,21 @@ export function renderScenarioList(currentId, filterQuery = '', expandedFolders 
   // rename that failed to save) and a box that empties itself on one of those
   // reads as the app losing track of what you asked for.
   //
-  // The placeholder says "planning year" rather than "scenario year" on
-  // purpose. The filter matches the scenarioYear field AND the budget's name, so
-  // a producer who wrote the year into the title as "2027 Corn" is covered by
-  // the same word. Naming the field would promise less than the box does.
+  // The placeholder is deliberately terse. It named five fields in full and ran
+  // to 66 characters, which is cut off mid-word on a 360px screen — and
+  // placeholder TEXT cannot be varied by width in CSS, only its size, so the
+  // short form has to be the only form.
+  //
+  // "year" carries the same promise the longer "planning year" did: the filter
+  // matches the scenarioYear field AND the budget's name, so a producer who
+  // wrote the year into the title as "2027 Corn" is covered by the same word.
+  // It stays unambiguous against `updatedAt` because "date saved" is sitting
+  // right beside it, which is the contrast that does the work.
   const filter = `
     <div class="scn-filter">
       <input type="search" class="scn-filter-input" data-scn-filter
         value="${esc(filterQuery)}"
-        placeholder="Filter scenario name, enterprise, crop, planning year, or date last saved"
+        placeholder="Filter name, enterprise, crop, year, or date saved"
         aria-label="Filter saved budgets" />
       <button type="button" class="tip" data-action="clear-scn-filter"
         ${filterQuery.trim() ? '' : 'hidden'}>Clear</button>
@@ -86,20 +140,18 @@ export function renderScenarioList(currentId, filterQuery = '', expandedFolders 
       ${
         all.length
           ? `${filter}
-             <p class="hint" data-scn-hint>${esc(scenarioHint(all.length, all.length, false))}</p>
+             <p class="hint" data-scn-hint><span data-scn-hint-text>${esc(
+               scenarioHint(all.length, all.length, false)
+             )}</span>${openFileClause}</p>
              <div class="scn-sections" data-scn-sections>
                ${renderSections(all, folders, currentId, expandedFolders)}
              </div>
              <p class="hint scn-empty" data-scn-empty hidden></p>
-             <p class="hint baseline-note">
-               Select two or more to compare them. <b>The first one you select becomes the
-               baseline.</b> Every other budget is shown as a difference from it.
-             </p>
+             ${baselineNote()}
              <div class="scn-actions">
                <button type="button" class="btn-main" data-action="compare-selected" disabled>
                  Compare selected
                </button>
-               ${openFile}
              </div>
              <p class="hint scn-hidden-note" data-scn-hidden-note hidden></p>`
           : `<p class="hint">

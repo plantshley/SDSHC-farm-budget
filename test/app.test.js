@@ -11,6 +11,7 @@ import { test, describe, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { JSDOM } from 'jsdom'
+import { TYPICAL_VALUES } from '../src/data/typical-values.js'
 
 const HTML = readFileSync(new URL('../index.html', import.meta.url), 'utf8')
 
@@ -108,18 +109,44 @@ describe('the app boots', () => {
     assert.match(textOf('.warnings'), /acres/i)
   })
 
-  test('the warning sits in the results header, and clears on a keystroke', () => {
-    // Beside the heading, not in a banner over the card.
-    assert.ok(
-      doc.querySelector('.results .block-head [data-warnings] .warnings'),
-      'the warning is in the header row'
-    )
+  test('a warning sits inside the card it is about, and clears on a keystroke', () => {
+    // Almost every warning names a specific box on a specific card, and read
+    // from anywhere else that box is a scroll away. The exception is the one
+    // warning that names no box at all.
+    const farmHolder = doc.querySelector('.results [data-warnings]')
+    assert.ok(farmHolder, 'the whole-farm one is in the Results header')
+    assert.match(farmHolder.textContent, /Enter acres/)
+    assert.equal(farmHolder.getAttribute('data-warnings-for'), 'farm')
 
-    // And it is still a live placeholder there. Typing acres does not re-render,
-    // so anything updateOutputs() cannot reach would stay on screen for good.
+    // Every enterprise card has one of its own, inside its fold.
+    const card = doc.querySelector('.ent')
+    const own = card.querySelector('[data-warnings]')
+    assert.ok(own, 'so does the enterprise card')
+    assert.equal(own.getAttribute('data-warnings-for'), '0', 'and it says whose list it draws')
+    assert.ok(own.closest('.ent-body'), 'it is inside the fold, under the card it is about')
+
+    // And so does the fixed block, for land rent, labor, and the machinery rows.
+    const fixedHolder = doc.querySelector('.fixed-block [data-warnings]')
+    assert.ok(fixedHolder, 'and the fixed block')
+    assert.equal(fixedHolder.textContent.trim(), '', 'with nothing wrong in it yet')
+    type('fixed.landRentPerAcre', '-40')
+    assert.match(fixedHolder.textContent, /Land rent/)
+
+    // A card's own warning names that card and appears only there.
+    type('enterprises.0.name', 'North quarter')
+    type('enterprises.0.variable.seed.costPerUnit', '285')
+    assert.match(own.textContent, /North quarter/)
+    assert.match(own.textContent, /no units per acre/)
+    assert.doesNotMatch(fixedHolder.textContent, /North quarter/)
+    assert.doesNotMatch(farmHolder.textContent, /North quarter/)
+
+    // And they are still live placeholders. Typing does not re-render, so
+    // anything updateOutputs() cannot reach would stay on screen for good.
+    type('enterprises.0.variable.seed.unitsPerAcre', '0.4')
+    assert.equal(own.textContent.trim(), '', 'gone once both boxes are filled')
     type('enterprises.0.acres', 500)
-    assert.equal(doc.querySelector('.warnings'), null, 'gone once there are acres')
-    assert.ok(doc.querySelector('.results .block-head [data-warnings]'), 'the holder stays')
+    assert.equal(farmHolder.textContent.trim(), '', 'gone once there are acres')
+    assert.ok(doc.querySelector('[data-warnings]'), 'the holders stay')
   })
 
   test('font control shows both options with Browser active', () => {
@@ -168,18 +195,86 @@ describe('entering a budget', () => {
     type('enterprises.0.variable.seed.unitsPerAcre', '0.35')
     assert.equal(textOf('[data-out="enterprises.0.lines.seed"]'), '$112.00')
 
-    click('[data-path="enterprises.0.variable.seed.mode"]')
+    // The mode control is a pill of segments now, each carrying the SAME
+    // data-path and its own data-mode, so a click has to name the segment it
+    // wants. A bare [data-path] selector finds the first segment, which is the
+    // one the line is usually already in — a click that would do nothing.
+    click('[data-path="enterprises.0.variable.seed.mode"][data-mode="perAcre"]')
     // Per-acre mode is now showing, and the unit values are still stored.
     assert.ok(doc.querySelector('[data-path="enterprises.0.variable.seed.perAcre"]'))
     type('enterprises.0.variable.seed.perAcre', '99')
     assert.equal(textOf('[data-out="enterprises.0.lines.seed"]'), '$99.00')
 
-    click('[data-path="enterprises.0.variable.seed.mode"]')
+    click('[data-path="enterprises.0.variable.seed.mode"][data-mode="unit"]')
     assert.equal(
       doc.querySelector('[data-path="enterprises.0.variable.seed.costPerUnit"]').value,
       '320',
       'switching back did not lose the per-unit entry'
     )
+  })
+
+  test('the mode pill shows every option and marks exactly one', () => {
+    const segments = () => [
+      ...doc.querySelectorAll('[data-path="enterprises.0.variable.seed.mode"]'),
+    ]
+    // Seed carries the third mode; most lines carry two.
+    assert.deepEqual(
+      segments().map((s) => s.getAttribute('data-mode')),
+      ['unit', 'perAcre', 'population'],
+      'every option is on screen, not just the current one'
+    )
+    assert.deepEqual(
+      segments().map((s) => s.getAttribute('aria-pressed')),
+      ['true', 'false', 'false']
+    )
+
+    click('[data-path="enterprises.0.variable.seed.mode"][data-mode="population"]')
+    assert.deepEqual(
+      segments().map((s) => s.getAttribute('aria-pressed')),
+      ['false', 'false', 'true'],
+      'exactly one segment is pressed after a switch'
+    )
+
+    assert.deepEqual(
+      [...doc.querySelectorAll('[data-path="enterprises.0.variable.hauling.mode"]')].map((s) =>
+        s.getAttribute('data-mode')
+      ),
+      ['unit', 'perAcre'],
+      'a line with no third mode does not grow a third segment'
+    )
+  })
+
+  test('switching to $/acre says so in the empty box, and again once filled', () => {
+    click('[data-path="enterprises.0.variable.seed.mode"][data-mode="perAcre"]')
+    const box = doc.querySelector('[data-path="enterprises.0.variable.seed.perAcre"]')
+    assert.equal(
+      box.placeholder,
+      '$/acre',
+      'the placeholder names the unit, not just the shape of the answer'
+    )
+
+    // Once there is a number in it the placeholder is gone, and the unit would
+    // go with it. The two halves are in the markup all along and CSS reveals
+    // them off :placeholder-shown, so nothing has to run on a keystroke.
+    const wrap = box.closest('.in-box')
+    assert.equal(wrap.querySelector('.in-pre').textContent, '$')
+    assert.equal(wrap.querySelector('.in-post').textContent, '/ac')
+  })
+
+  test('a box that is not money gets no dollar sign', () => {
+    // The rule is the unit, not the box. Units-per-acre and a planting
+    // population are counts, and a $ in front of one is simply wrong.
+    const units = doc
+      .querySelector('[data-path="enterprises.0.variable.seed.unitsPerAcre"]')
+      .closest('.in-box')
+    assert.equal(units.querySelector('.in-pre'), null)
+    assert.equal(units.querySelector('.in-post').textContent, '/ac')
+
+    click('[data-path="enterprises.0.variable.seed.mode"][data-mode="population"]')
+    const pop = doc
+      .querySelector('[data-path="enterprises.0.variable.seed.population"]')
+      .closest('.in-box')
+    assert.equal(pop.querySelector('.in-pre'), null)
   })
 
   test('preharvest interest is calculated, and can be switched to manual', () => {
@@ -189,7 +284,7 @@ describe('entering a budget', () => {
     // 100 × 10% × 8/12 = 6.67
     assert.equal(textOf('[data-out="enterprises.0.preharvestInterestPerAcre"]'), '$6.67')
 
-    click('[data-path="enterprises.0.preharvest.auto"]')
+    click('[data-path="enterprises.0.preharvest.auto"][data-mode="manual"]')
     type('enterprises.0.preharvest.manualPerAcre', '25.50')
     assert.equal(textOf('[data-out="enterprises.0.preharvestInterestPerAcre"]'), '$25.50')
   })
@@ -303,12 +398,20 @@ describe('help affordances stay separate', () => {
     // Under the input it read as a caption belonging to the NEXT field down,
     // and added a row of height to every field carrying one. If a link ever
     // escapes the label row again, this is what catches it.
+    //
+    // The seed line is driven into population mode on purpose. It carries the
+    // one link that is NOT in a label row, and without opening that mode the
+    // link is not rendered and this test would pass by never having seen it.
     click('[data-action="add-equipment"]')
     click('[data-action="add-building"]')
+    click('[data-path="enterprises.0.variable.seed.mode"][data-mode="population"]')
 
     const links = [...doc.querySelectorAll('.ent .tip[data-typical], .fixed-block .tip[data-typical]')]
     assert.ok(links.length >= 6, 'the typical-value links are on the page')
     for (const link of links) {
+      // The phone copy of the seeds-per-unit offer is the one exception, and it
+      // is checked on its own terms in the next test.
+      if (link.classList.contains('seeds-link-row')) continue
       const row = link.closest('.field-label, .line-head')
       assert.ok(row, `"${link.textContent.trim()}" is not in a label row`)
       assert.ok(
@@ -316,6 +419,85 @@ describe('help affordances stay separate', () => {
         'the row it is in actually carries the field label'
       )
     }
+  })
+
+  test('the seeds-per-unit offer is rendered twice, one copy per width', () => {
+    // Two positions with different parents, and no amount of `order` moves a
+    // flex item between containers — so it is rendered in both and CSS hides
+    // one. `display: none` takes the hidden copy out of the accessibility tree
+    // as well, so exactly one offer is ever announced.
+    click('[data-path="enterprises.0.variable.seed.mode"][data-mode="population"]')
+
+    const head = doc.querySelector('[data-line="seed"] .seeds-link-head')
+    const row = doc.querySelector('[data-line="seed"] .seeds-link-row')
+    assert.ok(head, 'the computer copy is on the page')
+    assert.ok(row, 'and so is the phone copy')
+
+    // The computer copy sits in the head row, after "use typical value" in the
+    // source and right-aligned against the mode pill on screen. Both halves
+    // matter: the DOM order is what a screen reader and the keyboard follow,
+    // and the alignment is asserted against the stylesheet in the next test.
+    assert.equal(head.previousElementSibling.dataset.typical, 'seed')
+    assert.equal(head.nextElementSibling.className, 'mode-pill', 'and the pill follows it')
+    assert.ok(head.closest('.line-head'), 'in the label row')
+
+    // The phone copy is a child of the line itself, under the boxes, because
+    // that head row is already a label, a link, and a three-segment pill.
+    assert.equal(row.parentElement.dataset.line, 'seed')
+    assert.equal(row.closest('.line-head'), null)
+
+    for (const el of [head, row]) {
+      assert.equal(el.getAttribute('data-typical'), 'seedsPerBag')
+      assert.equal(
+        el.getAttribute('data-target'),
+        'enterprises.0.variable.seed.seedsPerBag',
+        'and both write the same box'
+      )
+      assert.match(el.textContent, /seeds per unit/i, 'and both name that field')
+    }
+
+    // Only in population mode, so no other line grows either copy.
+    click('[data-path="enterprises.0.variable.seed.mode"][data-mode="unit"]')
+    assert.equal(doc.querySelectorAll('.seeds-link-head, .seeds-link-row').length, 0)
+  })
+
+  test('the stylesheet shows exactly one of them at each width', () => {
+    // jsdom loads no CSS, so this is a stylesheet-source assertion. If both
+    // copies were ever visible at once the offer would be on screen twice, and
+    // if neither were it would be gone entirely.
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+    const mobile = css.slice(css.indexOf('@media (max-width: 899px)'))
+
+    assert.match(css, /\n\.seeds-link-row \{[^}]*display: none/, 'the phone copy is off by default')
+    assert.match(mobile, /\n {2}\.seeds-link-head \{[^}]*display: none/, 'and the other one off on a phone')
+    assert.match(mobile, /\n {2}\.seeds-link-row \{[^}]*display: block/, 'which is when the phone copy comes back')
+
+    // The head copy is right-aligned against the mode pill, and the auto margin
+    // MOVED there rather than being added: two auto margins in one flex line
+    // split the free space between them, which would leave the link stranded
+    // halfway across the row. So the pill's own auto margin has to be zeroed
+    // wherever this link precedes it, and kept everywhere it does not.
+    assert.match(css, /\n\.seeds-link-head \{[^}]*margin-left: auto/, 'the head copy is pushed right')
+    assert.match(
+      css,
+      /\n\.line-head \.seeds-link-head \+ \.mode-pill \{[^}]*margin-left: 0/,
+      'and the pill gives up its own auto margin so the two sit together'
+    )
+    assert.match(
+      css,
+      /\n\.line-head \.mode-pill \{[^}]*margin-left: auto/,
+      'the pill still carries it on the fourteen lines with no such link'
+    )
+
+    // And it takes the margin back on a phone, where the link is hidden. This
+    // shipped broken once: `display: none` takes an element off the screen but
+    // NOT out of the sibling chain, so the rule above went on matching and left
+    // the pill parked against "use typical value" in the middle of the row.
+    assert.match(
+      mobile,
+      /\n {2}\.line-head \.seeds-link-head \+ \.mode-pill \{[^}]*margin-left: auto/,
+      'the pill is right-aligned again once the link it yielded to is hidden'
+    )
   })
 
   test('an overhead rate is multiplied by the farm, and forced to a yearly period', () => {
@@ -617,9 +799,9 @@ describe('every figure on screen agrees', () => {
   })
 
   test('the acres warning clears once acres are entered', () => {
-    assert.match(textOf('[data-warnings]'), /Enter acres/)
+    assert.match(textOf('.results [data-warnings]'), /Enter acres/)
     type('enterprises.0.acres', '80')
-    assert.equal(textOf('[data-warnings]'), '')
+    assert.equal(textOf('.results [data-warnings]'), '')
   })
 })
 
@@ -1299,13 +1481,23 @@ describe('typical values know their units', () => {
     assert.match(textOf('.modal-unit'), /\$\/acre/)
   })
 
-  test('a $/bushel list warns when the line is set to $/acre, then fixes it', () => {
-    // Hauling is quoted per bushel; put the line in $/acre mode first.
-    const toggle = doc.querySelector('[data-line="hauling"] .mode-toggle')
-    toggle.dispatchEvent(new win.MouseEvent('click', { bubbles: true }))
+  test('a $/bu list warns when the line is set to $/ac, then fixes it', () => {
+    // Hauling is quoted per bushel; put the line in $/acre mode first. The pill
+    // segments share a data-path, so the one being clicked has to be named.
+    click('[data-line="hauling"] .mode-seg[data-mode="perAcre"]')
 
     click('[data-line="hauling"] [data-typical="hauling"]')
-    assert.match(doc.querySelector('.modal-warn').textContent, /switch the line/i)
+    // The warning has to name BOTH modes: what the figures are quoted in, and
+    // what the line is currently set to. Either one alone leaves the producer
+    // to work out which way round the mismatch runs.
+    const warn = doc.querySelector('.modal-warn').textContent
+    // "bu", not "bushel". It is the unit the producer picked in the Unit select
+    // beside Yield / acre, and a picker that spells it out differently reads as
+    // a different quantity.
+    assert.match(warn, /\$\/bu/, 'says what the list is quoted in')
+    assert.doesNotMatch(warn, /bushel/i, 'in the same shorthand the yield unit uses')
+    assert.match(warn, /\$\/ac/, 'says what the line is set to')
+    assert.match(warn, /switch/i, 'says picking one will move the line')
 
     doc.querySelector('.typ-option').dispatchEvent(new win.MouseEvent('click', { bubbles: true }))
 
@@ -2379,6 +2571,35 @@ describe('the folder palette and glyph set', () => {
       assert.match(css, /\.fld-toggle\[aria-expanded="false"\] \.fld-chev/)
     })
   })
+
+  test('the ink on an olive fill is its own token, in both themes', () => {
+    // The selected segment of a mode pill is filled with --olive, which is a
+    // light yellow-green. White on it is 2.0:1 and unreadable, and --on-sky IS
+    // white — so reaching for it is the mistake --on-olive exists to prevent.
+    //
+    // It has to be overridden in the dark block for the opposite reason to
+    // every other token here: --olive gets LIGHTER in dark mode, so its ink has
+    // to go darker. --brown, which it resolves to in light mode, becomes a
+    // light warm off-white there and would all but disappear.
+    //
+    // jsdom loads no CSS, so this has nowhere else to live.
+    assert.match(css, /--on-olive:/, 'the token exists')
+    const dark = css.slice(css.indexOf('[data-theme="dark"]'))
+    assert.match(
+      dark.slice(0, dark.indexOf('}')),
+      /--on-olive:/,
+      'and the dark theme sets its own, rather than inheriting a light one'
+    )
+    assert.match(css, /\.mode-seg\[aria-pressed='true'\][^}]*var\(--on-olive\)/s)
+  })
+
+  test('the mode pill is pinned to the height of the button it replaced', () => {
+    // Fifteen of these per enterprise, so a few pixels of drift is a screenful.
+    // The height is declared rather than left to fall out of three segments
+    // plus a container border.
+    assert.match(css, /--pill-h:\s*\d+px/)
+    assert.match(css, /\.mode-pill[^}]*height:\s*var\(--pill-h\)/s)
+  })
 })
 
 describe('markup written as template literals', () => {
@@ -2410,5 +2631,545 @@ describe('markup written as template literals', () => {
       }
     }
     assert.ok(checked > 10, 'the scan actually found comments to check')
+  })
+})
+
+describe('the one field that fills itself', () => {
+  // Seeds-per-unit is the single exception to "nothing auto-fills", and every
+  // test here is about a guard rather than about the filling. The reason it
+  // exists: corn ships in 80,000-seed bags and soybeans in 140,000-seed units,
+  // so a soybean budget left on corn's bag size is out by a factor of 1.75 with
+  // an entirely ordinary number on the screen.
+  beforeEach(async () => {
+    await boot()
+    click('[data-path="enterprises.0.variable.seed.mode"][data-mode="population"]')
+  })
+
+  const seedsBox = () => doc.querySelector('[data-path="enterprises.0.variable.seed.seedsPerBag"]')
+  const note = () => doc.querySelector('[data-line="seed"] .field-note')
+
+  test('an empty box is filled from the crop, and says where it came from', () => {
+    assert.equal(seedsBox().value, '', 'nothing is filled in before a crop is named')
+    type('enterprises.0.crop', 'Corn')
+    assert.equal(seedsBox().value, '80000')
+    assert.match(note().textContent, /filled in from "Corn"/)
+  })
+
+  test('a crop nobody has a published rate for gets nothing', () => {
+    // Guessing here would be worse than leaving it blank: a wrong denominator
+    // is a silently wrong seed cost, and a blank one computes as $0 and shows a
+    // warning naming the box.
+    type('enterprises.0.crop', 'Sorghum')
+    assert.equal(seedsBox().value, '')
+    assert.equal(note(), null)
+  })
+
+  test('two letters of a crop name do not fill anything in', () => {
+    type('enterprises.0.crop', 'Co')
+    assert.equal(seedsBox().value, '', 'a prefix is not a match')
+  })
+
+  test('a figure the producer typed is never overwritten', () => {
+    // THE guard. The app knows the crop changed; it does not know what they
+    // meant by the number, and overwriting it would be destroying work.
+    type('enterprises.0.variable.seed.seedsPerBag', '78000')
+    type('enterprises.0.crop', 'Corn')
+    assert.equal(seedsBox().value, '78000')
+    assert.equal(note(), null, 'and no caption claims the app put it there')
+  })
+
+  test('typing in the box takes it over, and the crop stops driving it', () => {
+    type('enterprises.0.crop', 'Corn')
+    assert.equal(seedsBox().value, '80000')
+
+    type('enterprises.0.variable.seed.seedsPerBag', '78000')
+    assert.equal(note(), null, 'the caption goes as soon as the box is theirs')
+
+    type('enterprises.0.crop', 'Soybeans')
+    assert.equal(seedsBox().value, '78000', 'the crop no longer drives the box')
+  })
+
+  test('the caption is removed without re-rendering the card', () => {
+    // render() would rebuild the card and take the focus out of the input they
+    // are mid-keystroke in, which is the rule updateOutputs() exists for.
+    type('enterprises.0.crop', 'Corn')
+    const box = seedsBox()
+    box.focus()
+    type('enterprises.0.variable.seed.seedsPerBag', '78000')
+    assert.equal(doc.activeElement, box, 'focus stayed in the box being typed in')
+  })
+
+  test('while the number is still ours, changing the crop revises it', () => {
+    type('enterprises.0.crop', 'Corn')
+    assert.equal(seedsBox().value, '80000')
+    type('enterprises.0.crop', 'Soybeans')
+    assert.equal(seedsBox().value, '140000')
+    assert.match(note().textContent, /Soybeans/)
+  })
+
+  test('a crop cleared to something unrecognised drops what we put there', () => {
+    // A stale 80,000 sitting under a crop the app can no longer vouch for is
+    // worse than a blank box, which computes as $0 and says so.
+    type('enterprises.0.crop', 'Corn')
+    type('enterprises.0.crop', 'Sunflower')
+    assert.equal(seedsBox().value, '')
+    assert.equal(note(), null)
+  })
+
+  test('the population figure reaches the same cost as the fraction of a bag', () => {
+    type('enterprises.0.acres', '100')
+    type('enterprises.0.crop', 'Corn')
+    type('enterprises.0.variable.seed.costPerBag', '285')
+    type('enterprises.0.variable.seed.population', '33000')
+    // 33,000 / 80,000 = 0.4125 of a bag at $285.
+    assert.equal(textOf('[data-out="enterprises.0.lines.seed"]'), '$117.56')
+  })
+})
+
+describe('a picker whose groups are quoted in different units', () => {
+  beforeEach(async () => {
+    await boot()
+  })
+
+  test('each list says which unit it is in, and the banner does not claim one', () => {
+    // Phosphorus is published both as a price per pound and as a cost per acre.
+    // One banner at the top cannot be true of both lists.
+    click('[data-line="phosphorus"] [data-typical="phosphorus"]')
+    assert.doesNotMatch(textOf('.modal-unit'), /\$\/lb|\$\/acre/)
+
+    const units = [...doc.querySelectorAll('.typ-group-unit')].map((p) => p.textContent)
+    assert.ok(units.length >= 2, 'every group states its own unit')
+    assert.ok(units.some((u) => /\$\/lb/.test(u)))
+    assert.ok(units.some((u) => /\$\/acre/.test(u)))
+  })
+
+  test('a value lands in the box ITS OWN group belongs in', () => {
+    // The bug this prevents: resolving the destination once for the whole modal
+    // puts a per-acre figure into the cost-per-unit box, where it is multiplied
+    // by the rate a second time.
+    click('[data-line="phosphorus"] [data-typical="phosphorus"]')
+    const groups = [...doc.querySelectorAll('.typ-group')]
+
+    // The per-acre group. The line starts in $/unit, so this also switches it.
+    const perAcre = groups.find((g) => /Cost per acre/.test(g.textContent))
+    perAcre.querySelector('.typ-option').dispatchEvent(new win.MouseEvent('click', { bubbles: true }))
+
+    assert.equal(
+      doc.querySelector('[data-line="phosphorus"] .mode-seg[aria-pressed="true"]').dataset.mode,
+      'perAcre'
+    )
+    assert.equal(doc.querySelector('[data-path="enterprises.0.variable.phosphorus.perAcre"]').value, '47.69')
+  })
+
+  test('the mismatch warning sits on the group it is about', () => {
+    // With the line in $/unit, the price-per-pound list needs no warning and
+    // the cost-per-acre list below it does. One banner could not say both.
+    click('[data-line="phosphorus"] [data-typical="phosphorus"]')
+    const groups = [...doc.querySelectorAll('.typ-group')]
+    const perLb = groups.find((g) => /Cost per pound/.test(g.textContent))
+    const perAcre = groups.find((g) => /Cost per acre/.test(g.textContent))
+
+    assert.equal(perLb.querySelector('.modal-warn'), null, 'the matching list is not warned about')
+    assert.ok(perAcre.querySelector('.modal-warn'), 'the mismatched one is')
+  })
+
+  test('a mismatch warning names the mode the line is actually in', () => {
+    // modeName() was a two-way ternary and described a line set to "population"
+    // as "$/unit × units". A warning that misnames one of the two things it is
+    // comparing is worse than no warning, because it is the sentence a producer
+    // would rely on to decide.
+    click('[data-path="enterprises.0.variable.seed.mode"][data-mode="population"]')
+    click('[data-line="seed"] [data-typical="seed"]')
+    const warn = [...doc.querySelectorAll('.modal-warn')].map((w) => w.textContent).join(' ')
+    // And it names it in the SAME words the pill uses, because the sentence is
+    // telling the producer to go and look at that pill.
+    assert.match(warn, /set to\s+seeds\/ac/i)
+    assert.doesNotMatch(warn, /set to\s+\$\/unit/i)
+
+    const pressed = doc.querySelector('[data-line="seed"] .mode-seg[aria-pressed="true"]')
+    assert.equal(pressed.textContent.trim(), 'seeds/ac', 'the pill says the same thing')
+  })
+
+  test('a bare count is printed with separators', () => {
+    click('[data-path="enterprises.0.variable.seed.mode"][data-mode="population"]')
+    click('[data-line="seed"] [data-typical="seedsPerBag"]')
+    const values = [...doc.querySelectorAll('.typ-value')].map((v) => v.textContent)
+    assert.ok(values.includes('80,000'), `expected a formatted count, got ${values.join(', ')}`)
+    assert.ok(values.includes('140,000'))
+  })
+})
+
+describe('where the data lives is said, not only linked', () => {
+  beforeEach(async () => {
+    await boot()
+  })
+
+  test('the footer states it in one sentence on every screen', () => {
+    // A producer typing their yields, prices, and land rent into a web page at
+    // a workshop is entitled to know where it goes without going looking.
+    for (const action of ['go-build', 'go-scenarios']) {
+      click(`[data-action="${action}"]`)
+      const line = doc.querySelector('.footer-privacy')
+      assert.ok(line, `the ${action} screen states it`)
+      assert.match(line.textContent, /stays on this device/i)
+    }
+  })
+
+  test('the link opens the full explanation and writes nothing', () => {
+    click('.footer-privacy [data-info="privacy"]')
+    const body = textOf('.overlay.open .modal-body')
+    assert.match(body, /not sent anywhere/i)
+    assert.match(body, /cannot see your budgets/i)
+    assert.match(body, /clearing your browsing data/i)
+    assert.match(body, /Save budget file/i, 'and says how to move one on purpose')
+    assert.equal(
+      doc.querySelectorAll('.overlay.open .typ-option').length,
+      0,
+      'it is a definition, not a picker'
+    )
+  })
+
+  test('the how-to guide gives it its own heading', () => {
+    click('[data-action="how-to"]')
+    const headings = [...doc.querySelectorAll('.modal-body summary')].map((s) => s.textContent)
+    assert.ok(
+      headings.some((h) => /Where your budgets live/i.test(h)),
+      `expected a privacy heading, got: ${headings.join(' | ')}`
+    )
+  })
+
+  test('the sentence survives printing, the link does not', () => {
+    // A budget handed to a lender still carries the statement, and it is true
+    // on paper. `.footer button` is what the print block hides.
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+    const print = css.slice(css.indexOf('@media print'))
+    assert.match(print, /\.footer button/)
+    assert.doesNotMatch(print, /\.footer-privacy\s*\{[^}]*display:\s*none/)
+  })
+})
+
+describe('naming corn or soybeans opens the seeds/ac mode', () => {
+  beforeEach(async () => {
+    await boot()
+  })
+
+  const pressed = () =>
+    doc.querySelector('[data-line="seed"] .mode-seg[aria-pressed="true"]')?.dataset.mode
+
+  test('a new budget starts on the sheet’s own mode', () => {
+    assert.equal(pressed(), 'unit')
+  })
+
+  test('typing a crop this app knows opens it', () => {
+    // Population is how corn and soybean seed is bought and quoted. Working out
+    // a fraction of a bag is the arithmetic this mode exists to remove, and a
+    // producer who has to find the mode first mostly will not.
+    type('enterprises.0.crop', 'Corn')
+    assert.equal(pressed(), 'population')
+    assert.equal(
+      doc.querySelector('[data-path="enterprises.0.variable.seed.seedsPerBag"]').value,
+      '80000',
+      'and the denominator is filled in with it'
+    )
+  })
+
+  test('a crop with no published seeding rate does not', () => {
+    type('enterprises.0.crop', 'Sorghum')
+    assert.equal(pressed(), 'unit')
+  })
+
+  test('a line somebody has already typed in is left where it is', () => {
+    // THE guard. The mode decides which boxes exist, so switching it out from
+    // under an entered figure hides that figure — it is still stored, which
+    // makes it worse rather than better, because nothing on screen says where
+    // it went.
+    type('enterprises.0.variable.seed.costPerUnit', '320')
+    type('enterprises.0.crop', 'Corn')
+    assert.equal(pressed(), 'unit', 'the mode did not move')
+    assert.equal(
+      doc.querySelector('[data-path="enterprises.0.variable.seed.costPerUnit"]').value,
+      '320',
+      'and the figure is still on screen'
+    )
+  })
+
+  test('a mode the producer chose themselves is left alone', () => {
+    click('[data-path="enterprises.0.variable.seed.mode"][data-mode="perAcre"]')
+    type('enterprises.0.variable.seed.perAcre', '125')
+    type('enterprises.0.crop', 'Soybeans')
+    assert.equal(pressed(), 'perAcre')
+  })
+
+  test('opening the mode brings the seeds-per-unit offer with it', () => {
+    type('enterprises.0.crop', 'Corn')
+    const offers = [...doc.querySelectorAll('[data-line="seed"] .tip[data-typical="seedsPerBag"]')]
+    assert.equal(offers.length, 2, 'one copy for each width — see renderLine()')
+    for (const el of offers) {
+      assert.equal(el.dataset.target, 'enterprises.0.variable.seed.seedsPerBag')
+    }
+    assert.ok(
+      doc.querySelector('[data-path="enterprises.0.variable.seed.seedsPerBag"]'),
+      'and the box they fill is on the line'
+    )
+  })
+
+  test('the caption stays under the whole line, below both offers', () => {
+    // The OFFER moved. The CAPTION did not, and the two are different things:
+    // the offer is a control belonging to one box, the caption is a sentence
+    // about a figure that is already there. Inside the row of boxes it squeezed
+    // three number inputs into two columns' worth of width.
+    type('enterprises.0.crop', 'Corn')
+    const note = doc.querySelector('[data-line="seed"] .field-note')
+    assert.ok(note, 'the caption is on the seed line')
+    assert.match(note.textContent, /filled in from/i)
+    assert.equal(note.closest('.line-inputs'), null, 'not inside the row of boxes')
+    assert.equal(note.closest('.line-head'), null, 'nor up in the label row')
+    assert.equal(note.parentElement.dataset.line, 'seed', 'it is a child of the line itself')
+
+    // The phone copy of the offer is the row directly above it, which is what
+    // "in the row above the field-note text" means.
+    assert.ok(
+      note.previousElementSibling.classList.contains('seeds-link-row'),
+      'and the offer is the row above it'
+    )
+  })
+})
+
+describe('the baseline note can be put away', () => {
+  async function withOneBudget() {
+    await boot()
+    type('name', 'North quarter')
+    click('[data-action="save-scenario"]')
+    click('[data-action="go-scenarios"]')
+  }
+
+  test('it is there to begin with, and says what a baseline is', async () => {
+    await withOneBudget()
+    assert.match(textOf('.baseline-note'), /first one you select becomes the/i)
+  })
+
+  test('dismissing it removes it without rebuilding the list', async () => {
+    await withOneBudget()
+    // A render here would throw away every compare tick on the page, which is
+    // the same rule the filter box follows.
+    const list = doc.querySelector('.scn-list')
+    click('[data-action="dismiss-note"]')
+    assert.equal(doc.querySelector('.baseline-note'), null)
+    assert.equal(doc.querySelector('.scn-list'), list, 'the list is the same node')
+  })
+
+  test('it stays gone on the next visit, and the next session', async () => {
+    await withOneBudget()
+    click('[data-action="dismiss-note"]')
+
+    // Away and back: a re-render must not bring it home again.
+    click('[data-action="go-build"]')
+    click('[data-action="go-scenarios"]')
+    assert.equal(doc.querySelector('.baseline-note'), null, 'survives a render')
+
+    // A note explaining a feature is read once. Showing it again tomorrow is
+    // the behaviour the button exists to stop, so the preference persists.
+    assert.match(localStorage.getItem('sdshc-fb-dismissed') ?? '', /baseline/)
+  })
+})
+
+describe('units read the same everywhere they are shown', () => {
+  beforeEach(async () => {
+    await boot()
+  })
+
+  test('the pill abbreviates, the box does not, and both are deliberate', () => {
+    // A pill segment is one of three sharing a row with a label and a "use
+    // typical value" link on a 360px screen, and it is what gives when any of
+    // them grows. A placeholder has the whole box to itself, so there is no
+    // reason to make a producer expand an abbreviation to read it. The in-box
+    // affix goes back to the short form because by then it is sharing the box
+    // with a figure — the same reason the labor-rate field says "/hr".
+    click('[data-path="enterprises.0.variable.seed.mode"][data-mode="perAcre"]')
+    assert.equal(
+      doc.querySelector('[data-line="seed"] .mode-seg[aria-pressed="true"]').textContent.trim(),
+      '$/ac'
+    )
+    const box = doc.querySelector('[data-path="enterprises.0.variable.seed.perAcre"]')
+    assert.equal(box.placeholder, '$/acre')
+    assert.equal(box.closest('.in-box').querySelector('.in-post').textContent, '/ac')
+  })
+
+  test('nothing user-facing spells out "bushel"', () => {
+    // The yield-unit select offers "bu", so a picker that spells it out reads
+    // as a different quantity. Checked across every spec's own strings.
+    for (const [key, spec] of Object.entries(TYPICAL_VALUES)) {
+      const text = [
+        spec.unit,
+        spec.note ?? '',
+        ...spec.groups.map((g) => `${g.label} ${g.unit ?? ''}`),
+        ...spec.groups.flatMap((g) => g.options.map((o) => `${o.label} ${o.desc ?? ''}`)),
+      ].join(' ')
+      assert.doesNotMatch(text, /bushel/i, `${key} spells out "bushel"`)
+    }
+  })
+})
+
+describe('a picker opens as a list of headings', () => {
+  beforeEach(async () => {
+    await boot()
+  })
+
+  test('every fold starts shut, including the first', () => {
+    // Same rule openInfo() holds for a card's definitions: when a modal opens
+    // folded, the list of headings is itself the answer to "what is on offer
+    // here?", and one group left open pushes the rest below the fold on a
+    // phone so the list stops being a list.
+    click('[data-line="customHire"] [data-typical="customHire"]')
+    const folds = [...doc.querySelectorAll('.typ-group.typ-fold')]
+    assert.ok(folds.length > 2, 'this picker folds its groups')
+    assert.equal(
+      folds.some((d) => d.open),
+      false,
+      'none of them is open'
+    )
+  })
+})
+
+describe('the offer to upload a budget file rides with the hint', () => {
+  async function withOneBudget() {
+    await boot()
+    type('name', 'North quarter')
+    click('[data-action="save-scenario"]')
+    click('[data-action="go-scenarios"]')
+  }
+
+  test('it reads on from the end of the sentence, and is not a separate action', async () => {
+    await withOneBudget()
+    const hint = doc.querySelector('[data-scn-hint]')
+    assert.match(hint.textContent, /organize your budgets into folders\.\s*You can also/)
+    assert.ok(
+      hint.querySelector('[data-action="import-scenario"]'),
+      'the control itself is in the hint'
+    )
+    assert.ok(hint.querySelector('.help-btn[data-info="budgetFile"]'), 'and so is its question mark')
+
+    // Not beside Compare any more. A lone link there read as an action of the
+    // same weight as comparing budgets, which is the one thing this screen is
+    // actually for.
+    assert.equal(
+      doc.querySelector('.scn-actions [data-action="import-scenario"]'),
+      null,
+      'and not next to the Compare button'
+    )
+  })
+
+  test('typing in the filter box cannot delete it', async () => {
+    await withOneBudget()
+    // applyScenarioFilter() rewrites the hint on every keystroke. It has to
+    // address the TEXT, not the paragraph, or the first character typed takes
+    // the import control off the page with it.
+    const filter = doc.querySelector('[data-scn-filter]')
+    filter.value = 'zzz'
+    filter.dispatchEvent(new win.Event('input', { bubbles: true }))
+
+    const hint = doc.querySelector('[data-scn-hint]')
+    assert.match(hint.textContent, /Showing 0 of 1 budget/, 'the sentence was rewritten')
+    assert.ok(
+      hint.querySelector('[data-action="import-scenario"]'),
+      'and the control survived it'
+    )
+  })
+
+  test('the empty state still offers it on its own', async () => {
+    await boot()
+    click('[data-action="go-scenarios"]')
+    assert.equal(doc.querySelector('[data-scn-hint]'), null, 'there is no list to hint about')
+    assert.ok(
+      doc.querySelector('[data-action="import-scenario"]'),
+      'but importing is the one useful thing here, so it stands alone'
+    )
+  })
+})
+
+describe('a money box wears the same affixes as a fixed-cost field', () => {
+  // jsdom loads no CSS, so this reads the stylesheet source — the same way the
+  // folder palette and the [hidden] rule are checked.
+  const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+
+  // Plain string scanning rather than a built regex: every selector here has
+  // a dot, and two have parentheses, and escaping them into a pattern is more
+  // ways to be wrong than the search is worth.
+  const ruleFor = (selector) => {
+    const at = css.indexOf(`\n${selector} {`)
+    assert.notEqual(at, -1, `no rule found for ${selector}`)
+    return css.slice(at, css.indexOf('}', at))
+  }
+
+  test('the size and the two offsets are the ones the labor-rate field uses', () => {
+    // A page carrying both treatments read as two different controls doing the
+    // same job: a 10.5px grey tail inside an expense box, a 14px one inside the
+    // Labor rate box an inch below it.
+    assert.match(ruleFor('.affix'), /font-size:\s*14px/)
+    assert.match(ruleFor('.in-affix'), /font-size:\s*14px/)
+
+    assert.match(ruleFor('.prefix'), /left:\s*10px/)
+    assert.match(ruleFor('.in-pre'), /left:\s*10px/)
+
+    assert.match(ruleFor('.suffix'), /right:\s*10px/)
+    assert.match(ruleFor('.in-post'), /right:\s*10px/)
+  })
+
+  test('and so is the room reserved for them', () => {
+    // Same size at the same offset needs the same padding, or the figure runs
+    // under its own unit.
+    assert.match(ruleFor('.has-prefix input'), /padding-left:\s*24px/)
+    assert.match(
+      ruleFor('.has-pre .line-input:not(:placeholder-shown)'),
+      /padding-left:\s*24px/
+    )
+
+    assert.match(ruleFor('.has-suffix input'), /padding-right:\s*44px/)
+    assert.match(
+      ruleFor('.has-post .line-input:not(:placeholder-shown)'),
+      /padding-right:\s*44px/
+    )
+  })
+})
+
+describe('the save state stands next to the button it is about', () => {
+  beforeEach(async () => {
+    await boot()
+  })
+
+  test('it is in the sticky bar, immediately left of Save', () => {
+    // It used to sit up in the page header beside the tabs, which put
+    // "Unsaved changes" and the control that answers it at opposite ends of a
+    // long page.
+    const state = doc.getElementById('saveState')
+    assert.ok(state, 'the state is on the page')
+    assert.ok(state.closest('.sticky-bar'), 'in the sticky bar')
+    assert.equal(state.closest('.app-head'), null, 'and no longer in the page header')
+    assert.equal(
+      state.nextElementSibling.dataset.action,
+      'save-scenario',
+      'with the Save button immediately after it'
+    )
+
+    // Still exactly one in the DOM, because updateStatus() and flashSaved()
+    // address it by id.
+    assert.equal(doc.querySelectorAll('#saveState').length, 1)
+  })
+
+  test('the button loses a word on a phone, not a meaning', () => {
+    const btn = doc.querySelector('[data-action="save-scenario"]')
+    assert.equal(btn.textContent.replace(/\s+/g, ' ').trim(), 'Save budget')
+    assert.equal(
+      btn.querySelector('.btn-word').textContent.trim(),
+      'budget',
+      'and the droppable half is the one that is wrapped'
+    )
+
+    // Hidden with display: none rather than clipped, so the accessible name
+    // narrows to "Save" along with the visible text instead of announcing a
+    // word that is not on screen. jsdom loads no CSS, so this reads the source.
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+    const mobile = css.slice(css.indexOf('@media (max-width: 899px)'))
+    assert.match(mobile, /\n {2}\.btn-word \{[^}]*display: none/)
   })
 })

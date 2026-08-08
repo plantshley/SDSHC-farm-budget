@@ -275,7 +275,326 @@ source** and remain marked `status: 'provisional'` with a caution in the app.
 
 ---
 
+## Shipped — South Dakota crop budgets (SDSU)
+
+**Source:** SDSU Extension, *2026 Crop Production Budgets*, file `P-00138-2026.xlsx`,
+Sarah Sellars, Assistant Professor and SDSU Extension Sustainable Farm and Food
+Systems Specialist. Downloaded from `extension.sdstate.edu/crop-budgets`,
+6 August 2026. Cost estimates are built on FINBIN trends for similar farms and
+crops, adjusted for expected costs — the same body of farm records this file
+already cites for overhead.
+
+**This source was nearly missed, and the near-miss is the most useful thing in
+this section.** The first pass at fuel and repairs was about to ship North Dakota
+figures on the stated grounds that *"South Dakota does not publish crop budgets,
+the same way it does not publish a custom rate survey."* That was an assumption
+carried over from the custom-rate work, and it was wrong. SDSU has published
+these annually for years.
+
+The lesson generalises: **"there is no source" is a claim, and it needs looking
+up like any other.** It is the same failure mode as the FINBIN whole-farm
+division below — a reasonable-sounding premise that nobody checked.
+
+The workbook covers three production zones and four crops. The zones are about
+yield potential rather than lines on a map, so a producer picks the one their
+ground behaves like:
+
+- East & Central, high production
+- East & Central, mid production
+- Central & West, low production
+
+| App field | What is offered | Workbook row |
+|---|---|---|
+| Fuel/Oil | $/acre, per crop per zone (corn $29–36) | `Fuel & Oil` |
+| Repairs | $/acre, per crop per zone (corn $64–67) | `Repairs` |
+| Crop Insurance | $/acre, per crop per zone ($18–32) | `Crop Insurance` |
+| Nitrogen | $0.625/lb of N (urea), and $/acre per crop per zone | `N` rate × `$/unit` |
+| Phosphorus | $0.7692/lb of P₂O₅, and $/acre per crop per zone | `P2O5` rate × `$/unit` |
+| Potassium | $0.3917/lb of K₂O, and $/acre per crop per zone | `K2O` rate × `$/unit` |
+| Seed | $/unit of seed, and $/acre per crop per zone | `Seed price, $/unit`, `Seed` |
+| Seeds per bag or unit | 80,000 / 140,000 | `Seeding rate` denominations |
+
+### Why fuel and repairs came from here and not from Iowa
+
+**Iowa A1-20 cannot fill these two lines, and the reason is structural.** Its
+`Estimated Machinery Costs` table reports one *"Variable Cost (fuel, oil,
+repairs)"* figure per field operation. This app keeps fuel and repairs on
+separate lines, and splitting a combined figure between two boxes would mean
+inventing the ratio. SDSU reports them separately, so it is used.
+
+The North Dakota budgets (Ron Haugen, NDSU) also report them separately and were
+extracted before SDSU was found. They are not shipped for these two lines: with a
+South Dakota source in hand, a North Dakota one is strictly worse for a South
+Dakota tool.
+
+### The per-acre nutrient figures are DERIVED, and here is the check
+
+The workbook publishes **one `Fertilizer` line per crop**, not a cost per
+nutrient. The per-acre figures offered for nitrogen, phosphorus, and potassium
+are therefore derived: each zone's rate in pounds, times that nutrient's price
+per pound.
+
+TYPICAL-VALUES.md is explicit that a derived rate has to be checked against a
+line whose right answer is already known. It was:
+
+**N + P₂O₅ + K₂O, at the workbook's own rates and prices, reproduces the
+published `Fertilizer` figure to the cent, for every crop that takes no sulfur,
+in all three zones.**
+
+```
+East & Central high, soybeans:   0×0.625 + 47×0.769231 + 66×0.391667 = 62.0038
+workbook Fertilizer:                                                    62.0038
+East & Central high, spring wheat: 125×0.625 + 45×0.769231 + 60×0.391667 = 136.2404
+workbook Fertilizer:                                                       136.2404
+```
+
+Corn is excluded from the reconciliation because it also takes sulfur (15 lb in
+the high zone, 10 lb in the mid), and this app has no sulfur line. Its NPK
+subtotal reconciles once the sulfur is added back.
+
+The prices come from the workbook's `Input Assumptions` sheet, derived the way it
+derives them — price per ton, over 2000, over the analysis:
+
+- Urea, 46% N, $575/ton → **$0.625/lb of N**
+- MAP 11-52-0, $800/ton → **$0.7692/lb of P₂O₅**
+- Potash 0-0-60, $470/ton → **$0.3917/lb of K₂O**
+
+### Four nitrogen sources, one corrected figure, and one from out of state
+
+The nitrogen line offers a choice of product, because urea is not what everyone
+buys. Three come off the same `$ per ton` column; the fourth does not exist in
+any South Dakota source and is explained below.
+
+| Product | $/ton | Analysis | $/lb of N |
+|---|---|---|---|
+| Urea 46-0-0 | 575 | 46% N | **0.625** |
+| UAN solution 28-0-0 | 395 | 28% N | **0.705** |
+| Ammonium sulfate 21-0-0-24S | 510 | 21% N | **1.214** |
+| Anhydrous ammonia 82-0-0 *(Illinois)* | 786 | 82% N | **0.4793** |
+
+**The AMS figure is a correction, and this is the record of it.** The workbook
+publishes AMS nitrogen at **$2.3182/lb**, which is `0.255 ÷ 0.11` — it divides by
+**11%**, the nitrogen content of the *MAP row above it*, rather than by AMS's own
+21%. The sulfur figure on the same row is right (`0.255 ÷ 0.24 = 1.0625`), and its
+being right is what makes this a dragged formula rather than a different
+convention. Shipping the published number would price nitrogen at nearly twice
+what it costs.
+
+`test/typical-values.test.js` asserts the corrected derivation under *every
+nitrogen source is priced off its own analysis*, with the discrepancy named in
+the test so nobody "fixes" it back to the sheet.
+
+**MAP 11-52-0 and 10-34-0 are in the same table and are deliberately not
+offered.** Charging a whole multi-nutrient product to nitrogen prices N at $3.64
+and $3.00 a pound, five times urea, because the phosphate in the bag is being
+paid for on the nitrogen line. Anyone adding them has to split the cost between
+the nutrients first. A test caps every offered N price below $2/lb, which is what
+catches a blend arriving unsplit.
+
+**Anhydrous ammonia comes from four states away, and the option says so.**
+
+It was listed under *Deliberately NOT shipped* for one reason: nothing in South
+Dakota publishes a price for it. That is still true, and it was checked rather
+than assumed — the SDSU workbook's fertilizer price table carries MAP, urea,
+potash, AMS, 28% UAN and 10-34-0 and no anhydrous under any name, the three
+southern North Dakota budgets do not mention it, and Iowa A1-20 prices nitrogen
+as one blended `$0.53/lb` without naming a source.
+
+Shipping it anyway is a judgment call, and the case for it is that 82-0-0 is the
+cheapest nitrogen per pound and what most corn acres in the eastern Dakotas
+actually get. A picker offering urea, UAN, and ammonium sulfate and not this one
+is missing the product a producer is most likely to be pricing, which is the same
+complaint that added the material groups in the first place.
+
+The figure is **$786/ton ÷ 2000 ÷ 0.82 = $0.4793/lb of N**, from *Fertilizer
+Decisions for the 2026 Crop Year* (Paulson, Schnitkey, Monaco, and Zulauf,
+farmdoc daily, University of Illinois, 12 August 2025) — an extension
+publication, with named authors and a date, which is the bar this file set for it.
+
+Three things make an Illinois figure tolerable here:
+
+- **The same publication prices two products we already have, and both agree.**
+  Its urea works out at $0.6457/lb of N against South Dakota's $0.625, and its
+  28% at $0.7696 against $0.705. Both within a tenth. That is the evidence that a
+  nitrogen price does not move much across the Corn Belt, and it is the same
+  cross-check discipline the FINBIN near-miss produced.
+- **The state is on the option row**, exactly as the insecticide options carry
+  theirs, and the spec's note says every other price in the picker is South
+  Dakota's.
+- **It is listed last**, after the three South Dakota products. The first
+  per-pound option is also the one the per-acre groups were computed from, which
+  a test pins; an out-of-state figure at the top of that list would quietly break
+  it.
+
+The application charge is a separate cost, as it is for every product here, and
+the application group below prices exactly this pass ("Anhydrous, injecting with
+tool bar", $15.55/acre).
+
+**What would replace it:** a South Dakota or upper-plains extension price series
+carrying anhydrous. If one appears, drop the Illinois row rather than keeping
+both.
+
+All of this is asserted in `test/typical-values.test.js` under *South Dakota crop
+budgets, as published* and *the three nutrients are offered on the same terms*,
+including the reconciliation above.
+
+### Nitrogen carries material AND application, and says they are different
+
+The nitrogen picker previously offered Iowa custom **application** rates only,
+with materials explicitly excluded in its note. That was accurate and lopsided:
+a producer could pick $15.55 and book a nitrogen line with no nitrogen in it.
+
+It now carries three kinds of group — a cost per pound, a cost per acre by zone,
+and the original application rates — and its note says in as many words that a
+custom-applied acre is the sum of a material figure and an application figure.
+
+**Every picker heading says "cost", never "price".** The two words were mixed
+across the fertilizer and seed groups, and a producer reading down a column of
+expense lines should not have to work out whether the difference means anything.
+It does not. "Price" survives only where the app genuinely means one: `Price /
+unit` on the income side, which is what the crop sells for.
+
+**The spreading charge is offered on the nitrogen line only.** It is quoted once
+per pass, and repeating it under phosphorus and potassium would have it entered
+three times. Both of those notes point at the nitrogen line instead. Asserted.
+
+---
+
+## Shipped — insecticide, from two states that disagree
+
+**Sources:** NDSU (below) for most crops; Iowa A1-20 for corn.
+
+SDSU reports a single `Pesticides/Herbicides` figure, which cannot fill a line
+this app keeps separate from herbicide. So insecticide is the one line taken from
+its neighbours, and they disagree sharply on the crop most producers here grow:
+
+| Crop | Figure | From |
+|---|---|---|
+| Corn following corn | $25.00/acre | Iowa (rootworm) |
+| Corn silage | $25.00/acre | Iowa |
+| Soybeans | $4.00/acre | North Dakota |
+| Field peas | $6.00/acre | North Dakota |
+| Oil sunflower | $5.00/acre | North Dakota |
+| Confection sunflower | $10.00/acre | North Dakota |
+
+**A crop absent from that list is one whose budget carries no insecticide.** The
+North Dakota budgets book none on corn, small grain, oats, or barley, and those
+were briefly shipped as a second group of explicit $0 rows. That was honest and
+useless: a button that fills a box with nothing is a tap to achieve what leaving
+the line alone already does, and it padded a six-row picker to nine with rows
+nobody would ever choose. A test now asserts every option is above zero.
+
+The disagreement between the two states on corn is still visible, because both
+corn rows are there and each names its state.
+
+**The state is named on each OPTION, not in the group heading.** The house rule
+is that group labels carry no source citations — provenance goes in the `source`
+footer. Which state a figure is from is not a citation here; it is the entire
+difference between $0 and $25, and it belongs on the row being chosen. Asserted
+in `test/typical-values.test.js` under *insecticide, where the two states
+disagree*, which checks both halves so neither can be "tidied" into the other.
+
+---
+
+## Shipped — seeds per bag or unit, and why the list is two crops long
+
+**Sources:** SDSU `P-00138-2026` (seeding rates and seed prices); Iowa A1-20 for
+the bag and unit sizes those prices are quoted against.
+
+The seed line's `seeds/ac` entry mode divides by a seeds-per-unit figure. **One
+denomination per crop**, and both are the bag the seed is actually bought in:
+
+- **80,000-seed bag** — corn
+- **140,000-seed bag** — soybeans ($51.00–63.10)
+
+**Corn is PUBLISHED per thousand seeds ($3.79–3.80), and that denomination was
+offered alongside the bag until it was taken out.** Two ways of quoting the same
+corn seed, sitting next to each other on one list, is a choice a producer has to
+work out before they can answer anything — and the two pickers fill the two
+halves of one multiplication, so picking the bag in one and the thousand in the
+other is wrong by a factor of eighty with nothing on screen to show it. The
+published price is converted instead: $3.80 × 80 = **$304.00 a bag**. A test
+asserts that conversion, and another asserts no note or label anywhere still
+mentions a per-thousand price.
+
+**Corn and soybeans are the whole list, and that is a finding rather than a gap:**
+
+- **Wheat, oats, and barley** are priced **by weight**. SDSU quotes spring and
+  winter wheat per hundredweight. A seeds-per-unit figure is not a thing they
+  have, and the line's ordinary `$/unit × units per acre` mode is already the
+  right shape for them.
+- **Sunflower and sorghum** are absent from every source checked. The North
+  Dakota budgets give a seed cost per acre with **no seeding rate behind it**,
+  and SDSU does not budget them at all.
+
+So nothing is guessed to fill the list out. `SEED_CROPS` in
+`src/data/typical-values.js` is the table, and a crop not on it gets no
+suggestion — the same answer this file gives everywhere it has no citation.
+
+**This is also the one field in the app that can fill itself.** See CLAUDE.md,
+*Nothing auto-fills*, for the four guards that make that safe. `matchCrop()` is
+deliberately stricter than `matchCategory()`: the latter also matches when the
+catalog entry contains the query, which is right for a type-ahead offering
+suggestions and wrong for something that writes a number into a box. Two
+characters of "co" must not resolve to corn.
+
+---
+
 ## Deliberately NOT shipped
+
+### Seeds per unit for sunflower, sorghum, and the small grains
+
+**Two different reasons, and neither is "we ran out of time."**
+
+**Small grains do not have this figure.** Wheat, oats, and barley are priced and
+seeded **by weight** — SDSU quotes spring and winter wheat per hundredweight. A
+seeds-per-unit denominator is not a thing that exists for them, and the line's
+ordinary `$/unit × units per acre` mode is already the correct shape. Offering a
+population mode there would be inventing a unit the crop is not sold in.
+
+**Sunflower and sorghum have no published seeding rate.** The NDSU budgets carry
+a seed cost per acre with no rate behind it; SDSU does not budget either crop.
+Sunflower populations are widely quoted in agronomy guides, but a population
+without a matching seeds-per-unit denomination from the same document is half a
+figure, and pairing one source's rate with another's bag size is the same
+category error as the FINBIN whole-farm division.
+
+If this is revisited, the bar is a single document giving **both** a seeding rate
+in seeds per acre **and** the denomination its seed price is quoted in.
+
+### A *South Dakota* anhydrous ammonia price
+
+Anhydrous itself now ships, from Illinois — see *Four nitrogen sources* above for
+the figure and the argument. What is still missing is a South Dakota one, and
+nothing found so far comes close: the SDSU workbook's fertilizer table lists
+urea, MAP, AMS, potash, 28% UAN, and 10-34-0 and stops; the three southern North
+Dakota budgets do not price it; and Iowa A1-20 quotes one blended `$0.53/lb of N`
+across all sources.
+
+A retail anhydrous price is easy to find and most of the places it is easy to
+find are not surveys. The bar is unchanged: **a published price series from an
+extension service or a USDA report, with a date on it.** If an upper-plains one
+appears, it replaces the Illinois row rather than joining it.
+
+### Herbicide materials
+
+SDSU publishes a combined `Pesticides/Herbicides` figure per crop (corn $51,
+soybeans $65, spring wheat $40, winter wheat $37). It is **not** shipped on the
+herbicide line, because it spans herbicide *and* insecticide, and this app keeps
+those on separate lines. Putting the combined figure on one of them would
+double-count against the other.
+
+The herbicide line keeps its Iowa custom-rate **application** figures, which are
+what they say they are. A herbicide materials figure needs a source that reports
+it separately from insecticide.
+
+### Sulfur
+
+SDSU budgets sulfur (15 lb on high-zone corn, 10 lb mid, at $1.0625/lb) and the
+app has no sulfur line. This is a gap in the app, not in the data. Until there is
+one, sulfur is part of what a producer enters under a nutrient line of their own
+choosing, and the nutrient reconciliation in this file excludes corn because of
+it.
 
 ### Equipment purchase prices
 
@@ -364,6 +683,20 @@ files above were downloaded through a browser.
   Analysis, South Dakota 2025, the overhead figures
 - FINBIN reports `972799` / `972801` — the whole-farm route that was rejected;
   keep them, they are the evidence for why
+- `P-00138-2026.xlsx` — SDSU Extension, *2026 Crop Production Budgets*, Sarah
+  Sellars. From `extension.sdstate.edu/crop-budgets`, which also carries every
+  year back to 2004. **The primary source for fuel, repairs, crop insurance, the
+  three nutrients, and seed.** Fetches fine without a browser.
+- `a1-20.pdf` — *Estimated Costs of Crop Production in Iowa 2026*, A1-20 /
+  FM 1712, Chad Hart. Used for the corn insecticide charge and for the bag and
+  unit sizes seed is priced against. Its `Estimated Machinery Costs` table is
+  the one that combines fuel, oil, and repairs into a single figure and so
+  cannot fill this app's two lines.
+- NDSU *2026 Projected Crop Budgets*, Ron Haugen — `SW_26Bud.xls`,
+  `SC_26Bud.xls`, `SE_26Bud.xls`, the three regions bordering South Dakota.
+  From `ndsu.edu/agriculture/extension/ag-topics/farm-management/crop-economics/projected-crop-budgets`.
+  Shipped for insecticide only; kept because they are the evidence behind the
+  $0-on-corn figure that disagrees with Iowa.
 
 ---
 

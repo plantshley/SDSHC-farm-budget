@@ -1,6 +1,6 @@
 // styles.css is linked from index.html, not imported here — see the comment
 // there. Keeping this entry module plain JS lets the smoke tests import it.
-import { initPrefs } from './prefs.js'
+import { initPrefs, dismiss } from './prefs.js'
 import { calcScenario } from './calc.js'
 import {
   getScenario,
@@ -37,7 +37,12 @@ import { renderResults, renderWarningsInto } from './ui/results.js'
 import { renderScenarioList, renderCompare, scenarioHint } from './ui/scenarios.js'
 import { openInfo, openTypical, openGuide } from './ui/modals.js'
 import { usd, usdCents, esc, signClass } from './ui/format.js'
-import { matchCategory, EQUIPMENT_CATALOG, BUILDING_CATALOG } from './data/typical-values.js'
+import {
+  matchCategory,
+  matchCrop,
+  EQUIPMENT_CATALOG,
+  BUILDING_CATALOG,
+} from './data/typical-values.js'
 import { HOW_TO_SECTIONS } from './data/howto.js'
 import { downloadCSV, downloadCompareCSV, downloadJSON, printResults } from './export.js'
 import { enterpriseLabel, VARIABLE_LINES, COST_BASIS } from './calc.js'
@@ -245,13 +250,6 @@ function header() {
   return `
     <div class="app-head">
       ${nameBlock}
-      <!-- A direct child of the header, between the name and the tabs, because
-           it has to land in a different place at each width: beside the tabs on
-           a computer, and on the end of the title row on a phone. One element in
-           one place in the DOM, moved by the flex rules alone — it cannot be
-           rendered twice, because updateStatus() and flashSaved() address it by
-           id. -->
-      <span class="save-state" id="saveState"></span>
       <nav class="app-nav" role="tablist">
         <button type="button" class="tab ${screen === 'build' ? 'active' : ''}"
           role="tab" aria-selected="${screen === 'build'}"
@@ -315,6 +313,11 @@ function sizeNameInput(input, allowance, floor) {
 }
 
 function footer() {
+  // The privacy line is STATED, not only linked. A producer being asked to type
+  // their yields, prices, and land rent into a web page at a workshop is
+  // entitled to know where it goes without having to go looking, and "there is
+  // a page about it somewhere" is not the same answer as one sentence they
+  // cannot miss. The link opens the full explanation for anyone who wants it.
   return `
     <div class="footer">
       <button type="button" class="tip" data-action="how-to">How to use this calculator</button>
@@ -324,6 +327,10 @@ function footer() {
       <button type="button" class="tip" data-action="export-json">Save budget file</button>
       ·
       <button type="button" class="tip" data-action="print">Print</button>
+      <p class="footer-privacy">
+        Everything you enter stays on this device.
+        <button type="button" class="tip" data-info="privacy">Read more</button>
+      </p>
       <p>South Dakota Soil Health Coalition</p>
     </div>`
 }
@@ -337,7 +344,24 @@ function stickyBar() {
         <span><small>Profit / acre</small>
           <b data-out="totals.profitPerAcre" data-fmt="usdCents" data-tone="1">—</b></span>
       </div>
-      <button type="button" class="btn-main" data-action="save-scenario">Save budget</button>
+      <!-- Immediately left of the button it is about. It used to sit up in the
+           header beside the tabs, where "Unsaved changes" and the control that
+           answers it were at opposite ends of the page. There is still exactly
+           one of these in the DOM, because updateStatus() and flashSaved()
+           address it by id — it has simply moved house.
+
+           The sticky bar renders on the Budget screen only, so the state is not
+           on screen on the Saved tab. Nothing is lost by that: the two ways to
+           discard unsaved work from there, opening another budget and leaving
+           the page, both stop and ask first. -->
+      <span class="save-state" id="saveState"></span>
+      <button type="button" class="btn-main" data-action="save-scenario">
+        <!-- "Save" alone on a phone, where this button shares a fixed bar with
+             two dollar figures and the state beside it. The hidden half is
+             display: none, so the accessible name narrows to "Save" with it
+             rather than reading a word that is not on screen. -->
+        Save<span class="btn-word"> budget</span>
+      </button>
     </div>`
 }
 
@@ -374,10 +398,21 @@ function updateOutputs() {
     }
   }
 
-  // Warnings come and go as acres are typed, so they are not part of the
-  // rendered markup either.
-  const warnBox = app.querySelector('[data-warnings]')
-  if (warnBox) renderWarningsInto(warnBox, result.warnings)
+  // Warnings come and go as figures are typed, so they are not part of the
+  // rendered markup either. Each holder says whose list it draws: an enterprise
+  // index, or the shared fixed block. A holder naming an enterprise that no
+  // longer exists draws nothing rather than throwing — remove-enterprise
+  // re-renders, but updateOutputs() can run first.
+  for (const el of app.querySelectorAll('[data-warnings]')) {
+    const which = el.getAttribute('data-warnings-for')
+    const list =
+      which === 'fixed'
+        ? result.fixed.warnings
+        : which === 'farm'
+          ? result.farmWarnings
+          : result.enterprises[Number(which)]?.warnings
+    renderWarningsInto(el, list ?? [])
+  }
 
   // The results table names each enterprise; renaming one must not need a
   // re-render, which would drop focus out of the box being typed into.
@@ -481,6 +516,15 @@ app.addEventListener('input', (e) => {
     }
   }
 
+  // The crop drives the seeds-per-unit suggestion; typing in that box takes it
+  // back. Both halves are needed, and both are in one place so neither can be
+  // changed without the other being read. See autofillSeedsPerUnit().
+  const changedCrop = /^enterprises\.(\d+)\.crop$/.exec(path)
+  if (changedCrop) autofillSeedsPerUnit(Number(changedCrop[1]), el.value)
+
+  const typedSeedsPerBag = /^enterprises\.\d+\.variable\.seed\.seedsPerBag$/.test(path)
+  if (typedSeedsPerBag) releaseSeedsPerUnit(el)
+
   if (/^fixed\.(equipment|buildings)\.\d+\.name$/.test(path)) {
     const isBuilding = path.includes('buildings')
     const category = matchCategory(
@@ -512,6 +556,112 @@ app.addEventListener('change', (e) => {
   }
   if (e.target.matches('[data-compare-id]')) refreshCompareButton()
 })
+
+/* ─────────────── the one field that fills itself, and its guards ─────────── */
+
+/**
+ * Fill seeds-per-unit from the crop name. THE ONE EXCEPTION to "nothing
+ * auto-fills", and it is guarded rather than trusted.
+ *
+ * The reason it exists: the population entry mode divides by a seeds-per-unit
+ * figure, and getting it wrong is not a visible error. Corn ships in
+ * 80,000-seed bags and soybeans in 140,000-seed units, so a soybean budget left
+ * on corn's bag size is out by a factor of 1.75 with an entirely ordinary
+ * number on the screen. The box has to be right far more often than a blank box
+ * gets filled in correctly.
+ *
+ * The reason it is safe: `seedsPerBagAuto` records that the APP put the number
+ * there. Everything follows from that one marker.
+ *
+ *   - It only ever writes an empty box, or one the app itself last wrote.
+ *   - A producer typing in the box drops the marker (releaseSeedsPerUnit), and
+ *     from then on the crop can change freely and the number stays theirs.
+ *   - No match means no write. "Sorghum" gets nothing rather than corn's bag.
+ *   - While the marker is set, a caption under the line says where the number
+ *     came from, so a figure that appeared unasked-for is never unexplained.
+ *
+ * Same idiom as `typicalYieldUnit` and `fixed.annualTypicalBasis`: a marker
+ * saying a figure's provenance, so the app can tell its own guesses apart from
+ * a producer's work and only ever revise the former.
+ */
+function autofillSeedsPerUnit(index, cropText) {
+  const ent = getScenario()?.enterprises?.[index]
+  if (!ent) return
+  ent.variable ??= {}
+  ent.variable.seed ??= {}
+  const line = ent.variable.seed
+
+  // A figure the producer typed carries no marker and is never touched, however
+  // firmly the crop now says otherwise. The app knows the crop changed; it does
+  // not know what they meant by the number, and overwriting it would be
+  // destroying work on a guess.
+  const isOurs = Boolean(line.seedsPerBagAuto)
+  const isEmpty = line.seedsPerBag === '' || line.seedsPerBag == null
+  if (!isOurs && !isEmpty) return
+
+  const match = matchCrop(cropText)
+  if (!match) {
+    // The crop was cleared or changed to something unrecognised. Drop what we
+    // put there, but only what WE put there — a blank box and a stale 80,000
+    // under a crop we can no longer vouch for are both better than the latter.
+    if (isOurs) {
+      line.seedsPerBag = ''
+      delete line.seedsPerBagAuto
+      if (line.mode === 'population') render()
+    }
+    return
+  }
+
+  const alreadySet =
+    line.seedsPerBag === match.seedsPerUnit && line.seedsPerBagAuto === match.label
+  line.seedsPerBag = match.seedsPerUnit
+  line.seedsPerBagAuto = match.label
+
+  // Corn and soybeans are the two crops this mode is FOR, so naming one of them
+  // opens it. Population is how their seed is bought and quoted; working out a
+  // fraction of a bag is the arithmetic this mode exists to remove, and a
+  // producer who has to find the mode first mostly will not.
+  //
+  // Only on an UNTOUCHED line. Once anything has been typed into any of the
+  // seed boxes the mode is a decision somebody made, and changing it out from
+  // under them would hide the figure they entered — it would still be stored,
+  // which makes it worse rather than better, because nothing on screen would
+  // say where it went.
+  const opened = openPopulationMode(line)
+  if (alreadySet && !opened) return
+  // Only a structural render while the boxes are actually on screen. In the
+  // other modes the value is stored and waiting, and re-rendering the card
+  // under someone typing a crop name would take the caret with it.
+  if (line.mode === 'population') render()
+}
+
+/** True if the mode was changed, so the caller knows a render is owed. */
+function openPopulationMode(line) {
+  if (line.mode === 'population') return false
+  const touched = ['costPerUnit', 'unitsPerAcre', 'perAcre', 'costPerBag', 'population'].some(
+    (k) => line[k] !== '' && line[k] != null
+  )
+  if (touched) return false
+  line.mode = 'population'
+  return true
+}
+
+/**
+ * The producer has typed in the seeds-per-unit box, so it is theirs now.
+ *
+ * The marker is removed WITHOUT a render. render() would rebuild the card and
+ * take the focus out of the input they are mid-keystroke in, which is the same
+ * rule updateOutputs() exists for. The caption it controls is removed from the
+ * DOM directly instead.
+ */
+function releaseSeedsPerUnit(el) {
+  const card = el.closest('.ent')
+  const index = Number(card?.getAttribute('data-ent-index'))
+  const line = getScenario()?.enterprises?.[index]?.variable?.seed
+  if (!line?.seedsPerBagAuto) return
+  delete line.seedsPerBagAuto
+  card?.querySelector('[data-line="seed"] .field-note')?.remove()
+}
 
 /**
  * Changing an enterprise's yield unit invalidates any figure taken from a table
@@ -628,7 +778,10 @@ function applyScenarioFilter() {
 
   applySectionVisibility(root, Boolean(query))
 
-  const hint = app.querySelector('[data-scn-hint]')
+  // The TEXT span, not the whole paragraph: the "upload a budget file" offer is
+  // a control sitting at the end of the same line, and rewriting the paragraph
+  // would delete it on the first keystroke into the filter box.
+  const hint = app.querySelector('[data-scn-hint-text]')
   if (hint) hint.textContent = scenarioHint(shown, rows.length, Boolean(query))
 
   const empty = app.querySelector('[data-scn-empty]')
@@ -1394,18 +1547,27 @@ function handleAction(action, btn) {
       break
     }
 
-    case 'toggle-line-mode': {
+    // Each segment of the pill names the mode it selects, rather than the
+    // control flipping to "the other one". With three segments there is no
+    // other one, and even at two, writing the named mode means clicking the
+    // segment you are already in is a no-op instead of a surprise.
+    case 'set-line-mode': {
       const path = btn.getAttribute('data-path')
-      const next = btn.getAttribute('data-mode') === 'perAcre' ? 'unit' : 'perAcre'
+      const next = btn.getAttribute('data-mode')
+      if (getPath(scenario, path) === next) return
       setPath(scenario, path, next)
       notify()
       render()
       break
     }
 
-    case 'toggle-preharvest': {
+    case 'set-preharvest-mode': {
+      // Stored as a boolean, not a mode string — the pre-v6 shape, and changing
+      // it would mean migrating every saved budget to rename one flag.
       const path = btn.getAttribute('data-path')
-      setPath(scenario, path, btn.getAttribute('data-mode') !== 'auto')
+      const next = btn.getAttribute('data-mode') === 'auto'
+      if (getPath(scenario, path) === next) return
+      setPath(scenario, path, next)
       notify()
       render()
       break
@@ -1672,6 +1834,15 @@ function handleAction(action, btn) {
       screen = 'scenarios'
       render()
       break
+
+    // Removed from the DOM directly rather than through render(). A render here
+    // would rebuild the whole saved list to delete one paragraph, throwing away
+    // every compare tick on the page — the same rule the filter box follows.
+    case 'dismiss-note': {
+      dismiss(btn.getAttribute('data-note'))
+      btn.closest('.baseline-note')?.remove()
+      break
+    }
 
     case 'clear-scn-filter': {
       scenarioFilter = ''

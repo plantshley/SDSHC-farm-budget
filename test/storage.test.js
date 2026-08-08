@@ -478,6 +478,76 @@ describe('v5 migration', () => {
   })
 })
 
+describe('v6 migration', () => {
+  // v6 added two entry modes and the keys they read: seed's costPerBag /
+  // seedsPerBag / population / seedsPerBagAuto, and crop insurance's totalCost.
+  // The step deliberately writes nothing.
+  function v5Budget() {
+    return [
+      {
+        schemaVersion: 5,
+        id: 'a',
+        name: 'Existing',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        enterprises: [
+          {
+            id: 'e1',
+            name: '',
+            crop: 'Corn',
+            acres: 500,
+            variable: { seed: { mode: 'unit', costPerUnit: 320, unitsPerAcre: 0.35 } },
+          },
+        ],
+        fixed: { labor: {}, annual: {}, annualBasis: {}, equipment: [], buildings: [] },
+      },
+    ]
+  }
+
+  test('a v5 budget comes forward with none of the new keys invented', () => {
+    store.setItem(KEY, JSON.stringify(v5Budget()))
+    const [s] = listScenarios()
+    assert.equal(s.schemaVersion, SCHEMA_VERSION)
+
+    const seed = s.enterprises[0].variable.seed
+    // The keys are only ever read while `mode` names them, and this budget's
+    // mode is 'unit', so they cannot be reached. Seeding them would rewrite
+    // every stored record to add fields nothing will look at.
+    assert.equal(seed.costPerBag, undefined)
+    assert.equal(seed.seedsPerBag, undefined)
+    assert.equal(seed.population, undefined)
+    assert.equal(s.enterprises[0].variable.cropInsurance, undefined)
+    assert.equal(seed.costPerUnit, 320, 'and the entry that was there is untouched')
+  })
+
+  test('seedsPerBagAuto is never invented, which matters more than the rest', () => {
+    // The marker means "the app put this number here, so the app may replace
+    // it". Stamping it onto a figure the producer typed would hand their own
+    // work to the clearing logic in autofillSeedsPerUnit().
+    store.setItem(KEY, JSON.stringify(v5Budget()))
+    assert.equal(listScenarios()[0].enterprises[0].variable.seed.seedsPerBagAuto, undefined)
+  })
+
+  test('a budget already using the new modes keeps them through a read', () => {
+    const [budget] = v5Budget()
+    budget.enterprises[0].variable.seed = {
+      mode: 'population',
+      costPerBag: 285,
+      seedsPerBag: 80000,
+      population: 33000,
+      seedsPerBagAuto: 'Corn',
+    }
+    budget.enterprises[0].variable.cropInsurance = { mode: 'total', totalCost: 3200 }
+    store.setItem(KEY, JSON.stringify([budget]))
+
+    const seed = listScenarios()[0].enterprises[0].variable.seed
+    assert.equal(seed.mode, 'population')
+    assert.equal(seed.population, 33000)
+    assert.equal(seed.seedsPerBagAuto, 'Corn')
+    assert.equal(listScenarios()[0].enterprises[0].variable.cropInsurance.totalCost, 3200)
+  })
+})
+
 describe('folders', () => {
   beforeEach(() => {
     store.clear()

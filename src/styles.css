@@ -105,6 +105,21 @@
      are separate tokens rather than a hardcoded #fff. */
   --on-sky: #ffffff;
 
+  /* The selected segment of a mode pill.
+
+     A WASH rather than the flat colour. At full strength --olive is the
+     loudest thing on a card carrying fifteen of these, and it competes with
+     the figures — which is the same reason --green is reserved for a positive
+     dollar amount and not spent on chrome. A third of the way to the olive is
+     enough to say "this one", and the pill still reads as one control rather
+     than as a coloured button beside two plain ones.
+
+     The ink is NOT --on-sky, and reaching for that is the mistake this token
+     exists to prevent: --on-sky is white, and white on any strength of --olive
+     is unreadable. Over the light wash the brown is 7.6:1. */
+  --olive-soft: rgba(175, 191, 66, 0.35);
+  --on-olive: var(--brown);
+
   /* Typography is one swappable property — see [data-font] below. */
   --font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text",
     "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -142,6 +157,12 @@
   --clay-bg: #2b201a;
   --brand-ink: #dfe6e2;
   --on-sky: #0a1d24;
+  /* The wash goes the other way here. On a dark card a 35% olive is a bright
+     patch rather than a tint, so it comes down to 18% — and the ink goes UP to
+     the ordinary text colour instead of down to a near-black, because what it
+     is sitting on is now dark. 8:1 over the dark wash. */
+  --olive-soft: rgba(195, 212, 86, 0.18);
+  --on-olive: var(--text);
 
   /* WASHES ONLY, and that is the whole point: the twelve inks are deliberately
      NOT overridden here, so a folder is the same colour in either theme. See the
@@ -528,6 +549,13 @@ input.invalid {
   font-size: 12px;
 }
 
+/* Kept when the page is printed, unlike every other control in the footer.
+   A budget handed to a lender or an instructor still carries the statement
+   about where the data lives, and the sentence is true on paper. */
+.footer-privacy {
+  margin: 10px 0 4px;
+}
+
 .hint {
   font-size: 13px;
   color: var(--muted);
@@ -798,15 +826,17 @@ input.invalid {
    there on the Saved and compare screens, which render no name block at all —
    with space-between and one child left, the tabs would drop to the left edge
    and jump sideways every time the producer changed tab. */
+/* Immediately left of the Save button in the sticky bar, which is the control
+   it is about. `margin-left: auto` collapses the space before it so the pair
+   travels together at the right-hand end, however wide the figures beside them
+   get. */
 .save-state {
   font-size: 12px;
   color: var(--muted);
   white-space: nowrap;
   flex: 0 0 auto;
-  /* Bottom-aligned with the tabs by .app-head's align-items, then lifted clear
-     of the header rule so it reads on the tab LABELS' line rather than sitting
-     on the rule the tab boxes stand on. */
-  margin: 0 8px 10px auto;
+  margin-left: auto;
+  text-align: right;
 }
 
 .save-state.dirty {
@@ -1095,28 +1125,72 @@ input.invalid {
   text-overflow: ellipsis;
 }
 
-.line-head .mode-toggle {
+.line-head .mode-pill {
   margin-left: auto;
 }
 
-/* There are fifteen of these per enterprise, so a 44px-tall pill would double
-   the height of the expense list. The button stays small and an invisible
-   pseudo-element carries the touch target instead — full size to the thumb,
-   unchanged to the eye and to the layout. */
-.mode-toggle {
-  position: relative;
-  background: transparent;
+/* The entry-mode control: ONE pill divided into segments, not one button that
+   flips. The old button showed the mode it was currently in, which reads
+   equally well as the mode it would switch you to — a producer could not tell
+   whether "$/acre" was the state or the offer. Every option is on screen now
+   and the selected one is filled.
+
+   HEIGHT IS THE CONSTRAINT, and it is pinned rather than left to fall out of
+   the content. There are fifteen of these per enterprise, so a few pixels of
+   drift is a screenful; the pill is fixed at the 23px the single button used to
+   occupy (11px text + 4px padding + 1px border, doubled) so converting the
+   control cost the expense list no height at all. If you change the type size,
+   change --pill-h with it. */
+.mode-pill {
+  --pill-h: 23px;
+  display: flex;
+  align-items: stretch;
+  height: var(--pill-h);
   border: 1px solid var(--border);
-  color: var(--muted);
-  border-radius: 12px;
-  font-size: 11px;
-  padding: 4px 9px;
-  cursor: pointer;
-  white-space: nowrap;
+  border-radius: calc(var(--pill-h) / 2);
+  overflow: hidden;
   flex: 0 0 auto;
+  background: transparent;
 }
 
-.mode-toggle::after {
+/* Hairlines BETWEEN segments only. A border on every segment would double up
+   against the container's own and read as a chunkier control than the button it
+   replaced. */
+.mode-seg + .mode-seg {
+  border-left: 1px solid var(--border);
+}
+
+.mode-seg {
+  position: relative;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1;
+  padding: 0 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* Olive, with its own ink token — see --on-olive in :root. White here is
+   unreadable, and --on-sky IS white. */
+.mode-seg[aria-pressed='true'] {
+  background: var(--olive-soft);
+  color: var(--on-olive);
+  font-weight: bold;
+}
+
+.mode-seg:hover:not([aria-pressed='true']) {
+  color: var(--brand-ink);
+  background: var(--olive-bg);
+}
+
+/* The touch target, per segment. Same trick the single button used: a 44px-tall
+   pill would double the height of a fifteen-line expense list, so an invisible
+   pseudo-element carries the thumb and the pill stays 23px to the eye and to
+   the layout. */
+.mode-seg::after {
   content: '';
   position: absolute;
   left: 0;
@@ -1126,22 +1200,144 @@ input.invalid {
   transform: translateY(-50%);
 }
 
-.mode-toggle:hover {
-  color: var(--green);
-  border-color: var(--green);
-}
-
+/* Wraps, for the seed line's three factors. Two boxes and one operator fit any
+   screen; `$/bag × seeds/acre ÷ seeds/bag` plus a running total does not, and
+   squeezing three number inputs into a 360px row leaves each one too narrow to
+   read the figure back out of. The operators are flex items in the same order,
+   so a wrap puts the break between factors rather than between a factor and its
+   sign. */
 .line-inputs {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* The box, and the two halves of its unit sitting inside it.
+
+   `.in-box` is the flex child now, not the input — the input fills it. The
+   84px basis is on the wrapper for the reason it used to be on the input: at
+   zero, three boxes on one line shrink evenly until none of them can show
+   "seeds/bag", and the row stays technically unwrapped while being useless. */
+.in-box {
+  position: relative;
+  display: flex;
+  flex: 1 1 84px;
+  min-width: 0;
 }
 
 .line-input {
-  flex: 1 1 0;
+  flex: 1 1 auto;
   min-width: 0;
   padding: 9px 8px;
   min-height: 44px;
+}
+
+/* Dimmer than the figure, because they label it rather than being part of it.
+   Same grey as a placeholder, which is what they were a moment ago: the box
+   said "$/unit" while it was empty, and this is that same text staying put once
+   a number has pushed the placeholder out.
+
+   The size, the colour and the two offsets below all match `.affix` on the
+   fixed-cost fields (the `$` and `/hr` on Labor rate), because a page carrying
+   both treatments read as two different controls doing the same job. Change one
+   pair, change the other: `.affix` / `.prefix` / `.suffix` and their
+   `.has-prefix` / `.has-suffix` paddings are a few hundred lines up.
+
+   The only thing that stays different is when they show. A fixed-cost field's
+   affix is always there; these appear as the placeholder goes, because the
+   placeholder was carrying the same words. */
+.in-affix {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 14px;
+  line-height: 1;
+  color: var(--muted);
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* The browser draws a number input's up/down arrows itself, and it draws them
+   for a LIGHT page unless told otherwise: on a dark card they came out as
+   near-white chevrons, the brightest thing in a column of dark inputs.
+   `color-scheme` hands the UA the one fact it was missing.
+
+   Declared as its own rule rather than inside the [data-theme="dark"] token
+   block, which would need CSS Nesting. Scoped to the control rather than set on
+   :root, so it changes nothing else about how the page is painted. */
+[data-theme='dark'] input[type='number'] {
+  color-scheme: dark;
+}
+
+.in-pre {
+  left: 10px;
+}
+
+.in-post {
+  right: 10px;
+}
+
+/* THE WHOLE MECHANISM: the affixes appear exactly when the placeholder stops
+   showing, so nothing has to run on a keystroke to keep them in step. That
+   matters because updateOutputs() is the only thing that runs on one, and an
+   affix arriving a render late would be worse than no affix at all. */
+.line-input:not(:placeholder-shown) ~ .in-affix {
+  opacity: 1;
+}
+
+/* The same 24 and 44 the fixed-cost fields reserve — see `.has-prefix input`
+   and `.has-suffix input`. The affixes are the same size and sit at the same
+   offsets, so they need the same room. */
+.has-pre .line-input:not(:placeholder-shown) {
+  padding-left: 24px;
+}
+
+.has-post .line-input:not(:placeholder-shown) {
+  padding-right: 44px;
+}
+
+/* The seeds-per-unit offer, in the two places it is rendered. Exactly one is
+   ever displayed, and `display: none` takes the other out of the accessibility
+   tree as well as off the screen, so it is never announced twice. See
+   renderLine() in ui/enterprise.js for why one element cannot do the job: the
+   two positions have different parents, and no amount of `order` moves a flex
+   item between containers.
+
+   The head copy is the default, and it sits at the RIGHT-HAND end of the row,
+   immediately left of the mode pill. Beside "use typical value" the two links
+   ran together as one long phrase and the eye had to separate them; against the
+   pill it reads as the second of the two controls on this line. It is styled
+   like `.line-tip` otherwise, and still NOT allowed to push the pill around:
+   `flex: 0 1 auto` with an ellipsis is what its neighbour already does.
+
+   The auto margin MOVES here rather than being added. Two auto margins in one
+   flex line split the free space between them, which would park this link
+   halfway across the row instead of against the pill, so the pill's own auto
+   margin is zeroed whenever this link precedes it. The pill keeps it on the
+   other fourteen lines, where there is no link to carry it. */
+.seeds-link-head {
+  font-size: 11.5px;
+  padding: 0;
+  white-space: nowrap;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-left: auto;
+}
+
+.line-head .seeds-link-head + .mode-pill {
+  margin-left: 0;
+}
+
+.seeds-link-row {
+  display: none;
+}
+
+/* The total is the last item and must not be dragged onto a line of its own by
+   a wrap it did not cause. */
+.line-inputs .line-total {
+  margin-left: auto;
 }
 
 .line-input.narrow {
@@ -1470,41 +1666,34 @@ input.invalid {
   color: var(--cost);
 }
 
-/* The Results warnings live in the header row instead — see renderResults().
+/* Warnings sit at the foot of the card they are about, inside its fold — one
+   holder per enterprise and one for the fixed block. Almost every one names a
+   specific box on a specific card, and read from anywhere else that box is a
+   scroll away.
 
-   The heading gives up its `flex: 1` so the warning sits immediately after the
-   word "Results" rather than against the far edge of the card. On a wide screen
-   that is a gap of most of a metre, and a red pill alone in the top right corner
-   reads as a status light for the page rather than as a sentence about the
-   heading beside it.
-
-   `flex-wrap` is the narrow-screen escape: there is no width at which a warning
-   should be squeezed to one word a line, so it drops to its own row under the
-   heading instead. */
-.results .block-head {
-  flex-wrap: wrap;
+   One pill per warning rather than one box around all of them. A producer may
+   easily have several at once, and a single bordered block around four
+   sentences reads as one large problem instead of four small ones, each of
+   which points at a different box. */
+[data-warnings] {
+  margin: 12px 0 0;
 }
 
-.results .block-head > .title {
-  flex: 0 1 auto;
+/* The whole-farm one sits IN the Results heading row, beside the title, so it
+   takes no top margin of its own. */
+.block-head [data-warnings] {
+  margin: 0;
 }
 
-.results .block-head > [data-warnings] {
-  min-width: 0;
-}
-
-/* No acres missing, no gap where the box would have been. */
-.results .block-head > [data-warnings]:empty {
+/* No warnings, no gap where the box would have been. */
+[data-warnings]:empty {
   display: none;
 }
 
-/* One pill per warning rather than one box around all of them: in a header row a
-   single box would stretch to the height of the longest and leave the short ones
-   floating in it. */
-.block-head .warnings {
+[data-warnings] .warnings {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
+  gap: 6px;
   background: none;
   border: none;
   border-radius: 0;
@@ -1512,9 +1701,9 @@ input.invalid {
   margin: 0;
 }
 
-.block-head .warnings p {
+[data-warnings] .warnings p {
   margin: 0;
-  padding: 4px 11px;
+  padding: 6px 12px;
   border: 1px solid var(--cost);
   border-radius: 999px;
   background: var(--cost-bg);
@@ -1535,6 +1724,18 @@ input.invalid {
   font-size: 13px;
   line-height: 1.45;
   color: var(--text);
+}
+
+/* Quieter than .unit-notice, and the difference is deliberate. That one reports
+   something that just HAPPENED and needs noticing; this one is a standing
+   caption saying a number on screen is the app's rather than the producer's,
+   and it sits under the seed line for as long as that stays true. A boxed alert
+   that never goes away stops being read. */
+.field-note {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--muted);
+  margin: 5px 0 0;
 }
 
 .preharvest {
@@ -1566,11 +1767,16 @@ input.invalid {
   min-width: 0;
 }
 
-/* The placeholder names five things you can filter by, which is a long line on
-   a phone. It is shrunk on its own rather than by taking the input down with
-   it: the 16px on `input` is what stops iOS Safari zooming the page on focus,
-   and that is keyed to the INPUT's font-size, not the placeholder's. Do not
-   "simplify" these two into one rule. */
+/* The placeholder still names five things you can filter by, so it is shrunk on
+   its own rather than by taking the input down with it: the 16px on `input` is
+   what stops iOS Safari zooming the page on focus, and that is keyed to the
+   INPUT's font-size, not the placeholder's. Do not "simplify" these two into
+   one rule.
+
+   12px rather than 13px, and the wording in ui/scenarios.js was cut from 66
+   characters to 48 as well. Both were needed: at 13px the longer string was
+   still truncated mid-word on a 360px screen, which reads as the app having
+   broken rather than as a list of things you could type. */
 @media (max-width: 899px) {
   .scn-filter-input {
     min-height: 38px;
@@ -1578,7 +1784,7 @@ input.invalid {
   }
 
   .scn-filter-input::placeholder {
-    font-size: 13px;
+    font-size: 12px;
   }
 }
 
@@ -2127,12 +2333,63 @@ input.invalid {
   gap: 6px;
 }
 
+/* The "upload a budget file" offer runs on from the end of the hint sentence,
+   so it has to read as part of that sentence: same 13px, same 1.45 line box,
+   and no padding of its own to knock the words out of line. `.tip` ships at
+   12px with `padding: 2px 0 0`, which is right where it sits under a field
+   label and wrong where it sits mid-paragraph. It keeps the green and the
+   underline, which is what still marks it as the thing to press.
+
+   The `?` is a 22px circle and has to be told to sit on the baseline as well. */
+[data-scn-hint] .tip {
+  font-size: inherit;
+  line-height: inherit;
+  padding: 0;
+}
+
+[data-scn-hint] .tip,
+[data-scn-hint] .help-btn {
+  vertical-align: middle;
+}
+
 .baseline-note {
   background: var(--olive-bg);
   border-left: 3px solid var(--olive);
   border-radius: 0 6px 6px 0;
   padding: 9px 11px;
   margin: 14px 0 0;
+  /* The dismiss button sits at the end of the sentence rather than floated into
+     a corner: it is the answer to what the sentence just said, and a control
+     alone in the top right of a tinted box reads as a close box for the whole
+     saved list. `align-items: flex-end` keeps it on the last line when the text
+     wraps to two or three. */
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.baseline-note > span {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Quieter than .btn-main and firmer than a .tip: this is not an action on the
+   budget, it is an acknowledgement. It keeps a full-height tap target through
+   its padding, because the thing it does is irreversible from this screen. */
+.note-dismiss {
+  flex: 0 0 auto;
+  background: transparent;
+  border: 1px solid var(--olive);
+  color: var(--brand-ink);
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+
+.note-dismiss:hover {
+  background: var(--olive-soft);
 }
 
 .btn-main:disabled {
@@ -2584,6 +2841,20 @@ body.modal-open {
   margin-bottom: 6px;
 }
 
+/* Only appears when a spec's groups are quoted in DIFFERENT units — phosphorus
+   offers a price per pound and a cost per acre in one modal, and the banner at
+   the top of the panel cannot be true of both. On a single-unit picker the
+   banner has already said it and this is absent. */
+.typ-group-unit {
+  font-size: 12px;
+  color: var(--muted);
+  margin: -2px 0 8px;
+}
+
+.typ-group-unit b {
+  color: var(--text);
+}
+
 .typ-option {
   display: grid;
   grid-template-columns: 84px 1fr;
@@ -2759,18 +3030,11 @@ body.modal-open {
      a 360px screen is how a budget called "Corn, no-till, north quarter" ends
      up showing "Corn, no-t".
 
-     `flex: 1 1 0` and the zero is the whole trick. Flexbox breaks LINES before
-     it shrinks anything: an item is placed by its hypothetical main size, and
-     only once the lines exist does shrinking happen. With `flex-basis: auto`
-     the name block's hypothetical size is its full content width, so a long
-     budget name plus "Unsaved changes" overflowed the container and the save
-     state was pushed onto a row of its own — no shrink factor anywhere could
-     have prevented that, because the decision was already made. A basis of zero
-     means the two always fit on one line, and `flex-grow` then hands this block
-     everything the save state does not need.
-
-     The title is what gives, and it gives by truncating: see .scenario-name's
-     text-overflow. */
+     `flex: 1 1 0` and the zero was the trick that kept the save state on this
+     line, back when the state lived in this header. It has moved to the sticky
+     bar, next to the button it is about, so nothing shares the row any more —
+     but the zero basis stays, because it is also what makes the title truncate
+     rather than push the tabs sideways. See .scenario-name's text-overflow. */
   .name-wrap {
     flex-direction: column;
     align-items: flex-start;
@@ -2794,19 +3058,19 @@ body.modal-open {
     text-overflow: ellipsis;
   }
 
-  /* Beside the title rather than beside the whole two-row block.
-     BOTH items take `baseline`, and that is load-bearing: a baseline group of
-     one is placed at the start of the line, so setting it on the save state
-     alone would leave it at the TOP of a 37px title box rather than on the
-     title's own line. With .name-wrap in the group too, its baseline resolves
-     through .title-row to the name input's text, and the two line up as text. */
+  /* "Save", not "Save budget". The bar is fixed to the bottom of a 360px screen
+     and already holds two dollar figures and the save state; the word the
+     button can afford to lose is the one the screen it is on already says. */
+  .btn-word {
+    display: none;
+  }
+
+  /* The bar gets tight enough that the state has to be allowed to wrap onto two
+     short lines rather than force the button off the row. */
   .save-state {
-    align-self: baseline;
-    /* Flush with the enterprise card's OUTER edge, not with the "Remove" link
-       15px inside it. The header and the cards are both children of <main> and
-       neither is inset, so the two edges are the same line and a right margin
-       of zero is what puts the state on it. */
-    margin: 0 0 0 auto;
+    white-space: normal;
+    font-size: 11px;
+    line-height: 1.25;
   }
 
   /* The title's text starts 9px in: 1px of transparent border plus the input's
@@ -2991,6 +3255,40 @@ body.modal-open {
     padding-left: 7px;
   }
 
+  /* On a phone the head row is already a label, a link, and a three-segment
+     pill inside 360px, so the second offer drops to a line of its own between
+     the boxes and the caption, left-aligned under the row it belongs to. */
+  .seeds-link-head {
+    display: none;
+  }
+
+  /* And the pill takes its auto margin back. `display: none` takes the link off
+     the screen but NOT out of the sibling chain, so the desktop rule that hands
+     the margin over to the link still matched here and left the pill sitting
+     against "use typical value" in the middle of the row, on the one line in
+     fifteen that has this link. A selector that names a hidden element is still
+     a selector that matches it. */
+  .line-head .seeds-link-head + .mode-pill {
+    margin-left: auto;
+  }
+
+  .seeds-link-row {
+    display: block;
+    font-size: 11.5px;
+    padding: 4px 0 0;
+    text-align: left;
+    white-space: normal;
+  }
+
+  /* Centred, now that it is on its own. On a computer it sits at the left edge
+     of a row of controls and lines up with the list above it; with the upload
+     link moved into the hint it is the only thing on the line, and a lone
+     button hard against the left of a phone screen reads as the end of the
+     list rather than the thing to press next. */
+  .scn-actions {
+    justify-content: center;
+  }
+
   /* Tables are the one place the page still has to hold several columns at
      phone width, and the only place left where .tbl-scroll takes over and the
      right-hand figures go off the edge. A point off the type buys the room
@@ -3055,12 +3353,13 @@ body.modal-open {
   .btn-remove,
   .tip,
   .help-btn,
-  .mode-toggle,
+  .mode-pill,
   .chev,
   .scn-grip,
-  /* App state, not budget data. "Unsaved changes" on a printed budget is a
-     sentence about a browser tab that no longer exists. */
-  .save-state,
+  /* .save-state is not listed: it is app state rather than budget data and must
+     not print, but it now lives inside .sticky-bar, which is already hidden two
+     lines up. Naming it again would be a rule that looks load-bearing and is
+     not. If it ever moves out of the bar, it comes back here. */
   .edit-name,
   .edit-icon,
   .overlay,

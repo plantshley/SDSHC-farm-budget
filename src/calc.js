@@ -27,13 +27,13 @@
  * after harvest and aren't financed through the season.
  */
 export const VARIABLE_LINES = [
-  { key: 'seed', label: 'Seed', unitHint: 'bag, unit', preharvest: true },
+  { key: 'seed', label: 'Seed', unitHint: 'bag, unit', preharvest: true, modes: ['unit', 'perAcre', 'population'] },
   { key: 'nitrogen', label: 'Nitrogen', unitHint: 'lb', preharvest: true },
   { key: 'phosphorus', label: 'Phosphorus', unitHint: 'lb', preharvest: true },
   { key: 'potassium', label: 'Potassium', unitHint: 'lb', preharvest: true },
   { key: 'herbicide', label: 'Herbicide', unitHint: 'application', preharvest: true },
   { key: 'insecticide', label: 'Insecticide', unitHint: 'application', preharvest: true },
-  { key: 'cropInsurance', label: 'Crop Insurance', unitHint: 'acre', preharvest: true, prefersPerAcre: true },
+  { key: 'cropInsurance', label: 'Crop Insurance', unitHint: 'acre', preharvest: true, prefersPerAcre: true, modes: ['unit', 'perAcre', 'total'] },
   { key: 'fuelOil', label: 'Fuel/Oil', unitHint: 'gal', preharvest: true },
   { key: 'repairs', label: 'Repairs', unitHint: 'acre', preharvest: true, prefersPerAcre: true },
   { key: 'customHire', label: 'Custom Hire', unitHint: 'acre', preharvest: true, prefersPerAcre: true },
@@ -43,6 +43,25 @@ export const VARIABLE_LINES = [
   { key: 'drying', label: 'Drying', unitHint: 'bu', preharvest: false },
   { key: 'marketing', label: 'Marketing', unitHint: 'acre', preharvest: false, prefersPerAcre: true },
 ]
+
+/**
+ * The entry modes a line offers, in the order its pill shows them.
+ *
+ * Two lines carry a third mode and the other twelve deliberately do not. This is
+ * declarative rather than a special case in the markup because the alternative
+ * is a three-segment pill on every line, and a producer scanning fifteen expense
+ * rows should not have to read past an option that has nothing to do with the
+ * cost in front of them.
+ *
+ * An unrecognised mode falls through to the sheet's own `$/unit × units/acre` in
+ * linePerAcre(), for the same reason perYearFactor() falls back to 1: a
+ * hand-edited file must not be able to erase a real cost.
+ */
+export const DEFAULT_LINE_MODES = ['unit', 'perAcre']
+
+export function lineModes(def) {
+  return def?.modes ?? DEFAULT_LINE_MODES
+}
 
 /** The sheet's stated assumption: "8 months at 10%" (row 23 label). */
 export const PREHARVEST_DEFAULTS = { rate: 10, months: 8 }
@@ -93,8 +112,18 @@ export const COST_BASIS = [
  * the same thing: not in a folder. The model ignores it entirely, and it is
  * stripped on export — a folder organises one device's list and is not part of
  * anybody's budget. See migrate() and listFolders() in storage.js.
+ *
+ * v6 added two entry modes to two variable expense lines, and the keys each one
+ * reads. All of them are optional and all of them are presentational — they
+ * resolve to $/acre in linePerAcre() and change no answer:
+ *   - seed 'population' mode: `costPerBag`, `seedsPerBag`, `population`, plus
+ *     `seedsPerBagAuto`, a provenance marker saying the app filled the
+ *     seeds-per-unit box from the crop name rather than the producer typing it
+ *   - crop insurance 'total' mode: `totalCost`, a whole-enterprise premium
+ * A v5 budget has none of these keys and the absence is the correct state, so
+ * the v5 → v6 migration step deliberately writes nothing. See storage.js.
  */
-export const SCHEMA_VERSION = 5
+export const SCHEMA_VERSION = 6
 
 /* ────────────────────────────── helpers ────────────────────────────────── */
 
@@ -209,15 +238,156 @@ export function enterpriseLabel(ent, index) {
  *
  * The sheet only offers $/unit × units/acre (D12 = B12*C12), which forces
  * naturally-per-acre costs like crop insurance to be entered as "cost × 1".
- * The app accepts either, and stores both so switching modes round-trips.
+ * The app accepts four ways in, and stores each mode's values separately so
+ * switching between them round-trips and loses nothing.
+ *
+ * The two added modes are ENTRY CONVENIENCES and nothing else, the same
+ * contract `fixed.annualBasis` and `fixed.labor.hoursBasis` hold: they let a
+ * producer enter a figure the way they actually know it, resolve it to $/acre
+ * here, and change no answer.
+ *
+ *   'population'  seed priced per bag or per thousand, at a planting rate.
+ *                 Producers know their population; almost nobody knows what
+ *                 fraction of a bag that works out to, and doing that division
+ *                 by hand is where a seed cost picks up a silent error.
+ *   'total'       a whole-enterprise cost divided by that enterprise's acres.
+ *                 A crop insurance premium arrives as one figure for the crop.
+ *
+ * @param {object} line
+ * @param {number} [acres]  THIS enterprise's acres, for 'total' mode only.
+ *   Optional so the other three modes can be resolved without one, which is how
+ *   every existing caller and test uses it.
+ * @param {object} [def]    the VARIABLE_LINES entry, so a mode this line does
+ *   not offer can be rejected. Optional: without it every mode is honoured,
+ *   which is what a direct call testing the arithmetic wants.
  */
-export function linePerAcre(line) {
-  if (!line) return 0
-  if (line.mode === 'perAcre') return num(line.perAcre)
+export function linePerAcre(line, acres = 0, def = null) {
+  if (!line || typeof line !== 'object' || Array.isArray(line)) return 0
+  const mode = resolveMode(line, def)
+
+  if (mode === 'perAcre') return num(line.perAcre)
+  // safeDiv guards the zero divisor, so a blank seeds-per-unit is $0 rather
+  // than Infinity spreading into every total below it.
+  if (mode === 'population') {
+    return safeDiv(finite(num(line.costPerBag) * num(line.population)), num(line.seedsPerBag))
+  }
+  if (mode === 'total') {
+    // Negative acres are allowed through everywhere else in this module, on
+    // purpose, so the per-acre figures still compute and show the producer what
+    // a stray minus sign did. Here they cannot be: this is the one place a
+    // divisor is a quantity rather than a rate, and a premium over negative
+    // acres comes out NEGATIVE — a cost handed back as a credit, which is the
+    // one thing the model never does. It reads $0 and warnHalfFilled says why.
+    const a = num(acres)
+    return a > 0 ? safeDiv(num(line.totalCost), a) : 0
+  }
   return finite(num(line.costPerUnit) * num(line.unitsPerAcre))
 }
 
+/**
+ * The mode to actually compute in, which is not always the one stored.
+ *
+ * Two ways a stored mode can be wrong, and both fall back to the sheet's own
+ * `$/unit × units/acre` rather than to zero:
+ *
+ *   - a mode nothing recognises, from a hand-edited file;
+ *   - a mode this app recognises but THIS LINE does not offer — `total` on the
+ *     nitrogen line, say. That one is the dangerous half: the branch would run,
+ *     read a `totalCost` the UI never writes for that line, and return $0 while
+ *     a perfectly good `costPerUnit × unitsPerAcre` sat in the record unread.
+ *
+ * Both are the failure `perYearFactor()` returns 1 to avoid. A file the app
+ * cannot make sense of must not be able to silently erase a real cost.
+ */
+function resolveMode(line, def) {
+  const mode = line?.mode
+  const allowed = def ? lineModes(def) : ALL_LINE_MODES
+  return allowed.includes(mode) ? mode : 'unit'
+}
+
+const ALL_LINE_MODES = ['unit', 'perAcre', 'population', 'total']
+
+/** Blank, not merely zero — a producer who typed 0 meant 0. */
+function isBlank(v) {
+  return v === '' || v == null
+}
+
 /* ──────────────────────────── enterprise ───────────────────────────────── */
+
+/**
+ * A line whose multiplication is missing one of its factors.
+ *
+ * `$/unit × units/acre` is two boxes and the product of a filled one and a blank
+ * one is zero, so a line with a real seed price in it and no bags per acre
+ * contributes exactly nothing — and looks, on screen, like a line somebody
+ * filled in. The hint above the list says both boxes are needed; a hint is read
+ * once, and this is the part that keeps saying so.
+ *
+ * The same shape catches 'population' (three factors) and 'total' (a premium
+ * with no acres to spread it over). All three are silent by construction: the
+ * arithmetic is correct, the answer is $0, and nothing about $0 says which box
+ * is empty.
+ *
+ * A line with NOTHING in it is not warned about. Twelve untouched expense rows
+ * are the ordinary state of a new budget, not twelve problems.
+ */
+function warnHalfFilled(line, def, named, acres, warnings) {
+  if (!line || typeof line !== 'object' || Array.isArray(line)) return
+  const label = `"${named}" ${def.label.toLowerCase()}`
+  // The mode actually computed, not the one stored — otherwise a line rescued
+  // by resolveMode() gets checked against boxes it is no longer reading.
+  const mode = resolveMode(line, def)
+
+  if (mode === 'total') {
+    if (isBlank(line.totalCost)) return
+    const a = num(acres)
+    if (a > 0) return
+    // Blank acres and NEGATIVE acres are different mistakes and get different
+    // sentences. "Enter the acres above" is wrong and confusing advice to give
+    // somebody who did enter them and put a minus sign on them by accident.
+    warnings.push(
+      a < 0
+        ? `${label} has a total cost entered, but this enterprise's acres are negative, so it is counted as $0. Fix the acres above and it will spread correctly.`
+        : `${label} has a total cost entered but this enterprise has no acres to spread it over, so it is counted as $0. Enter the acres above.`
+    )
+    return
+  }
+
+  if (mode === 'population') {
+    const filled = ['costPerBag', 'seedsPerBag', 'population'].filter((k) => !isBlank(line[k]))
+
+    // A seeds-per-unit figure the APP put there does not count as somebody
+    // starting to fill this line in. Typing "Corn" into the crop box opens this
+    // mode and fills that one box (see autofillSeedsPerUnit in main.js), so
+    // without this the first thing a producer types produces a warning about a
+    // row nobody has touched — which is the same thing the "a line with nothing
+    // in it is never warned about" rule exists to prevent, arrived at from the
+    // other direction.
+    //
+    // The marker AND a value, not the marker alone: a hand-edited file could
+    // carry `seedsPerBagAuto` over an empty box, and that line still needs its
+    // warning.
+    const appFilled = Boolean(line.seedsPerBagAuto) && !isBlank(line.seedsPerBag)
+    const byHand = appFilled ? filled.length - 1 : filled.length
+
+    if (byHand > 0 && filled.length < 3) {
+      warnings.push(
+        `${label} needs a cost, a seeds-per-unit figure, and a planting population. The line is counted as $0 until all three are filled in.`
+      )
+    }
+    return
+  }
+
+  if (mode === 'perAcre') return
+
+  const hasCost = !isBlank(line.costPerUnit)
+  const hasUnits = !isBlank(line.unitsPerAcre)
+  if (hasCost !== hasUnits) {
+    warnings.push(
+      `${label} has ${hasCost ? 'a cost per unit but no units per acre' : 'units per acre but no cost per unit'}, so the line is counted as $0. Both boxes are needed, or switch the line to $/acre.`
+    )
+  }
+}
 
 /**
  * One enterprise budget — the sheet's columns A–D (and its E–H, I–L, M–P
@@ -228,11 +398,24 @@ export function calcEnterprise(ent, index, warnings) {
   const acres = num(ent?.acres)
   const named = enterpriseLabel(ent, index)
 
+  // Every warning this enterprise raises is collected HERE as well as pushed
+  // into the shared list, because almost all of them name a box on this card
+  // and that is where they are printed. The shared list is still the whole
+  // farm's, in the same order it always was: `own` is emptied into it at the
+  // end. Nothing reads a warnings array, so collecting first costs nothing.
+  const own = []
+
+  if (acres < 0) {
+    own.push(
+      `"${named}" has negative acres. Check for a stray minus sign — it turns every per-acre figure upside down.`
+    )
+  }
+
   // Income. A negative yield or price is a typo with the same shape as a
   // negative interest rate — see nonNegative(). Misc income is left alone: a
   // producer may legitimately be recording a net figure there.
-  const yieldPerAcre = nonNegative(ent?.yieldPerAcre, `"${named}" yield per acre`, warnings)
-  const pricePerUnit = nonNegative(ent?.pricePerUnit, `"${named}" price per unit`, warnings)
+  const yieldPerAcre = nonNegative(ent?.yieldPerAcre, `"${named}" yield per acre`, own)
+  const pricePerUnit = nonNegative(ent?.pricePerUnit, `"${named}" price per unit`, own)
   const cropRevPerAcre = finite(yieldPerAcre * pricePerUnit) // D7
   const miscIncomePerAcre = num(ent?.miscIncomePerAcre) // D8
   const grossRevPerAcre = finite(cropRevPerAcre + miscIncomePerAcre) // D9
@@ -242,13 +425,15 @@ export function calcEnterprise(ent, index, warnings) {
   const lines = {}
   let preharvestBasis = 0
   for (const def of VARIABLE_LINES) {
+    const line = ent?.variable?.[def.key]
     // A negative expense would ADD to gross margin. Same class of typo, same
     // treatment: counted as $0, and said out loud.
     const value = nonNegative(
-      linePerAcre(ent?.variable?.[def.key]),
+      linePerAcre(line, acres, def),
       `"${named}" ${def.label.toLowerCase()}`,
-      warnings
+      own
     )
+    warnHalfFilled(line, def, named, acres, own)
     lines[def.key] = value
     if (def.preharvest) preharvestBasis = finite(preharvestBasis + value)
   }
@@ -275,8 +460,11 @@ export function calcEnterprise(ent, index, warnings) {
   const grossMarginPerAcre = finite(grossRevPerAcre - totalVarPerAcre) // D29
   const enterpriseGrossMargin = finite(totalRevenue - totalVar) // D30
 
+  warnings?.push(...own)
+
   return {
     id: ent?.id,
+    warnings: own,
     name: ent?.name || '',
     crop: ent?.crop || '',
     label: enterpriseLabel(ent, index),
@@ -399,17 +587,22 @@ const ANNUAL_LABELS = {
  * spread across the TOTAL acreage of every enterprise.
  */
 export function calcFixed(fixed, totalAcres, warnings) {
-  const landRentPerAcre = nonNegative(fixed?.landRentPerAcre, 'Land rent per acre', warnings) // M33
+  // Collected and then emptied into the shared list, exactly as in
+  // calcEnterprise() and for the same reason: these name boxes in the fixed
+  // block, so the fixed block is where they are printed.
+  const own = []
+
+  const landRentPerAcre = nonNegative(fixed?.landRentPerAcre, 'Land rent per acre', own) // M33
   const landRentTotal = finite(landRentPerAcre * totalAcres) // O33
 
-  const ratePerHour = nonNegative(fixed?.labor?.ratePerHour, 'Labor rate', warnings) // L35
+  const ratePerHour = nonNegative(fixed?.labor?.ratePerHour, 'Labor rate', own) // L35
   // `hours` is whatever the producer typed; `hoursBasis` says what it means.
   // Pre-v2 budgets stored an annual figure under totalHoursPerYear and had no
   // basis, so reading both keys keeps them working untouched.
   const laborHours = nonNegative(
     fixed?.labor?.hours ?? fixed?.labor?.totalHoursPerYear,
     'Labor hours',
-    warnings
+    own
   )
   const hoursBasis = fixed?.labor?.hoursBasis || 'year'
   const totalHoursPerYear = finite(laborHours * perYearFactor(HOURS_BASIS, hoursBasis)) // M35
@@ -417,12 +610,8 @@ export function calcFixed(fixed, totalAcres, warnings) {
   const laborPerAcre = finite(ratePerHour * laborHrsPerAcre) // O35
   const laborTotal = finite(ratePerHour * totalHoursPerYear) // P35
 
-  const equipment = asArray(fixed?.equipment).map((e) =>
-    calcEquipment(e, totalAcres, warnings)
-  )
-  const buildings = asArray(fixed?.buildings).map((b) =>
-    calcBuilding(b, totalAcres, warnings)
-  )
+  const equipment = asArray(fixed?.equipment).map((e) => calcEquipment(e, totalAcres, own))
+  const buildings = asArray(fixed?.buildings).map((b) => calcBuilding(b, totalAcres, own))
 
   const sum = (arr, key) => arr.reduce((a, x) => finite(a + x[key]), 0)
 
@@ -434,7 +623,7 @@ export function calcFixed(fixed, totalAcres, warnings) {
   const annual = {}
   let annualTotal = 0
   for (const key of ANNUAL_KEYS) {
-    const entered = nonNegative(fixed?.annual?.[key], `Overhead — ${ANNUAL_LABELS[key]}`, warnings)
+    const entered = nonNegative(fixed?.annual?.[key], `Overhead — ${ANNUAL_LABELS[key]}`, own)
     const basis = fixed?.annualBasis?.[key] || 'year'
     const total = finite(entered * perYearFactor(COST_BASIS, basis)) // O71–O74
     annual[key] = { entered, basis, total, perAcre: safeDiv(total, totalAcres) }
@@ -451,7 +640,10 @@ export function calcFixed(fixed, totalAcres, warnings) {
       annualTotal
   )
 
+  warnings?.push(...own)
+
   return {
+    warnings: own,
     landRentPerAcre,
     landRentTotal,
     ratePerHour,
@@ -493,24 +685,18 @@ export function calcScenario(scenario) {
   )
   const totalAcres = enterprises.reduce((a, e) => finite(a + e.acres), 0) // SUM(D3,H3,L3,P3)
 
-  const negative = enterprises.filter((e) => e.acres < 0)
-  if (negative.length) {
-    warnings.push(
-      `${negative
-        .map((e) => `"${e.label}"`)
-        .join(', ')} has negative acres. Check for a stray minus sign — it turns every per-acre figure upside down.`
-    )
-  }
-
-  if (totalAcres <= 0) {
-    warnings.push(
-      // Short on purpose: this now sits inline in the Results header rather than
-      // in a banner. The reason acres are needed is on the Fixed costs card and
-      // in the `fixedCosts` definition; repeating it here made a one-line
-      // instruction into three lines of explanation nobody has asked for yet.
-      'Enter acres for at least one enterprise.'
-    )
-  }
+  // Short on purpose. The reason acres are needed is on the Fixed costs card
+  // and in the `fixedCosts` definition; repeating it here made a one-line
+  // instruction into three lines of explanation nobody has asked for yet.
+  //
+  // It is also the ONLY warning in the model that is not about a particular
+  // box. Every other one names an enterprise or a fixed-cost field and rides
+  // with it (see calcEnterprise and calcFixed); this one is about the farm, so
+  // it gets its own list and is printed in the Results header, beside the
+  // figures it is the reason are blank.
+  const farmWarnings = []
+  if (totalAcres <= 0) farmWarnings.push('Enter acres for at least one enterprise.')
+  warnings.push(...farmWarnings)
 
   const fixed = calcFixed(scenario?.fixed, totalAcres, warnings)
 
@@ -538,6 +724,7 @@ export function calcScenario(scenario) {
     totalAcres,
     enterprises,
     fixed,
+    farmWarnings,
     totals: {
       totalRevenue,
       totalVariable,

@@ -286,28 +286,16 @@ export function openTypical(typicalKey, targetPath, category = '', line = null, 
       ? `<p class="modal-warn">These are commonly used figures, not survey data. Treat them as a starting point.</p>`
       : ''
 
-  // A $/bushel figure belongs in the "cost per unit" box, a $/acre figure in
-  // the "$ per acre" box. Rather than hide the link or write to the wrong box,
-  // say so plainly and switch the line's mode when a value is chosen.
-  const needsMode = line && spec.appliesTo && spec.appliesTo !== line.mode
-  const modeNote = needsMode
-    ? `<p class="modal-warn">These figures are <b>${esc(spec.unit)}</b>. This line is set to
-         <b>${esc(line.mode === 'perAcre' ? '$/acre' : '$/unit × units')}</b> — picking one
-         below will switch the line to <b>${esc(
-           spec.appliesTo === 'perAcre' ? '$/acre' : '$/unit × units'
-         )}</b> and fill it in.</p>`
-    : ''
-
-  // Where the value lands, once the mode question is settled.
-  const destination = line
-    ? (spec.appliesTo || line.mode) === 'perAcre'
-      ? line.perAcreTarget
-      : line.unitTarget
-    : targetPath
-
   // More than a handful of groups is a scrolling problem on a phone, and the
   // Custom Hire list has four. Fold them; leave a short list alone.
   const fold = shown.length > 2
+
+  // A spec may quote its groups in DIFFERENT units. Phosphorus is published
+  // both as a price per pound and as a cost per acre, and both are worth
+  // offering: the per-pound figure leaves the rate to the producer's soil test,
+  // the per-acre one answers the question in one tap. Neither is the "real"
+  // one, so `unit` and `appliesTo` resolve per group and fall back to the spec.
+  const mixed = shown.some((g) => unitOf(g, spec) !== spec.unit)
 
   // A list long enough to need scrolling needs a way to skip the scrolling.
   // Land rent is 137 counties across three groups; finding yours by eye means
@@ -336,13 +324,20 @@ export function openTypical(typicalKey, targetPath, category = '', line = null, 
     : ''
 
   const body = `
-    ${spec.unit ? `<p class="modal-unit">Figures below are <b>${esc(spec.unit)}</b></p>` : ''}
+    ${
+      // When the groups disagree, one banner at the top cannot be true of all
+      // of them, so each group states its own unit instead.
+      mixed
+        ? `<p class="modal-unit">These figures are quoted two ways. Each is indicated in the dropdown title and units.</p>`
+        : spec.unit
+          ? `<p class="modal-unit">Figures below are <b>${esc(spec.unit)}</b></p>`
+          : ''
+    }
     ${acresNote}
-    ${modeNote}
     ${spec.note ? `<p class="modal-note">${esc(spec.note)}</p>` : ''}
     ${provisional}
     ${search}
-    ${shown.map((g, i) => renderGroup(g, spec, fold, i === 0)).join('')}
+    ${shown.map((g) => renderGroup(g, spec, fold, line, mixed)).join('')}
     ${
       spec.source
         ? `<p class="modal-source">Source: ${esc(spec.source)}</p>`
@@ -355,6 +350,19 @@ export function openTypical(typicalKey, targetPath, category = '', line = null, 
 
   overlay.querySelectorAll('.typ-option').forEach((btn) => {
     btn.addEventListener('click', () => {
+      // Which box this lands in is decided by the OPTION's own group, not once
+      // for the whole modal. In a mixed picker the button above this one can be
+      // a price per pound while this one is a cost per acre, and writing a
+      // per-acre figure into the cost-per-unit box would be multiplied by the
+      // rate a second time.
+      const appliesTo = btn.getAttribute('data-applies-to') || spec.appliesTo || ''
+      const needsMode = Boolean(line && appliesTo && appliesTo !== line.mode)
+      const destination = line
+        ? (appliesTo || line.mode) === 'perAcre'
+          ? line.perAcreTarget
+          : line.unitTarget
+        : targetPath
+
       const raw = btn.getAttribute('data-value')
       const parsed = /^=/.test(raw) ? raw : Number(raw)
       const resolved = resolveValue(parsed, destination)
@@ -370,7 +378,7 @@ export function openTypical(typicalKey, targetPath, category = '', line = null, 
       markQuotedUnit(destination, spec)
 
       if (needsMode) {
-        setPath(getScenario(), line.modePath, spec.appliesTo)
+        setPath(getScenario(), line.modePath, appliesTo)
         setPath(getScenario(), destination, resolved.value)
         closeModal()
         // Switching modes swaps which inputs exist, so this needs a structural
@@ -465,25 +473,86 @@ function wireSearch() {
   })
 }
 
-function renderGroup(g, spec, fold, openFirst) {
+/** The unit a group's figures are in — its own, or the spec's. */
+function unitOf(group, spec) {
+  return group.unit ?? spec.unit
+}
+
+/** The entry mode a group's figures belong in — its own, or the spec's. */
+function appliesToOf(group, spec) {
+  return group.appliesTo ?? spec.appliesTo ?? ''
+}
+
+/**
+ * How an entry mode reads in a sentence.
+ *
+ * Every mode is named. This used to be a two-way ternary, which quietly
+ * described a line set to "population" as "$/unit × units" — a warning about a
+ * mismatch that misnames one of the two things it is comparing is worse than no
+ * warning, because it is the sentence a producer would rely on to decide.
+ */
+// These have to read as the labels on the pill, because the sentence is telling
+// a producer to look at that pill. "$/acre" here against "$/ac" on the segment
+// is one more thing to reconcile in a warning whose whole job is to stop a
+// figure landing in the wrong box.
+const MODE_NAMES = {
+  perAcre: '$/ac',
+  unit: '$/unit × units',
+  population: 'seeds/ac',
+  total: 'total',
+}
+
+function modeName(mode) {
+  return MODE_NAMES[mode] ?? MODE_NAMES.unit
+}
+
+function renderGroup(g, spec, fold, line, mixed) {
+  const unit = unitOf(g, spec)
+  const appliesTo = appliesToOf(g, spec)
+
   const options = g.options
     .map(
       (o) => `
-    <button type="button" class="typ-option" data-value="${esc(o.value)}">
-      <span class="typ-value">${esc(formatOption(o.value, spec.unit))}</span>
+    <button type="button" class="typ-option" data-value="${esc(o.value)}"
+      data-applies-to="${esc(appliesTo)}">
+      <span class="typ-value">${esc(formatOption(o.value, unit))}</span>
       <span class="typ-label">${esc(o.label)}</span>
       ${o.desc ? `<small>${esc(o.desc)}</small>` : ''}
     </button>`
     )
     .join('')
 
+  // A $/bushel figure belongs in the "cost per unit" box, a $/acre figure in
+  // the "$ per acre" box. Rather than hide the offer or write to the wrong box,
+  // say so plainly and switch the line's mode when a value is chosen.
+  //
+  // This sits per GROUP rather than once at the top, because in a mixed picker
+  // the answer differs between one list and the next: with the line set to
+  // $/unit, the price-per-pound list needs no warning and the cost-per-acre
+  // list below it does.
+  const modeNote =
+    line && appliesTo && appliesTo !== line.mode
+      ? `<p class="modal-warn">This list is <b>${esc(unit)}</b> and the line is set to
+           <b>${esc(modeName(line.mode))}</b>. Picking one below switches the line to
+           <b>${esc(modeName(appliesTo))}</b> and fills it in.</p>`
+      : ''
+
+  // Only when the groups disagree. On a single-unit spec the banner at the top
+  // already said it, and repeating it over every group is noise.
+  const unitLine =
+    mixed && unit ? `<p class="typ-group-unit">Quoted in <b>${esc(unit)}</b></p>` : ''
+
   if (!fold) {
     return `<div class="typ-group">
-      <div class="typ-group-label">${esc(g.label)}</div>${options}
+      <div class="typ-group-label">${esc(g.label)}</div>${unitLine}${modeNote}${options}
     </div>`
   }
-  return `<details class="typ-group typ-fold"${openFirst ? ' open' : ''}>
-    <summary class="typ-group-label">${esc(g.label)}</summary>${options}
+  // Every fold starts SHUT, including the first. Same rule openInfo() holds for
+  // a card's definitions: when a modal opens folded, the list of headings is
+  // itself the answer to "what is on offer here?", and one group left open
+  // pushes the rest below the fold on a phone so the list stops being a list.
+  return `<details class="typ-group typ-fold">
+    <summary class="typ-group-label">${esc(g.label)}</summary>${unitLine}${modeNote}${options}
   </details>`
 }
 
@@ -514,6 +583,12 @@ function formatFigure(value, unit) {
     const money = value < 1 ? `$${value.toFixed(3)}` : `$${value.toFixed(2)}`
     const per = /^\$\s*\/\s*([^\s(]+)/.exec(unit)
     return per ? `${money} /${per[1]}` : money
+  }
+  // A bare count still needs separators. The seeds-per-unit picker offers
+  // 80,000 and 140,000, and "80000" beside "140000" on two buttons is two
+  // strings a producer has to count the digits of to tell apart.
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value.toLocaleString('en-US')
   }
   return String(value)
 }

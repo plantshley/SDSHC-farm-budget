@@ -8,8 +8,25 @@
  */
 
 import { esc } from './format.js'
-import { field, moneyField, readout, sectionInfo, unitNotice } from './fields.js'
-import { VARIABLE_LINES, enterpriseLabel } from '../calc.js'
+import { field, moneyField, modePill, readout, sectionInfo, unitNotice, STEP } from './fields.js'
+import { VARIABLE_LINES, enterpriseLabel, lineModes } from '../calc.js'
+
+/**
+ * What each entry mode is called on its segment of the pill.
+ *
+ * Short on purpose: three segments plus a label plus "use typical value" have to
+ * share one line on a 360px screen, and the pill is the thing that gives if any
+ * of them grows. The full sentence lives in the hint above the list.
+ */
+const MODE_LABELS = {
+  unit: '$/unit',
+  perAcre: '$/ac',
+  // "seeds/ac" rather than "population": it names the number the box actually
+  // wants. "Population" is the agronomy term for it and reads, on a pill beside
+  // two dollar labels, as a category rather than a unit.
+  population: 'seeds/ac',
+  total: 'total',
+}
 
 /**
  * Exported so the typical-value tests can check that a spec declaring which
@@ -96,8 +113,9 @@ function renderEnterprise(e, i, collapsed, notice) {
           Variable expenses
           ${sectionInfo(['totalVariableExpenses', 'grossMargin'], 'Variable expenses')}
         </h3>
-        <p class="hint">Enter a cost per unit and units per acre, or switch a line to a straight cost per acre.</p>
-        ${VARIABLE_LINES.map((def) => renderLine(def, e, p)).join('')}
+        <p class="hint">Enter a cost per unit and units per acre, or switch a line to a straight cost per acre.
+          On a $/unit line <b>both boxes are needed</b>: leave either one blank and the line counts as $0.</p>
+        ${VARIABLE_LINES.map((def) => renderLine(def, e, p, seedNote(e, p))).join('')}
         ${renderPreharvest(e, p)}
 
         ${readout('Total variable expenses / acre', `${p}.totalVarPerAcre`)}
@@ -109,6 +127,15 @@ function renderEnterprise(e, i, collapsed, notice) {
           fmt: 'usd',
           info: 'enterpriseGrossMargin',
         })}
+        <!-- This enterprise's own warnings, at the foot of its own card and
+             inside its fold. Almost every one names a specific box on this
+             card, so it is printed within arm's reach of the box rather than
+             in a pile at the bottom of the page addressed by name.
+
+             A [data-warnings] placeholder, not markup: warnings appear and
+             disappear as figures are typed, and updateOutputs() is all that
+             runs on a keystroke. data-warnings-for says whose list to draw. -->
+        <div data-warnings data-warnings-for="${i}"></div>
       </div>
     </section>`
 }
@@ -140,14 +167,40 @@ function unitSelect(path, value) {
  * One variable expense line, in whichever entry mode it is currently set to.
  *
  * The sheet only offers $/unit × units/acre, which forces naturally-per-acre
- * costs to be entered as "cost × 1". Both modes are available here and the
- * values for each are kept, so toggling back and forth loses nothing.
+ * costs to be entered as "cost × 1". Every mode a line offers is available here
+ * and each mode's values are stored separately, so switching back and forth
+ * loses nothing.
+ *
+ * Which modes a line offers is declared on the line in calc.js, not decided
+ * here — see lineModes(). Only seed and crop insurance carry a third.
  */
-function renderLine(def, e, entPath) {
+function renderLine(def, e, entPath, seedNote) {
   const line = e.variable?.[def.key] ?? {}
   const p = `${entPath}.variable.${def.key}`
-  const perAcreMode = line.mode === 'perAcre'
+  const modes = lineModes(def)
+  // An unrecognised mode from a hand-edited file falls back to the sheet's own,
+  // the same way perYearFactor() falls back to a multiplier of 1.
+  const mode = modes.includes(line.mode) ? line.mode : 'unit'
   const typical = def.key
+
+  // The seeds-per-unit offer, when this line is in population mode. It is
+  // rendered TWICE and one copy is hidden at each width, which needs saying
+  // plainly because duplicated markup is normally a smell:
+  //
+  //   - on a computer it belongs in the head row, right-aligned against the
+  //     mode pill, where it reads as the second of this line's two controls;
+  //   - on a phone that row is already a label, a link, and a three-segment
+  //     pill at 360px, so it drops to a line of its own under the boxes.
+  //
+  // Those are different parents, and no amount of `order` moves a flex item
+  // between containers. The hidden copy is `display: none`, which takes it out
+  // of the accessibility tree as well as off the screen, so exactly one offer
+  // is ever announced. See `.seeds-link-row` in styles.css.
+  const seedsLink = (where) =>
+    mode === 'population'
+      ? `<button type="button" class="tip seeds-link-${where}" data-typical="seedsPerBag"
+           data-target="${esc(seedNote.path)}">seeds per unit for my crop</button>`
+      : ''
 
   // The typical-value link sits beside the label rather than under the inputs.
   // Below, it read as a caption belonging to the row above it and pushed every
@@ -160,40 +213,180 @@ function renderLine(def, e, entPath) {
         ${
           typicalAvailable(typical)
             ? `<button type="button" class="tip line-tip" data-typical="${esc(typical)}"
-                 data-target="${esc(p)}.${perAcreMode ? 'perAcre' : 'costPerUnit'}"
-                 data-mode-path="${esc(p)}.mode" data-line-mode="${perAcreMode ? 'perAcre' : 'unit'}"
+                 data-target="${esc(p)}.${mode === 'perAcre' ? 'perAcre' : 'costPerUnit'}"
+                 data-mode-path="${esc(p)}.mode" data-line-mode="${esc(mode)}"
                  data-target-per-acre="${esc(p)}.perAcre" data-target-unit="${esc(p)}.costPerUnit"
                >use typical value</button>`
             : ''
         }
-        <button type="button" class="mode-toggle" data-action="toggle-line-mode"
-          data-path="${esc(p)}.mode" data-mode="${perAcreMode ? 'perAcre' : 'unit'}"
-          title="Switch entry mode">${perAcreMode ? '$/acre' : '$/unit × units'}</button>
+        ${seedsLink('head')}
+        ${modePill({
+          label: def.label,
+          path: `${p}.mode`,
+          current: mode,
+          modes: modes.map((key) => ({ key, label: MODE_LABELS[key] ?? key })),
+        })}
       </div>
       <div class="line-inputs">
-        ${
-          perAcreMode
-            ? `<input type="number" step="any" inputmode="decimal" class="line-input"
-                 data-path="${esc(p)}.perAcre" value="${esc(line.perAcre ?? '')}"
-                 placeholder="0.00" aria-label="${esc(def.label)} dollars per acre" />`
-            : `<input type="number" step="any" inputmode="decimal" class="line-input"
-                 data-path="${esc(p)}.costPerUnit" value="${esc(line.costPerUnit ?? '')}"
-                 placeholder="$/unit" aria-label="${esc(def.label)} cost per unit" />
-               <span class="times">×</span>
-               <input type="number" step="any" inputmode="decimal" class="line-input"
-                 data-path="${esc(p)}.unitsPerAcre" value="${esc(line.unitsPerAcre ?? '')}"
-                 placeholder="${esc(def.unitHint)}/acre" aria-label="${esc(def.label)} units per acre" />`
-        }
+        ${lineInputs(def, line, p, mode)}
         <span class="line-total" data-out="${entPath}.lines.${def.key}" data-fmt="usdCents">—</span>
       </div>
+      ${seedsLink('row')}
+      <!-- Under the whole line, not under the box. The caption is a sentence
+           about a figure that is already there, and stacked inside the row it
+           squeezed three number boxes into two columns' worth of width. Only
+           the seed line offers population mode, so the mode test is also what
+           keeps this off the other fourteen. -->
+      ${mode === 'population' ? seedNote.html : ''}
     </div>`
+}
+
+/**
+ * The caption under the seed line saying the app filled seeds-per-unit in.
+ *
+ * This is the visible half of the one deliberate exception to "nothing
+ * auto-fills" (see CLAUDE.md). `seedsPerBagAuto` records the crop term the
+ * number came from, and it is cleared the moment the producer types in the box.
+ * So the caption is present exactly while the number is the app's rather than
+ * theirs, which is what makes filling the box in the first place honest: a
+ * figure that appeared without being asked for has to say where it came from,
+ * and has to stop saying it once the producer takes the box over.
+ */
+function seedNote(e, entPath) {
+  const path = `${entPath}.variable.seed.seedsPerBag`
+  const from = e.variable?.seed?.seedsPerBagAuto
+  return {
+    path,
+    html: from
+      ? `<p class="field-note" data-notice-for="${esc(path)}">
+           Seeds per unit filled in from "${esc(from)}". Change it if your bag is a different size.</p>`
+      : '',
+  }
+}
+
+/**
+ * One input, with the two halves of its unit shown inside the box.
+ *
+ * A money box's placeholder carries the whole unit ("$/unit"), which is the
+ * right thing to say while it is empty. Once there is a number in it the
+ * placeholder is gone and the unit goes with it, so the box reads "285" with
+ * nothing to say whether that is per acre, per unit, or for the whole crop.
+ *
+ * So the unit splits and stays: the `$` sits before the figure and the rest is
+ * right-aligned at the end of the box. Both are dimmer and smaller than the
+ * figure, because they are a label on it rather than part of it.
+ *
+ * **It is done in CSS, off `:placeholder-shown`.** The affixes are always in the
+ * markup and the browser reveals them when the box stops showing its
+ * placeholder, so nothing has to run on a keystroke to keep them in step —
+ * which matters because `updateOutputs()` is the only thing that does run, and
+ * an affix that appeared one render late would be worse than no affix.
+ *
+ * @param {string} [pre]   shown before the figure, always `$` in practice
+ * @param {string} [post]  shown at the end of the box, e.g. `/ac`
+ */
+function moneyBox(o) {
+  const affixed = o.pre || o.post
+  const input = `
+    <input type="number" step="${o.step ?? STEP.money}" inputmode="decimal"
+      class="line-input" data-path="${esc(o.path)}" value="${esc(o.value ?? '')}"
+      placeholder="${esc(o.placeholder)}" aria-label="${esc(o.ariaLabel)}" />`
+
+  if (!affixed) return `<span class="in-box">${input}</span>`
+  return `
+    <span class="in-box${o.pre ? ' has-pre' : ''}${o.post ? ' has-post' : ''}">
+      ${input}
+      ${o.pre ? `<span class="in-affix in-pre" aria-hidden="true">${esc(o.pre)}</span>` : ''}
+      ${o.post ? `<span class="in-affix in-post" aria-hidden="true">${esc(o.post)}</span>` : ''}
+    </span>`
+}
+
+/** The boxes for one mode. Money everywhere except the two seed counts. */
+function lineInputs(def, line, p, mode) {
+  const box = (key, o) =>
+    moneyBox({ ...o, path: `${p}.${key}`, value: line[key], ariaLabel: `${def.label} ${o.ariaLabel}` })
+
+  if (mode === 'perAcre') {
+    // "$/acre" rather than "0.00". An empty box saying 0.00 says what shape the
+    // answer takes and nothing about what it is meant to be — and the mode this
+    // line is in is exactly the thing a producer has just changed.
+    //
+    // The word is spelled out here and abbreviated on the pill, and that is
+    // deliberate rather than drift. A pill segment is one of three sharing a
+    // row with a label and a link on a 360px screen, and it is the thing that
+    // gives when any of them grows; a placeholder has the whole box to itself
+    // and no reason to make the producer expand an abbreviation.
+    return box('perAcre', {
+      placeholder: '$/acre',
+      ariaLabel: 'dollars per acre',
+      pre: '$',
+      post: '/ac',
+    })
+  }
+
+  if (mode === 'population') {
+    // Three factors on one row is tight on a phone; .line-inputs wraps, and the
+    // two operators travel with the boxes they sit between.
+    return `${box('costPerBag', {
+      placeholder: '$/bag',
+      ariaLabel: 'cost per bag or unit',
+      pre: '$',
+      post: '/bag',
+    })}
+      <span class="times">×</span>
+      ${box('population', {
+        placeholder: 'seeds/acre',
+        ariaLabel: 'planting population, seeds per acre',
+        step: STEP.population,
+        post: '/ac',
+      })}
+      <span class="times">÷</span>
+      ${box('seedsPerBag', {
+        placeholder: 'seeds/bag',
+        ariaLabel: 'seeds per bag or unit',
+        step: STEP.population,
+        post: '/bag',
+      })}`
+  }
+
+  if (mode === 'total') {
+    // Divided by THIS enterprise's acres, which is said on the placeholder
+    // rather than left to be inferred from a figure that comes out per acre.
+    return `${box('totalCost', {
+      placeholder: '$ for this crop',
+      ariaLabel: 'total cost for this enterprise',
+      pre: '$',
+      post: 'total',
+    })}
+      <span class="times">÷ acres</span>`
+  }
+
+  return `${box('costPerUnit', {
+    placeholder: '$/unit',
+    ariaLabel: 'cost per unit',
+    pre: '$',
+    post: '/unit',
+  })}
+    <span class="times">×</span>
+    ${box('unitsPerAcre', {
+      placeholder: `${def.unitHint}/acre`,
+      ariaLabel: 'units per acre',
+      post: '/ac',
+    })}`
 }
 
 // Only lines with a real, cited source get the link. See data/typical-values.js.
 const LINES_WITH_TYPICAL = new Set([
-  'customHire',
-  'herbicide',
+  'seed',
   'nitrogen',
+  'phosphorus',
+  'potassium',
+  'herbicide',
+  'insecticide',
+  'cropInsurance',
+  'fuelOil',
+  'repairs',
+  'customHire',
   'hauling',
   'drying',
   'miscellaneous',
@@ -216,24 +409,36 @@ function renderPreharvest(e, entPath) {
           <button type="button" class="help-btn" data-info="preharvestInterest"
             aria-label="What is interest on preharvest costs?" title="What is this?">?</button>
         </span>
-        <button type="button" class="mode-toggle" data-action="toggle-preharvest"
-          data-path="${esc(p)}.auto" data-mode="${auto ? 'auto' : 'manual'}"
-          title="Switch entry mode">${auto ? 'calculated' : 'entered by me'}</button>
+        ${modePill({
+          label: 'interest on preharvest costs',
+          path: `${p}.auto`,
+          action: 'set-preharvest-mode',
+          current: auto ? 'auto' : 'manual',
+          modes: [
+            { key: 'auto', label: 'calculated' },
+            { key: 'manual', label: 'entered by me' },
+          ],
+        })}
       </div>
       <div class="line-inputs">
         ${
           auto
-            ? `<input type="number" step="any" inputmode="decimal" class="line-input narrow"
+            ? `<input type="number" step="${STEP.money}" inputmode="decimal" class="line-input narrow"
                  data-path="${esc(p)}.rate" value="${esc(pre.rate ?? '')}"
                  placeholder="10" aria-label="Interest rate percent" />
                <span class="times">% for</span>
-               <input type="number" step="any" inputmode="decimal" class="line-input narrow"
+               <input type="number" step="${STEP.count}" inputmode="decimal" class="line-input narrow"
                  data-path="${esc(p)}.months" value="${esc(pre.months ?? '')}"
                  placeholder="8" aria-label="Months carried" />
                <span class="times">mo</span>`
-            : `<input type="number" step="any" inputmode="decimal" class="line-input"
-                 data-path="${esc(p)}.manualPerAcre" value="${esc(pre.manualPerAcre ?? '')}"
-                 placeholder="0.00" aria-label="Preharvest interest dollars per acre" />`
+            : moneyBox({
+                path: `${p}.manualPerAcre`,
+                value: pre.manualPerAcre,
+                placeholder: '$/acre',
+                ariaLabel: 'Preharvest interest dollars per acre',
+                pre: '$',
+                post: '/ac',
+              })
         }
         <span class="line-total" data-out="${entPath}.preharvestInterestPerAcre" data-fmt="usdCents">—</span>
       </div>

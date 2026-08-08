@@ -138,7 +138,7 @@ export function renderFixed(scenario, collapsed = false, notice = null) {
         ${infoButton('depreciationVsInterest', 'depreciation and interest')}
       </h3>
       <p class="hint">
-        Enter each machine once — depreciation and interest are both worked out from it.
+        Enter each machine once. Depreciation and interest are both calculated.
       </p>
       <div class="item-list">
         ${(f.equipment ?? []).map((item, i) => renderEquipment(item, i)).join('')}
@@ -159,6 +159,13 @@ export function renderFixed(scenario, collapsed = false, notice = null) {
         ${readout('Total fixed costs / acre', 'fixed.totalFixedPerAcre', { strong: true })}
         ${readout('Total fixed costs / year', 'fixed.totalFixedAnnual', { fmt: 'usd' })}
       </div>
+
+      <!-- The warnings about THIS block's boxes: land rent, the labor pair,
+           every overhead line, and every equipment and building row. The
+           whole-farm "enter acres" one lands here too, because this is the
+           block that cannot spread its costs without them. Same
+           [data-warnings] placeholder the enterprise cards carry. -->
+      <div data-warnings data-warnings-for="fixed"></div>
 
       <datalist id="equipment-names">
         ${EQUIPMENT_CATALOG.map((c) => `<option value="${esc(c.name)}"></option>`).join('')}

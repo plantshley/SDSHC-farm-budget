@@ -8,6 +8,7 @@
 
 const KEY_THEME = 'sdshc-fb-theme'
 const KEY_FONT = 'sdshc-fb-font'
+const KEY_DISMISSED = 'sdshc-fb-dismissed'
 
 /** localStorage throws in Safari private mode; a lost preference is not fatal. */
 function read(key, fallback) {
@@ -24,6 +25,38 @@ function write(key, value) {
   } catch {
     /* preference simply won't persist */
   }
+}
+
+/* ─────────────────────── dismissed explanations ────────────────────────── */
+
+/**
+ * Notes the producer has read and put away, by id.
+ *
+ * This is a PREFERENCE, not scenario state, which is why it lives here beside
+ * the theme rather than in the budget: whether somebody has read the sentence
+ * explaining what a baseline is says nothing about their farm, and carrying it
+ * into an exported budget file would hide the note on whatever device the file
+ * was opened on next.
+ *
+ * It persists, unlike the fold state in main.js. A note explaining a feature is
+ * read once; showing it again every session is the behaviour a dismiss button
+ * exists to stop, and dismissing it per-session would mean doing that.
+ *
+ * One key holding a comma-separated list rather than a key each, so a second
+ * dismissible note costs nothing.
+ */
+function dismissedSet() {
+  return new Set(read(KEY_DISMISSED, '').split(',').filter(Boolean))
+}
+
+export function isDismissed(id) {
+  return dismissedSet().has(id)
+}
+
+export function dismiss(id) {
+  const set = dismissedSet()
+  set.add(id)
+  write(KEY_DISMISSED, [...set].join(','))
 }
 
 export function initPrefs() {

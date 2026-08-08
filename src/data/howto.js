@@ -51,10 +51,24 @@ export const HOW_TO_SECTIONS = [
     ],
   },
   {
+    // The privacy question, answered at length and in one place. It used to be
+    // two sentences inside "Saving and comparing scenarios", where it was
+    // accurate and easy to miss. A producer typing their yields, prices, and
+    // land rent into a web page at a workshop is entitled to a heading they can
+    // find, not a clause inside one about something else.
+    heading: 'Where your budgets live',
+    body: [
+      'Everything you enter stays on this device, in this browser. It is not sent anywhere and it is not stored on any server.',
+      'The South Dakota Soil Health Coalition cannot see your budgets. Nobody can, except someone using this device.',
+      'Your saved budgets will not appear on your other phone or computer, and they are not shared with anyone else at a workshop.',
+      'To move a budget to another device, or to give one to somebody else, use "Save budget file" to download it and "Upload a budget file" on the Saved tab to read it back in. That file is the only thing that ever leaves this device, and only when you download it yourself.',
+      'Because the budgets live in this browser, clearing your browsing data deletes them. Save a file for anything you want to keep.',
+    ],
+  },
+  {
     heading: 'Saving and comparing scenarios',
     body: [
       'A scenario is one complete set of assumptions, saved under a name you choose. Comparing them is what this calculator is for.',
-      'Budgets are saved in this browser, on this device. They are not sent anywhere. They will not appear on your other phone or computer unless you save the budget file and open it there.',
     ],
     steps: [
       'Build a budget and give it a clear name: "Field corn, conventional" rather than "Budget 1".',
@@ -78,7 +92,6 @@ export const HOW_TO_SECTIONS = [
       'Export CSV opens in Excel or Google Sheets with every line item.',
       'Print produces a clean copy for paper or PDF.',
       'Save budget file downloads a file. Upload a budget file, on the Saved tab, reads one back in. Use the pair to move a budget from your phone to your computer, or to share with others.',
-      'Clearing your browsing data deletes your saved budgets. Save a file for anything you want to keep.',
     ],
   },
 ]

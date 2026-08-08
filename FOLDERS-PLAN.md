@@ -15,8 +15,9 @@ version:
 | Ungrouped pile (1) | hides when empty | stays once any folder exists, so there is somewhere to drag back out to |
 | `mergeVisibleOrder()` (5) | required | **not needed**, because a shut folder still renders its rows |
 
-The running record of how it all fits together is now the *Folders are sections
-on one page* section of CLAUDE.md.
+**Section 15 is the running record of how it all fits together**, and it is the
+one to read before changing anything here. CLAUDE.md keeps only the short rule
+and a pointer back to this file.
 
 The ask: on the Saved tab, let a producer create folders, move budgets into
 them, and give each folder an icon and a colour. Must work on a phone and on a
@@ -600,6 +601,225 @@ Phases 1 to 5 are the feature. 6 to 8 are the finish.
 | 4 | Six swatches, or fewer? | ~~Six.~~ **Settled: eight** — a rainbow with pink for red, plus grey. Red withheld; green is `--olive`, blue is `--sky`. |
 | 5 | Should folder fold state persist across sessions? | ~~No~~ **Settled: no**, per the `collapsedEnterprises` precedent. Sharper now that folders start shut: a producer who opens one is answering a question about right now. Revisit only if someone with fifteen folders complains. |
 | 6 | Cap on folder count? | ~~No cap, no counter.~~ **Settled: no cap.** If someone makes thirty, the filter box from phase 1 is the answer. |
+
+---
+
+## 15. The built record: what the code actually does
+
+Sections 1 to 14 are the plan and the argument. This section is the state of the
+shipped code, moved here out of CLAUDE.md so that file stays short. **Read it
+before changing folders.**
+
+### Shape and storage
+
+Membership is one `folderId` on the budget; the folders themselves live in their
+own `sdshc-fb-folders` key.
+
+**There is no "inside a folder".** The decisive reason is Compare:
+`compare-selected` reads `[data-compare-id]:checked` off the document, so the
+selection lives in the DOM and navigating away throws it out. "Compare my 2025
+corn against my 2026 corn" is the most valuable thing the Saved tab does and it
+has to keep working across folders. The other two reasons: with every row on one
+page the visible top-to-bottom order is still a valid global order, so the
+reorder code survives; and folding is the idiom the app already uses everywhere.
+
+### Every invariant is a variation on one rule: an organising feature must never be able to lose a budget
+
+- **`deleteFolder()` never deletes a budget.** Members are un-filed first, and a
+  failure there abandons the whole operation with nothing changed. The
+  confirmation says so in as many words, including the count. There is no
+  cascade delete and no configuration that produces one.
+- **The ungrouped pile is built as "everything no section claimed", not
+  "everything with no `folderId`".** Those differ in exactly one case and it is
+  the one that matters: a budget naming a folder that has been deleted — here, in
+  another tab, or by a partial write. Defined this way it lands in the pile and
+  is on screen; defined the other way it would belong to a section that is never
+  rendered, and it would be gone. `sectionOf()` in `main.js` resolves it the same
+  way, because the arrows would otherwise hunt for section-mates in a section
+  that is nowhere on screen.
+- **A corrupt folders key costs the folders, never the budgets.** They are
+  separate localStorage keys precisely so that can be true. `listFolders()`
+  returns `[]` on a parse failure and skips individual malformed entries; with no
+  folders the Saved tab is the flat list it was before, still holding everything.
+- **`icon` and `color` are token keys, never a glyph and never a hex.** A stored
+  `#2e7d32` cannot be re-rendered for dark mode. An unrecognised key falls back
+  to the plain folder and the neutral swatch — same rule as `perYearFactor()`
+  returning 1 for a basis it does not know.
+
+**`moveScenarioToFolder()` is modelled on `renameScenario()`, not
+`saveScenario()`** — the Saved tab files a row that may not be the budget open on
+the Budget tab. It differs in one way: **it does not bump `updatedAt`.** Filing
+is not editing. The date on the row is when the producer last worked on that
+farm, so filing never resets it, never disturbs the newest-first fallback, and
+never manufactures a save conflict in another tab.
+
+**`saveScenario()` lets the stored `folderId` win, in both directions.** Open a
+budget, go to Saved, file it, come back and save: the working copy was read
+before the move and would un-file it. The `else delete record.folderId` half is
+the same hazard run backwards, after a move *out*. Identical to the trap
+`sortIndex` already guards against, one field over.
+
+**`folderId` is stripped on export and on import.** A folder organises one
+device's list; an id from another device means nothing here except by an unlucky
+collision.
+
+### What the arrows and the drag each had to change
+
+**▲▼ swap a budget with its neighbour IN ITS OWN SECTION.** `sortIndex` is still
+one global rank shared by every budget, so the row above this one on screen can
+belong to another folder — trading ranks with it moves nothing anybody can see
+and changes neither budget's folder. That is the same "appears to do nothing"
+failure that turns reordering off while a filter is running. A swap, not a
+splice-move: the two rows trade places and nothing else shifts.
+
+**A shut folder still renders its rows and hides them with CSS, and that is
+load-bearing.** `commitOrder()` sends every row on the page as a complete global
+order. `reorderScenarios()` appends ids it was not given, so a partial list would
+rewrite the rank of every budget the producer cannot see, with nothing on screen
+to say so. Section 5 proposes a `mergeVisibleOrder()` for this; it is **not**
+needed here, and the only reason is that the rows never leave the DOM. If a
+future change stops rendering a shut folder's contents, the bug is back and the
+merge becomes mandatory.
+
+**A drop across a section does `moveScenarioToFolder()` first, then the
+reorder**, so a failed reorder can never leave a row drawn in a folder it is not
+in. A drop *within* a section refreshes in place (compare ticks survive, same
+rule as the filter box); a drop *across* one takes the full `render()` — not for
+the counts, which update in place perfectly well, but for the drop targets.
+
+**The ungrouped pile is drawn whenever it has members and whenever any folder
+exists.** Left to hide when empty it disappeared exactly when every budget had
+been filed, taking the drop target for "drag one back out" with it — a shortcut
+that works until the moment you need it.
+
+**With no folders at all it gets no heading**, just the rows: "Not in a folder"
+over the entire list, with nothing to contrast it against, is a fold to open and
+a label answering a question nobody asked, and that is the state most producers
+here will be in permanently. The `<section>` and the `.scn-list` stay, so the
+drag, filter and reorder code all see the structure they always see — only the
+`<header>` is missing, and `.scn-section-bare` drops the indent and left rule
+that exist to tie a list to a heading.
+
+**A headless section is always open, and that is a guard rather than a detail.**
+`applySectionVisibility()` checks for the class before consulting
+`expandedFolders`. Without it: shut the ungrouped pile while a folder exists,
+then delete that folder, and the pile returns headless *and* still marked shut —
+every budget on the device behind a control that is no longer on the page. Pinned
+by *deleting the last folder cannot leave the budgets folded out of sight*.
+
+### Folders start shut, and the filter has to reach inside them
+
+This is the **opposite of section 9**, which argued for open. Shut is what was
+asked for, and it makes two other things load-bearing:
+
+- **`expandedFolders` is a set of OPEN ids, not closed ones.** With shut as the
+  resting state, "not in the set" is the default and a folder the app forgot to
+  seed cannot spring open. The ungrouped pile is seeded open at module level
+  because it is not a folder: it is where a budget saved a moment ago lands.
+- **A filter forces a section holding a match open, and hides one holding
+  none.** Without it a search reports nothing while the row sits in a closed
+  fold — the exact failure `wireSearch()` already fixed for the land-rent county
+  list. None of it touches `expandedFolders`: a search is a question, not a
+  decision about how the list should sit, so clearing the box restores the
+  producer's own arrangement. The per-folder count is rewritten to "2 of 3
+  budgets" for the same reason the hint line is.
+- **A budget can now be off screen two ways** — filtered out, or folded away —
+  and `refreshCompareButton()` counts both into `[data-scn-hidden-note]`. Folding
+  is deliberately *in place*, never a `render()`, so ticks survive it, which is
+  what makes the note necessary rather than decorative.
+
+Fold state is UI state, like `collapsedEnterprises`: module-level in `main.js`,
+not in the scenario, not in `localStorage`.
+
+### Move is offered only once there is somewhere to move to
+
+A deliberate departure from section 6, which put the button on every row
+unconditionally. Most producers here keep three to eight budgets and will never
+make a folder, and a fourth button on every row opening a modal that offers only
+"Not in a folder" costs all of them and pays none. The first folder is made from
+"+ New folder" in the header; from then on every filing is one trip, because the
+Move modal carries its own `+ New folder…` that creates and selects in one pass.
+
+**A shut folder prints expanded.** `@media print` sets
+`.scn-list[hidden] { display: grid !important }`, which has to out-specify the
+global `[hidden] { display: none !important }` — both author-origin and both
+`!important`, so it is decided on specificity, (0,2,0) against (0,1,0). Dropping
+either the attribute selector or the `!important` puts the folds back on paper.
+It is scoped to `.scn-list` on purpose: a row hidden by the *filter* stays
+hidden, where the hint line reads "Showing 3 of 12 budgets" and is the only thing
+explaining why nine are missing.
+
+### The palette, and the one colour that is not on offer
+
+**Twelve glyphs and twelve swatches, and the counts must stay equal.** The editor
+lays them out as two rows of the same width and they read as a matched pair;
+twelve and nine would look like one of them had failed to load. Pinned by a test.
+
+To change either, there is a **header comment at the top of `ui/folders.js`**
+that names every place involved. In short: a glyph is one entry in `PATHS` and
+one in `ICON_LABELS`; a colour is one entry in `FOLDER_COLORS` and `COLOR_LABELS`
+**plus three things in `styles.css`** — the `--fld-<key>` / `--fld-<key>-bg` pair
+in `:root`, the same pair under `[data-theme="dark"]`, and a `.fld-c-<key>` class
+mapping them onto `--fld-ink` / `--fld-wash`.
+
+**A colour key with no `.fld-c-` class renders with no colour at all** — no
+error, no fallback, just a chip the same shade as the card. It is the one failure
+in this feature nothing warns you about, so a test walks `FOLDER_COLORS` against
+the stylesheet source and asserts all four pieces exist. jsdom loads no CSS, so
+that check has nowhere else to live.
+
+Icons are **inline SVG, never emoji** — `prefs.js` already rejected emoji for the
+theme toggle, and a row of twelve emoji folder icons across Windows, Android and
+iOS is three different-looking apps. They are stroke-only on a 24-unit box and
+tinted through `currentColor`, so one glyph carries any colour and there is no
+per-colour asset.
+
+The swatches walk the wheel with **pink where red would be**, closing on slate
+and grey. Red is the omission and it is not squeamishness: `--green` means a
+positive dollar figure and `--cost` a negative one, and a red folder mark on a
+page whose every row prints a profit or a loss re-opens the question the palette
+exists to settle. A test asserts red is absent under four of its names.
+
+**Every swatch is its own value, the blue and the green included.** They began as
+`--sky` and `--olive`, which cost no new tokens but tied a folder's colour to the
+app's chrome: a "blue" folder was the same blue as every `?` button and every KPI
+edge, an "olive" one the same as every section rule. A folder colour is a label
+the producer chose. It should not read as furniture, and it should not move if
+the brand ever does.
+
+**The ink is the same in both themes; only the wash flips.** Every other colour
+token in `styles.css` has a `[data-theme="dark"]` override, and these twelve
+deliberately do not — a producer who made the pink folder should find a pink
+folder in either theme, because the colour is a label they chose rather than
+part of the furniture. The dark block carries the twelve `-bg` washes and no
+inks, and a test asserts the absence rather than trusting it to stay absent.
+
+The constraint that follows: each ink has to carry on a white card **and** on a
+dark one, so they run mid-tone rather than the darker shades a light theme alone
+would pick. They are stroked glyphs and filled dots with the folder's name in
+ordinary text beside them, never text themselves, so a mid-tone reads fine on
+both — but change one and check it against both washes.
+
+**Colour appears on the section header and nowhere else.** Tinting fifteen rows
+by folder next to fifteen profit figures is the same collision by another route.
+And **colour is never the only signal**: the folder's name is always beside it in
+ordinary text, so a producer who cannot tell the swatches apart loses decoration
+and no information — which is the whole test of whether colour was doing a job it
+should not have been.
+
+**The fold caret is drawn, never typed.** `.chev` builds it from two borders of a
+box rotated 45 degrees, so the span takes **no text** — a caret character placed
+inside it as well renders a second caret about twice the size underneath the real
+one, which shipped once and read as a broken font. Which way it points comes off
+`aria-expanded` in CSS, so there is one source of truth and nothing for JS to
+keep in step.
+
+### How the row itself is laid out
+
+The saved row is a table rather than a card, and the folder heading is styled to
+match. That detail lives in **[DESIGN-NOTES.md](DESIGN-NOTES.md)** under *The
+saved list is a table, not a stack of cards*, because it is as much about the
+budget rows as about the folders over them.
 
 ---
 

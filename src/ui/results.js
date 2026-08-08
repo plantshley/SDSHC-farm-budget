@@ -7,7 +7,7 @@
  * spreadsheet a producer here may never have opened.
  *
  * The corrections themselves have not changed and are not in question. They are
- * documented in CLAUDE.md under "deliberate divergences" and asserted in
+ * documented in DESIGN-NOTES.md under "deliberate divergences" and asserted in
  * test/calc.test.js, which is where they belong now — a note to whoever works on
  * the model next, not a caveat on a producer's results.
  */
@@ -31,16 +31,22 @@ import { infoButton } from './fields.js'
 export function renderResults(r) {
   return `
     <section class="box results">
-      <!-- The warnings sit IN the header row, to the right of the heading, not
-           in a banner above the card. With no acres entered the warning is the
-           only thing on this card with anything to say, and a full-width red box
-           over four blank KPI figures reads as something having gone wrong
-           rather than as the next thing to type. It stays a [data-warnings]
-           placeholder wherever it sits: warnings appear and disappear as acres
-           are typed, and updateOutputs() is all that runs on a keystroke. -->
+      <!-- ONE warning is printed here, and it is the only one that belongs to
+           the whole farm rather than to a box: "Enter acres for at least one
+           enterprise." With no acres entered it is the reason every figure on
+           this card is blank, so it belongs beside them. Everything else names
+           a field and rides with the card that field is on — see
+           renderEnterprises() and renderFixed().
+
+           In the header row rather than a banner above the card: a full-width
+           red box over four blank KPI figures reads as something having gone
+           wrong rather than as the next thing to type. It stays a
+           [data-warnings] placeholder, because it appears and disappears as
+           acres are typed and updateOutputs() is all that runs on a keystroke.
+           data-warnings-for says whose list to draw. -->
       <header class="block-head">
         <h2 class="title">Results</h2>
-        <div data-warnings>${r.warnings.length ? renderWarnings(r.warnings) : ''}</div>
+        <div data-warnings data-warnings-for="farm"></div>
       </header>
 
       <div class="kpi-row">

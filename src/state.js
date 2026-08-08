@@ -73,7 +73,7 @@ export function makeId(prefix) {
 function blankVariableLines() {
   const variable = {}
   for (const def of VARIABLE_LINES) {
-    variable[def.key] = {
+    const line = {
       // Costs that are naturally quoted per acre (crop insurance, custom hire)
       // default to that mode so producers aren't forced to enter "cost × 1".
       mode: def.prefersPerAcre ? 'perAcre' : 'unit',
@@ -81,6 +81,16 @@ function blankVariableLines() {
       unitsPerAcre: '',
       perAcre: '',
     }
+    // Only the lines that offer a third mode carry its keys. Seeding every line
+    // with all of them would put `totalCost` on hauling, where nothing can ever
+    // read it and its presence in an exported file would suggest otherwise.
+    if (def.modes?.includes('population')) {
+      line.costPerBag = ''
+      line.seedsPerBag = ''
+      line.population = ''
+    }
+    if (def.modes?.includes('total')) line.totalCost = ''
+    variable[def.key] = line
   }
   return variable
 }
@@ -145,7 +155,15 @@ export function newScenario(name = 'My Budget Scenario') {
     enterprises: [newEnterprise()],
     fixed: {
       landRentPerAcre: '',
-      labor: { ratePerHour: '', hours: '', hoursBasis: 'year' },
+      // Weekly, because that is how hired help is actually described: "a couple
+      // of days a week through the season", not "312 hours a year". A yearly
+      // default puts the conversion back in the producer's head, which is the
+      // arithmetic HOURS_BASIS exists to take out of it.
+      //
+      // NEW budgets only. The v1 to v2 migration still writes 'year' onto old
+      // ones, because they stored an annual figure and reinterpreting it as
+      // weekly would multiply somebody's labour bill by fifty-two.
+      labor: { ratePerHour: '', hours: '', hoursBasis: 'week' },
       equipment: [],
       buildings: [],
       annual: { utilities: '', farmInsurance: '', duesFees: '', misc: '' },

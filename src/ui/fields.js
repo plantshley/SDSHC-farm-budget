@@ -80,6 +80,33 @@ function inputValue(value, type) {
   return s === '' ? '' : s.replace(/[$\s,]/g, '')
 }
 
+/**
+ * How far one press of a number input's up/down arrow moves the value.
+ *
+ * The browser's default is 1, which is the wrong size for almost everything
+ * here: a seed cost of $3.80 and a 7% interest rate both want a tenth. HTML
+ * gives one knob for this and `step` is it.
+ *
+ * A consequence worth knowing before changing it: `step` also governs
+ * VALIDITY. At 0.1, a value of 177.85 is a "step mismatch" and the input
+ * matches :invalid. That is harmless here only because nothing in styles.css
+ * targets :invalid — the value still reads back exactly, and the sole visible
+ * effect is that an arrow press from 177.85 snaps to 177.8. Do not add an
+ * :invalid rule to the stylesheet without revisiting this.
+ *
+ * MONEY is the default because most number fields here are money. The two
+ * exceptions are named rather than inferred:
+ *   COUNT       whole things — years of useful life, hours, months carried.
+ *               A tenth of a year is not a step anyone reaches for.
+ *   POPULATION  tens of thousands of seeds. A tenth would be pressing the
+ *               arrow ten thousand times to make a difference you can see.
+ */
+export const STEP = {
+  money: '0.1',
+  count: '1',
+  population: '1000',
+}
+
 export function field(o) {
   const id = `f-${o.path.replace(/\./g, '-')}`
   return `
@@ -91,7 +118,7 @@ export function field(o) {
           id="${id}"
           type="${o.type || 'text'}"
           ${o.inputmode ? `inputmode="${o.inputmode}"` : ''}
-          ${o.type === 'number' ? 'step="any"' : ''}
+          ${o.type === 'number' ? `step="${esc(o.step || STEP.money)}"` : ''}
           data-path="${esc(o.path)}"
           value="${esc(inputValue(o.value, o.type))}"
           placeholder="${esc(o.placeholder ?? '')}"
@@ -136,7 +163,7 @@ export function periodField(o) {
           <input
             id="${id}"
             type="number"
-            step="any"
+            step="${esc(o.step || STEP.money)}"
             inputmode="decimal"
             data-path="${esc(o.path)}"
             value="${esc(inputValue(o.value, 'number'))}"
@@ -155,6 +182,45 @@ export function periodField(o) {
             .join('')}
         </select>
       </div>
+    </div>`
+}
+
+/**
+ * The entry-mode control on a variable expense line, and on preharvest interest.
+ *
+ * One pill split into segments, with the active one filled. It replaced a single
+ * button that showed the mode it was currently in — which reads equally well as
+ * the mode it would switch you TO, so a producer had no way to tell the state
+ * from the offer. Both readings are reasonable, which is what made the old
+ * control ambiguous rather than merely terse.
+ *
+ * Every segment carries the SAME `data-path` and its own `data-mode`, so the
+ * handler in main.js writes the mode named rather than flipping to whatever is
+ * next. That matters as soon as there are three of them: "toggle" has no
+ * meaning on a three-way control.
+ *
+ * The consequence for tests: `querySelector('[data-path="…"]')` now finds the
+ * FIRST segment rather than the only button, so a click has to name the segment
+ * it wants — `[data-path="…"][data-mode="perAcre"]`.
+ *
+ * @param {object} o
+ * @param {string} o.label    what the pill belongs to, for the group's a11y name
+ * @param {string} o.path     scenario path the mode is stored at
+ * @param {Array<{key: string, label: string}>} o.modes
+ * @param {string} o.current  the key currently selected
+ */
+export function modePill(o) {
+  return `
+    <div class="mode-pill" role="group" aria-label="Entry mode for ${esc(o.label)}">
+      ${o.modes
+        .map(
+          (m) => `<button type="button" class="mode-seg" data-action="${esc(
+            o.action || 'set-line-mode'
+          )}"
+            data-path="${esc(o.path)}" data-mode="${esc(m.key)}"
+            aria-pressed="${m.key === o.current}">${esc(m.label)}</button>`
+        )
+        .join('')}
     </div>`
 }
 

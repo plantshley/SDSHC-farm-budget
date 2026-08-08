@@ -5,6 +5,7 @@ import {
   calcScenario,
   calcEnterprise,
   linePerAcre,
+  lineModes,
   num,
   VARIABLE_LINES,
 } from '../src/calc.js'
@@ -261,7 +262,256 @@ describe('variable expense entry modes', () => {
       assert.ok(def.key in corn.lines, `${def.key} missing from results`)
     }
   })
+
+  test('only the two lines that need a third mode have one', () => {
+    // A third segment on all fifteen pills would put "population" on the
+    // hauling line, where it means nothing. Declared per line for that reason.
+    const extra = VARIABLE_LINES.filter((d) => d.modes && d.modes.length > 2)
+    assert.deepEqual(
+      extra.map((d) => d.key),
+      ['seed', 'cropInsurance']
+    )
+    assert.deepEqual(lineModes(extra[0]), ['unit', 'perAcre', 'population'])
+    assert.deepEqual(lineModes(extra[1]), ['unit', 'perAcre', 'total'])
+    // Everything else falls back to the sheet's own pair.
+    for (const def of VARIABLE_LINES.filter((d) => !d.modes)) {
+      assert.deepEqual(lineModes(def), ['unit', 'perAcre'], def.key)
+    }
+  })
 })
+
+describe('entering seed by planting population', () => {
+  // (cost per unit of seed) × (population ÷ seeds per unit). The producer knows
+  // their population; almost nobody knows what fraction of a bag it is.
+  test('it reaches the same figure as working the fraction out by hand', () => {
+    const byPopulation = linePerAcre({
+      mode: 'population',
+      costPerBag: 285,
+      population: 33000,
+      seedsPerBag: 80000,
+    })
+    // 33,000 ÷ 80,000 = 0.4125 of a bag, at $285 a bag.
+    close(byPopulation, linePerAcre({ mode: 'unit', costPerUnit: 285, unitsPerAcre: 0.4125 }))
+    close(byPopulation, 117.5625)
+  })
+
+  test('it works in either denomination, which is why seeds-per-unit is a field', () => {
+    // South Dakota and Iowa both price corn per THOUSAND seeds; producers buy
+    // 80,000-seed bags. Both have to come out the same or the picker offering
+    // both denominations is a trap.
+    close(
+      linePerAcre({ mode: 'population', costPerBag: 3.8, population: 33000, seedsPerBag: 1000 }),
+      125.4
+    )
+    close(
+      linePerAcre({ mode: 'population', costPerBag: 304, population: 33000, seedsPerBag: 80000 }),
+      125.4
+    )
+  })
+
+  test('a blank seeds-per-unit is $0, never Infinity', () => {
+    // safeDiv is the guard. Without it this divides by zero, and Infinity
+    // spreads through every total below it and prints as "∞" on a phone.
+    for (const seedsPerBag of ['', null, undefined, 0]) {
+      const v = linePerAcre({ mode: 'population', costPerBag: 285, population: 33000, seedsPerBag })
+      assert.equal(Number.isFinite(v), true, `seedsPerBag ${JSON.stringify(seedsPerBag)}`)
+      assert.equal(v, 0)
+    }
+  })
+
+  test('a half-filled population line says which box is empty', () => {
+    const s = scenarioWithSeed({ mode: 'population', costPerBag: 285, population: 33000 })
+    const r = calcScenario(s)
+    assert.equal(r.enterprises[0].lines.seed, 0)
+    assert.match(r.warnings.join(' '), /seeds-per-unit/i)
+  })
+
+  test('a line nobody has touched is not a warning', () => {
+    // Twelve untouched expense rows are the ordinary state of a new budget.
+    const s = scenarioWithSeed({ mode: 'population', costPerBag: '', population: '', seedsPerBag: '' })
+    assert.equal(calcScenario(s).warnings.length, 0)
+  })
+
+  test('a box the APP filled is not somebody starting the line', () => {
+    // Typing "Corn" into the crop box opens this mode and fills seeds-per-unit
+    // by itself. Counting that as a half-filled line means the first thing a
+    // producer types answers back with a warning about a row they have not
+    // reached yet.
+    const auto = { mode: 'population', costPerBag: '', population: '', seedsPerBag: 80000, seedsPerBagAuto: 'corn' }
+    assert.equal(calcScenario(scenarioWithSeed(auto)).warnings.length, 0)
+
+    // Once they DO start it, the warning is back.
+    const started = calcScenario(scenarioWithSeed({ ...auto, costPerBag: 304 }))
+    assert.match(started.warnings.join(' '), /seeds-per-unit/i)
+
+    // The marker over an empty box proves nothing — a hand-edited file can
+    // carry one — so that line is still checked the ordinary way.
+    const hollow = calcScenario(
+      scenarioWithSeed({ ...auto, seedsPerBag: '', costPerBag: 304 })
+    )
+    assert.match(hollow.warnings.join(' '), /seeds-per-unit/i)
+  })
+})
+
+describe('entering a cost as a total for the enterprise', () => {
+  test('a premium divided by acres matches the same figure entered per acre', () => {
+    close(linePerAcre({ mode: 'total', totalCost: 3200 }, 100), 32)
+    close(linePerAcre({ mode: 'total', totalCost: 3200 }, 100), linePerAcre({ mode: 'perAcre', perAcre: 32 }))
+  })
+
+  test('it divides by THIS enterprise’s acres, not the whole farm’s', () => {
+    // The premium is for that crop. Spreading it over the farm would understate
+    // it on the insured enterprise and charge it to enterprises it never
+    // covered — and both errors look like ordinary numbers.
+    const s = scenarioWithInsurance(3200, 100, 900)
+    const r = calcScenario(s)
+    close(r.enterprises[0].lines.cropInsurance, 32, 'the insured enterprise carries all of it')
+    assert.equal(r.enterprises[1].lines.cropInsurance, 0, 'the other one carries none')
+  })
+
+  test('a premium with no acres is $0 and says so', () => {
+    const s = scenarioWithInsurance(3200, 0, 0)
+    const r = calcScenario(s)
+    assert.equal(r.enterprises[0].lines.cropInsurance, 0)
+    assert.match(r.warnings.join(' '), /no acres to spread it over/i)
+  })
+
+  test('a premium over NEGATIVE acres is $0, never a credit', () => {
+    // Negative acres are deliberately allowed through everywhere else so the
+    // per-acre figures still compute and show what a stray minus sign did. This
+    // is the one place a divisor is a quantity rather than a rate, so a premium
+    // over negative acres would come out negative — a cost handed back as
+    // income, which is the one thing the model never does.
+    const r = calcScenario(scenarioWithInsurance(3200, -100, 0))
+    assert.equal(r.enterprises[0].lines.cropInsurance, 0)
+    assert.ok(r.enterprises[0].lines.cropInsurance >= 0)
+  })
+
+  test('negative acres and blank acres get different advice', () => {
+    // "Enter the acres above" is wrong and confusing advice to give somebody who
+    // did enter them and put a minus sign on them by accident.
+    const negative = calcScenario(scenarioWithInsurance(3200, -100, 0)).warnings.join(' ')
+    assert.match(negative, /acres are negative/i)
+    assert.doesNotMatch(negative, /no acres to spread it over/i)
+
+    const blank = calcScenario(scenarioWithInsurance(3200, '', 0)).warnings.join(' ')
+    assert.match(blank, /no acres to spread it over/i)
+  })
+})
+
+describe('a stored mode a line does not offer cannot erase a cost', () => {
+  // Two ways a stored mode goes wrong, and the second is the dangerous one.
+  //
+  // An unrecognised mode is obvious. A mode this APP knows but this LINE does
+  // not offer is not: `total` on the nitrogen line would run the total branch,
+  // read a `totalCost` the UI never writes for that line, and return $0 while a
+  // perfectly good costPerUnit x unitsPerAcre sat in the record unread. Both
+  // fall back to the sheet's own mode, because a file the app cannot make sense
+  // of must not be able to silently delete a real cost.
+  function nitrogenIn(mode) {
+    return {
+      enterprises: [
+        {
+          name: 'Test',
+          acres: 100,
+          variable: { nitrogen: { mode, costPerUnit: 0.625, unitsPerAcre: 150 } },
+        },
+      ],
+      fixed: { labor: {}, annual: {}, annualBasis: {}, equipment: [], buildings: [] },
+    }
+  }
+
+  test('a mode nobody recognises falls back to $/unit, not to zero', () => {
+    close(calcScenario(nitrogenIn('wat')).enterprises[0].lines.nitrogen, 93.75)
+  })
+
+  test('a mode another line offers falls back too', () => {
+    // The one the reviewer found. `total` and `population` are real modes, just
+    // not this line's.
+    close(calcScenario(nitrogenIn('total')).enterprises[0].lines.nitrogen, 93.75)
+    close(calcScenario(nitrogenIn('population')).enterprises[0].lines.nitrogen, 93.75)
+  })
+
+  test('a line that DOES offer the mode still uses it', () => {
+    // The guard must not be so eager that it breaks the feature.
+    const s = scenarioWithSeed({ mode: 'population', costPerBag: 285, population: 33000, seedsPerBag: 80000 })
+    close(calcScenario(s).enterprises[0].lines.seed, 117.5625)
+  })
+
+  test('called without a line definition, every mode is honoured', () => {
+    // The bare arithmetic is testable on its own; the restriction only applies
+    // where a def says which modes the line offers.
+    close(linePerAcre({ mode: 'total', totalCost: 3200 }, 100), 32)
+    close(linePerAcre({ mode: 'total', totalCost: 3200 }, 100, { key: 'seed', modes: ['unit'] }), 0)
+  })
+
+  test('garbage where a line should be is $0, not a crash', () => {
+    for (const junk of [null, undefined, 'seed', 42, [], [1, 2], true]) {
+      assert.equal(linePerAcre(junk), 0, JSON.stringify(junk))
+    }
+  })
+})
+
+describe('a $/unit line needs both of its boxes', () => {
+  // The product of a filled box and a blank one is zero, so the line reads $0
+  // while looking like a line somebody filled in. The arithmetic is right and
+  // nothing about $0 says which box is empty.
+  test('a cost with no units warns, and names the direction', () => {
+    const r = calcScenario(scenarioWithSeed({ mode: 'unit', costPerUnit: 285 }))
+    assert.equal(r.enterprises[0].lines.seed, 0)
+    assert.match(r.warnings.join(' '), /cost per unit but no units per acre/i)
+  })
+
+  test('units with no cost warns the other way round', () => {
+    const r = calcScenario(scenarioWithSeed({ mode: 'unit', unitsPerAcre: 0.4 }))
+    assert.match(r.warnings.join(' '), /units per acre but no cost per unit/i)
+  })
+
+  test('both filled, or neither, is silent', () => {
+    assert.equal(
+      calcScenario(scenarioWithSeed({ mode: 'unit', costPerUnit: 285, unitsPerAcre: 0.4 })).warnings
+        .length,
+      0
+    )
+    assert.equal(calcScenario(scenarioWithSeed({ mode: 'unit' })).warnings.length, 0)
+  })
+
+  test('an explicit zero is an answer, not a blank', () => {
+    // A producer who typed 0 meant 0. Warning about it would be telling them
+    // their own deliberate entry is a mistake.
+    assert.equal(
+      calcScenario(scenarioWithSeed({ mode: 'unit', costPerUnit: 0, unitsPerAcre: 0.4 })).warnings
+        .length,
+      0
+    )
+  })
+
+  test('a $/acre line is never warned about, having only one box', () => {
+    assert.equal(
+      calcScenario(scenarioWithSeed({ mode: 'perAcre', costPerUnit: 285 })).warnings.length,
+      0
+    )
+  })
+})
+
+/** One enterprise with 100 acres and one seed line, everything else blank. */
+function scenarioWithSeed(seed) {
+  return {
+    enterprises: [{ name: 'Test', acres: 100, variable: { seed } }],
+    fixed: { labor: {}, annual: {}, annualBasis: {}, equipment: [], buildings: [] },
+  }
+}
+
+/** Two enterprises, only the first insured. */
+function scenarioWithInsurance(totalCost, acresA, acresB) {
+  return {
+    enterprises: [
+      { name: 'Insured', acres: acresA, variable: { cropInsurance: { mode: 'total', totalCost } } },
+      { name: 'Other', acres: acresB, variable: {} },
+    ],
+    fixed: { labor: {}, annual: {}, annualBasis: {}, equipment: [], buildings: [] },
+  }
+}
 
 describe('edge cases', () => {
   test('zero acres produces zeros and a warning, never Infinity or NaN', () => {

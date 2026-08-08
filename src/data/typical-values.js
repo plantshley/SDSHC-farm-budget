@@ -21,6 +21,52 @@ const IOWA_2026 =
   'Iowa Farm Custom Rate Survey 2026 (Iowa State University Extension, Ag Decision Maker File A3-10, revised March 2026)'
 
 /**
+ * Iowa's crop budgets, as distinct from its custom rate survey above.
+ *
+ * Used for two things only, both of which South Dakota's own budgets cannot
+ * supply: the insecticide charge on continuous corn, and the bag and unit sizes
+ * corn and soybean seed are sold in.
+ */
+const IOWA_A120 =
+  'Estimated Costs of Crop Production in Iowa 2026 (Iowa State University Extension, Ag Decision Maker File A1-20, FM 1712, revised January 2026), Chad Hart, extension economist'
+
+/**
+ * North Dakota's crop budgets. Present for one line: insecticide, which the
+ * South Dakota budgets fold into a single pesticides figure and so cannot fill.
+ */
+const NDSU_2026 =
+  'North Dakota 2026 Projected Crop Budgets, Ron Haugen, NDSU Extension Service. South West (EC1652), South Central (EC1653) and South East (EC1659), the three regions bordering South Dakota. Retrieved 6 August 2026.'
+
+/**
+ * Anhydrous ammonia, and the reason it comes from four states away.
+ *
+ * It is the cheapest nitrogen per pound and the one most corn acres in the
+ * eastern Dakotas actually get, so a nitrogen picker offering urea, UAN and
+ * ammonium sulfate and not this one is missing the product a producer is most
+ * likely to be pricing. It was listed under "deliberately NOT shipped" for one
+ * reason: nothing in South Dakota publishes a price for it.
+ *
+ * That is still true and it was checked rather than assumed. The SDSU budget
+ * workbook's fertilizer price table carries MAP, urea, potash, AMS, and 28%
+ * UAN, and no anhydrous under any name. Neither do the three southern North
+ * Dakota budgets, and neither does Iowa A1-20, which prices nitrogen as one
+ * generic $0.53 a pound without naming a source.
+ *
+ * So the figure is an Illinois one, and the option says so on the row the same
+ * way the insecticide options name their state. Cross-checking the other two
+ * products in the same publication is what makes that tolerable: its urea works
+ * out at $0.65 a pound of N against South Dakota's $0.625, and its 28% at $0.77
+ * against $0.705. Both are within a tenth, which is the evidence that a nitrogen
+ * price does not change much across the Corn Belt.
+ *
+ * Anhydrous needs a toolbar and nurse tanks or a custom operator, and that
+ * charge is a separate cost. The spec's note already says so for every product
+ * here, and the application group below prices exactly this pass.
+ */
+const FARMDOC_N_2026 =
+  'Fertilizer Decisions for the 2026 Crop Year, Nick Paulson, Gary Schnitkey and Henrique Monaco (University of Illinois) and Carl Zulauf (Ohio State University), farmdoc daily, Department of Agricultural and Consumer Economics, University of Illinois at Urbana-Champaign, 12 August 2025. Illinois prices. Retrieved 7 August 2026.'
+
+/**
  * Overhead, from South Dakota farm records.
  *
  * The route to these was not obvious and is worth recording, because the
@@ -81,6 +127,61 @@ function overhead(title, corn, soybeans) {
 
 const IOWA_NOTE =
   'These are Iowa rates, not South Dakota. South Dakota does not publish a custom rate survey. Check these against what local custom operators charge.'
+
+/**
+ * South Dakota crop budgets. The primary source for everything below that is
+ * not a custom rate.
+ *
+ * This one was nearly missed, and the near-miss is worth recording. The first
+ * pass at fuel and repairs was about to ship North Dakota figures on the
+ * assumption that South Dakota publishes no crop budgets, the same way it
+ * publishes no custom rate survey. It does. SDSU Extension has published them
+ * annually for years, and they carry separate FUEL & OIL and REPAIRS lines,
+ * separate N, P2O5 and K2O rates with a price per pound of nutrient, crop
+ * insurance, and a seeding rate with a seed price per unit. They are built on
+ * FINBIN trends, which this file already cites for overhead.
+ *
+ * The lesson is the one in TYPICAL-VALUES.md about derived rates: check the
+ * assumption before building on it. "There is no source" is a claim, and it
+ * needs looking up like any other.
+ *
+ * Three production zones, four crops. The zones are SDSU's own and are about
+ * yield potential rather than lines on a map, so a producer picks the one their
+ * ground behaves like.
+ */
+const SDSU_2026 =
+  'SDSU Extension, 2026 Crop Production Budgets (P-00138-2026), Sarah Sellars, Assistant Professor and SDSU Extension Sustainable Farm and Food Systems Specialist. Retrieved 6 August 2026. Cost estimates are built on FINBIN trends for similar farms and crops, adjusted for expected costs.'
+
+const SDSU_NOTE =
+  'South Dakota figures, from budgets built on farm business records. The three zones are about yield potential rather than location, so pick the one your ground behaves like. These are a starting point to check your own records against, not a replacement for them.'
+
+/** SDSU's three production zones, in the order the workbook lists them. */
+const SDSU_ZONES = ['East and Central, high production', 'East and Central, mid production', 'Central and West, low production']
+
+/**
+ * One SDSU picker: a group per zone, an option per crop.
+ *
+ * `values` is [corn, soybeans, spring wheat, winter wheat] per zone, in the
+ * workbook's own column order. A null drops that crop from that zone rather
+ * than printing a $0 the budget never claimed.
+ */
+function sdsuByZone(title, unit, values, extra = {}) {
+  const crops = ['Corn', 'Soybeans', 'Spring wheat', 'Winter wheat']
+  return {
+    title,
+    unit,
+    appliesTo: 'perAcre',
+    source: SDSU_2026,
+    note: SDSU_NOTE,
+    ...extra,
+    groups: SDSU_ZONES.map((label, z) => ({
+      label,
+      options: crops
+        .map((crop, c) => ({ label: crop, value: values[z][c] }))
+        .filter((o) => o.value != null),
+    })),
+  }
+}
 
 /**
  * Build one salvage group per A3-29 Table 1b machine class.
@@ -177,15 +278,103 @@ export const TYPICAL_VALUES = {
     ],
   },
 
+  /* ── Fertilizer ────────────────────────────────────────────────────────
+     All three nutrients offer the same two things, and that symmetry is the
+     point: a picker that quotes a price per pound for potash and nothing at all
+     for nitrogen invites a budget with two nutrients costed and one left blank.
+
+     Nitrogen carries a third group the other two do not, because it is the only
+     one the Iowa custom rate survey prices an APPLICATION for. That group is
+     the pre-existing content of this spec and it is a different quantity from
+     the two above it: the charge for putting fertilizer on, with no fertilizer
+     in it. A custom-applied acre is the sum of a material figure and an
+     application figure, which the note says in as many words, because picking
+     $15.55 and stopping books a nitrogen line with no nitrogen in it.
+
+     The spreading charge is quoted ONCE per pass and belongs on one line. It is
+     offered here and deliberately not repeated under phosphorus and potassium,
+     where three copies of it would be entered three times. */
   nitrogen: {
-    title: 'Nitrogen application',
-    unit: '$/acre (application only — materials not included)',
-    appliesTo: 'perAcre',
-    source: IOWA_2026,
-    note: `${IOWA_NOTE} These cover the APPLICATION only; the fertilizer itself is extra.`,
+    title: 'Nitrogen',
+    unit: '$/lb of N',
+    appliesTo: 'unit',
+    source: `${SDSU_2026} Anhydrous ammonia: ${FARMDOC_N_2026} Application rates: ${IOWA_2026}`,
+    note: 'Material and application are two separate costs. If someone else applies your fertilizer, your total for this line is a material figure plus an application figure. Picking an application rate on its own books a nitrogen line with no nitrogen in it. Every price below is South Dakota except anhydrous ammonia, which is an Illinois figure and is marked as one.',
     groups: [
+      // One entry per N source. Three of the four are priced off the same SDSU
+      // $/ton table; anhydrous is not in it, or in any South Dakota source, and
+      // comes from Illinois with the state on its own row — see
+      // FARMDOC_N_2026 above for why that is worth doing anyway.
+      //
+      // Only SINGLE-nitrogen products are here. MAP 11-52-0 and 10-34-0 are in
+      // the same table and are deliberately left out: charging a whole
+      // multi-nutrient product to nitrogen prices N at $3.64 and $3.00 a pound,
+      // five times urea, because the phosphate in the bag is being paid for on
+      // the nitrogen line. Whoever ships those has to split them first.
+      //
+      // AMS is the borderline case and it is shipped with the split stated: it
+      // supplies sulfur as well, and this app has no sulfur line, so its whole
+      // cost lands on nitrogen. Its figure is ALSO a correction — see
+      // TYPICAL-VALUES.md. The workbook divides AMS by 11% nitrogen rather than
+      // its actual 21%, a formula dragged down from the MAP row above it, which
+      // puts its published N price at $2.32 instead of $1.21. The sulfur figure
+      // on the same row is right, which is what makes the slip visible.
       {
-        label: 'Fertilizer application',
+        label: 'Cost per pound of nitrogen',
+        options: [
+          { label: 'Urea, 46-0-0', value: 0.625, desc: '$575 a ton' },
+          { label: 'UAN solution, 28-0-0', value: 0.705, desc: '$395 a ton' },
+          {
+            label: 'Ammonium sulfate, 21-0-0-24S',
+            value: 1.214,
+            desc: '$510 a ton, and it supplies sulfur as well',
+          },
+          // Last, after the three South Dakota ones, because it is the odd one
+          // out and the block above it should read as a single set. The first
+          // option is also the price the per-acre groups below were computed
+          // from, which a test pins; an out-of-state figure at the top of the
+          // list would quietly break that.
+          {
+            label: 'Anhydrous ammonia, 82-0-0, Illinois',
+            value: 0.4793,
+            desc: '$786 a ton; the state is on this row because South Dakota publishes no anhydrous price',
+          },
+        ],
+      },
+      {
+        label: 'Cost per acre, East and Central high production',
+        unit: '$/acre',
+        appliesTo: 'perAcre',
+        options: [
+          { label: 'Corn', value: 93.75, desc: '150 lb of N per acre' },
+          { label: 'Spring wheat', value: 78.13, desc: '125 lb of N per acre' },
+          { label: 'Winter wheat', value: 101.25, desc: '162 lb of N per acre' },
+        ],
+      },
+      {
+        label: 'Cost per acre, East and Central mid production',
+        unit: '$/acre',
+        appliesTo: 'perAcre',
+        options: [
+          { label: 'Corn', value: 68.75, desc: '110 lb of N per acre' },
+          { label: 'Spring wheat', value: 56.25, desc: '90 lb of N per acre' },
+          { label: 'Winter wheat', value: 68.75, desc: '110 lb of N per acre' },
+        ],
+      },
+      {
+        label: 'Cost per acre, Central and West low production',
+        unit: '$/acre',
+        appliesTo: 'perAcre',
+        options: [
+          { label: 'Corn', value: 50.0, desc: '80 lb of N per acre' },
+          { label: 'Spring wheat', value: 31.25, desc: '50 lb of N per acre' },
+          { label: 'Winter wheat', value: 53.13, desc: '85 lb of N per acre' },
+        ],
+      },
+      {
+        label: 'Application only, fertilizer not included',
+        unit: '$/acre',
+        appliesTo: 'perAcre',
         options: [
           { label: 'Anhydrous, injecting with tool bar', value: 15.55, desc: 'average; range $7–$28' },
           { label: 'Anhydrous, injecting without tool bar', value: 13.45, desc: 'average; range $8–$20' },
@@ -197,9 +386,103 @@ export const TYPICAL_VALUES = {
     ],
   },
 
+  phosphorus: {
+    title: 'Phosphorus',
+    unit: '$/lb of P2O5',
+    appliesTo: 'unit',
+    source: SDSU_2026,
+    note: 'The pounds per acre are your soil test, not ours, so the cost per pound leaves that box to you. The per-acre figures below use the rate the South Dakota budgets assume for that zone. Spreading is charged once per pass and is offered on the nitrogen line.',
+    groups: [
+      {
+        label: 'Cost per pound of phosphate',
+        options: [{ label: 'MAP 11-52-0, South Dakota', value: 0.7692 }],
+      },
+      {
+        label: 'Cost per acre, East and Central high production',
+        unit: '$/acre',
+        appliesTo: 'perAcre',
+        options: [
+          { label: 'Corn', value: 47.69, desc: '62 lb of P2O5 per acre' },
+          { label: 'Soybeans', value: 36.15, desc: '47 lb of P2O5 per acre' },
+          { label: 'Spring wheat', value: 34.62, desc: '45 lb of P2O5 per acre' },
+          { label: 'Winter wheat', value: 34.62, desc: '45 lb of P2O5 per acre' },
+        ],
+      },
+      {
+        label: 'Cost per acre, East and Central mid production',
+        unit: '$/acre',
+        appliesTo: 'perAcre',
+        options: [
+          { label: 'Corn', value: 34.62, desc: '45 lb of P2O5 per acre' },
+          { label: 'Soybeans', value: 26.92, desc: '35 lb of P2O5 per acre' },
+          { label: 'Spring wheat', value: 26.92, desc: '35 lb of P2O5 per acre' },
+          { label: 'Winter wheat', value: 26.92, desc: '35 lb of P2O5 per acre' },
+        ],
+      },
+      {
+        label: 'Cost per acre, Central and West low production',
+        unit: '$/acre',
+        appliesTo: 'perAcre',
+        options: [
+          { label: 'Corn', value: 26.92, desc: '35 lb of P2O5 per acre' },
+          { label: 'Soybeans', value: 19.23, desc: '25 lb of P2O5 per acre' },
+          { label: 'Spring wheat', value: 15.38, desc: '20 lb of P2O5 per acre' },
+          { label: 'Winter wheat', value: 23.08, desc: '30 lb of P2O5 per acre' },
+        ],
+      },
+    ],
+  },
+
+  potassium: {
+    title: 'Potassium',
+    unit: '$/lb of K2O',
+    appliesTo: 'unit',
+    source: SDSU_2026,
+    note: 'The pounds per acre are your soil test, not ours, so the cost per pound leaves that box to you. The per-acre figures below use the rate the South Dakota budgets assume for that zone. Spreading is charged once per pass and is offered on the nitrogen line.',
+    groups: [
+      {
+        label: 'Cost per pound of potash',
+        options: [{ label: 'Potash 0-0-60, South Dakota', value: 0.3917 }],
+      },
+      {
+        label: 'Cost per acre, East and Central high production',
+        unit: '$/acre',
+        appliesTo: 'perAcre',
+        options: [
+          { label: 'Corn', value: 37.21, desc: '95 lb of K2O per acre' },
+          { label: 'Soybeans', value: 25.85, desc: '66 lb of K2O per acre' },
+          { label: 'Spring wheat', value: 23.5, desc: '60 lb of K2O per acre' },
+          { label: 'Winter wheat', value: 23.5, desc: '60 lb of K2O per acre' },
+        ],
+      },
+      {
+        label: 'Cost per acre, East and Central mid production',
+        unit: '$/acre',
+        appliesTo: 'perAcre',
+        options: [
+          { label: 'Corn', value: 23.5, desc: '60 lb of K2O per acre' },
+          { label: 'Soybeans', value: 15.67, desc: '40 lb of K2O per acre' },
+          { label: 'Spring wheat', value: 19.58, desc: '50 lb of K2O per acre' },
+          { label: 'Winter wheat', value: 19.58, desc: '50 lb of K2O per acre' },
+        ],
+      },
+      {
+        label: 'Cost per acre, Central and West low production',
+        unit: '$/acre',
+        appliesTo: 'perAcre',
+        options: [
+          { label: 'Corn', value: 19.58, desc: '50 lb of K2O per acre' },
+          { label: 'Soybeans', value: 3.92, desc: '10 lb of K2O per acre' },
+          { label: 'Spring wheat', value: 11.75, desc: '30 lb of K2O per acre' },
+          { label: 'Winter wheat', value: 15.67, desc: '40 lb of K2O per acre' },
+        ],
+      },
+    ],
+  },
+
   hauling: {
     title: 'Hauling grain',
-    unit: '$/bushel',
+    unit: '$/bu',
     appliesTo: 'unit',
     // These are dollars per BUSHEL, so they only mean anything while the
     // enterprise is measured in bushels. Applying one records that on the line;
@@ -231,17 +514,174 @@ export const TYPICAL_VALUES = {
 
   drying: {
     title: 'Drying corn',
-    unit: '$/point per bushel',
+    unit: '$/point per bu',
     appliesTo: 'unit',
     quotedPerYieldUnit: 'bu',
     source: IOWA_2026,
-    note: `${IOWA_NOTE} Charged per POINT of moisture removed, per bushel. Multiply by the points you expect to remove.`,
+    note: `${IOWA_NOTE} Charged per POINT of moisture removed, per bu. Multiply by the points you expect to remove.`,
     groups: [
       {
         label: 'Drying (includes fuel, electricity, labor)',
         options: [
           { label: 'Continuous flow dryer', value: 0.055, desc: 'average; range $0.025–$0.090' },
           { label: 'Bin dryer', value: 0.05, desc: 'average; range $0.025–$0.060' },
+        ],
+      },
+    ],
+  },
+
+  /* ── Fuel and repairs ──────────────────────────────────────────────────
+     Both were asked for on the grounds that a season's fuel is genuinely hard
+     to estimate: it spans tillage, planting, spraying, harvest and trucking,
+     across machinery that reports nothing about what it burns.
+
+     SDSU is the only source checked that reports the two SEPARATELY, which is
+     what the app needs, because it keeps them on separate lines. The Iowa
+     machinery table lumps fuel, oil AND repairs into a single "variable cost"
+     per operation, and splitting that between two boxes would mean inventing
+     the ratio. */
+  fuelOil: sdsuByZone(
+    'Fuel and oil',
+    '$/acre',
+    [
+      [36, 22, 20, 20],
+      [36, 23, 26, 21],
+      [29, 27, 20, 20],
+    ],
+    {
+      note: `${SDSU_NOTE} This covers a season of field operations for the crop: tillage, planting, spraying, and harvest. Trucking beyond the farm is on the hauling line.`,
+    }
+  ),
+
+  repairs: sdsuByZone(
+    'Repairs',
+    '$/acre',
+    [
+      [66, 41, 36, 36],
+      [67, 41, 36, 34],
+      [64, 36, 33, 34],
+    ],
+    {
+      note: `${SDSU_NOTE} Machinery repairs and maintenance for the crop's field operations. What you paid to own the machine is a fixed cost and belongs in the equipment block below.`,
+    }
+  ),
+
+  cropInsurance: sdsuByZone('Crop insurance', '$/acre', [
+    [32, 26, 22, 22],
+    [31, 27, 21, 22],
+    [27, 23, 19, 18],
+  ]),
+
+  /* Insecticide is the one line SDSU cannot fill: it reports a single
+     "Pesticides/Herbicides" figure, and this app keeps insecticide separate
+     from herbicide. So it takes both neighbours, and they disagree — sharply,
+     on the crop most people here grow. Iowa budgets $25 an acre where corn
+     follows corn; the North Dakota budgets carry no insecticide on corn at all.
+
+     Both are shown, with the state named on each OPTION rather than in the
+     group headings. Which state a figure is from is a fact about that option,
+     not a citation, and it is the whole difference between $0 and $25. The $0
+     rows stay for the same reason: that is what the budget says, and dropping
+     them would show the disagreement as a gap. */
+  insecticide: {
+    title: 'Insecticide',
+    unit: '$/acre',
+    appliesTo: 'perAcre',
+    source: `${NDSU_2026} Corn and corn silage: ${IOWA_A120}`,
+    // A crop absent from this list is one whose budget carries no insecticide.
+    // That used to be spelled out as a second group of $0 rows, which was
+    // honest and useless: a button that fills a box with nothing is a tap to
+    // achieve what leaving the line alone already does.
+    groups: [
+      {
+        label: 'Row crops',
+        options: [
+          { label: 'Corn following corn, Iowa', value: 25.0, desc: 'rootworm' },
+          { label: 'Corn silage, Iowa', value: 25.0, desc: 'rootworm' },
+          { label: 'Soybeans, North Dakota', value: 4.0 },
+          { label: 'Field peas, North Dakota', value: 6.0 },
+          { label: 'Oil sunflower, North Dakota', value: 5.0 },
+          { label: 'Confection sunflower, North Dakota', value: 10.0 },
+        ],
+      },
+    ],
+  },
+
+  /* ── Seed ──────────────────────────────────────────────────────────────
+     Two pickers, because the seed line asks two different questions.
+
+     `seed` fills a price. `seedsPerBag` fills the denominator of the population
+     mode, and is also the one figure in this app that can arrive without being
+     asked for — see autofillSeedsPerUnit() in main.js and the SEED_CROPS table
+     below. */
+  seed: {
+    title: 'Seed',
+    unit: '$/unit of seed',
+    appliesTo: 'unit',
+    source: SDSU_2026,
+    note: 'Corn and soybeans are priced per bag, wheat by weight. Switch the line to "seeds/ac" if you would rather enter the population you plant at than work out units per acre.',
+    groups: [
+      {
+        // Corn is published per THOUSAND seeds ($3.80) and is converted here to
+        // the 80,000-seed bag it is actually bought in, x80. One denomination
+        // per crop: two ways of quoting the same corn seed, sitting next to each
+        // other on a list, is a choice a producer has to work out before they
+        // can answer, and picking the wrong one is off by a factor of eighty.
+        label: 'Cost per bag or unit of seed',
+        options: [
+          { label: 'Corn, per 80,000-seed bag', value: 304.0 },
+          { label: 'Soybeans, per 140,000-seed bag', value: 51.0 },
+          { label: 'Spring wheat, per hundredweight', value: 21.0 },
+          { label: 'Winter wheat, per hundredweight', value: 20.0 },
+        ],
+      },
+      {
+        label: 'Cost per acre, East and Central high production',
+        unit: '$/acre',
+        appliesTo: 'perAcre',
+        options: [
+          { label: 'Corn', value: 125.4, desc: '33,000 seeds per acre' },
+          { label: 'Soybeans', value: 71.4, desc: '1.4 units per acre' },
+          { label: 'Spring wheat', value: 25.2 },
+          { label: 'Winter wheat', value: 19.2 },
+        ],
+      },
+      {
+        label: 'Cost per acre, East and Central mid production',
+        unit: '$/acre',
+        appliesTo: 'perAcre',
+        options: [
+          { label: 'Corn', value: 117.8, desc: '31,000 seeds per acre' },
+          { label: 'Soybeans', value: 61.2, desc: '1.2 units per acre' },
+          { label: 'Spring wheat', value: 25.2 },
+          { label: 'Winter wheat', value: 19.2 },
+        ],
+      },
+      {
+        label: 'Cost per acre, Central and West low production',
+        unit: '$/acre',
+        appliesTo: 'perAcre',
+        options: [
+          { label: 'Corn', value: 87.4, desc: '23,000 seeds per acre' },
+          { label: 'Soybeans', value: 61.2, desc: '1.2 units per acre' },
+          { label: 'Spring wheat', value: 25.2 },
+          { label: 'Winter wheat', value: 19.2 },
+        ],
+      },
+    ],
+  },
+
+  seedsPerBag: {
+    title: 'Seeds per bag or unit',
+    unit: 'seeds',
+    source: `${SDSU_2026} Bag and unit sizes: ${IOWA_A120}`,
+    note: 'The size of one bag or unit of seed. Use the price you pay for that same bag in the first box.',
+    groups: [
+      {
+        label: 'Standard bag or unit',
+        options: [
+          { label: 'Corn', value: 80000 },
+          { label: 'Soybeans', value: 140000 },
         ],
       },
     ],
@@ -713,6 +1153,57 @@ export const BUILDING_CATALOG = [
   { name: 'Livestock water system', category: 'building' },
   { name: 'Commodity shed', category: 'building' },
 ]
+
+/**
+ * Crops whose seed is sold BY SEED COUNT, and the size of one unit.
+ *
+ * Two entries, and the shortness of the list is a finding rather than a gap.
+ * Corn and soybeans are sold by seed count, so a planting population divides
+ * cleanly into a cost. (Both state budgets happen to PRICE corn per thousand
+ * seeds; the pickers convert that to the 80,000-seed bag it is bought in, so
+ * one denomination is offered per crop rather than two. See TYPICAL-VALUES.md.)
+ * Wheat, oats and barley are priced BY WEIGHT — the South Dakota
+ * budgets quote them per hundredweight — so a seeds-per-unit figure is not a
+ * thing they have, and the line's ordinary $/unit × units per acre mode is
+ * already the right shape for them. Sunflower and sorghum are absent from every
+ * source checked: the North Dakota budgets give a seed cost per acre with no
+ * seeding rate behind it, and South Dakota does not budget them at all.
+ *
+ * So nothing is guessed here. A crop not on this list gets no suggestion, which
+ * is the same answer this file gives everywhere it has no citation.
+ *
+ * `terms` are matched against whatever the producer typed in the Crop box.
+ * "Corn silage" and "seed corn" both land on corn, which is right: they are
+ * bought in the same bags.
+ */
+export const SEED_CROPS = [
+  { label: 'Corn', seedsPerUnit: 80000, terms: ['corn', 'maize'] },
+  { label: 'Soybeans', seedsPerUnit: 140000, terms: ['soybean', 'soy bean', 'soybeans', 'soy'] },
+]
+
+/**
+ * The seed crop a free-typed crop name names, or null when nothing matches.
+ *
+ * Deliberately stricter than matchCategory(), which also matches when the
+ * CATALOG entry contains the query — that is right for a type-ahead offering
+ * suggestions, and wrong here, where a match writes a number into a box. Two
+ * characters of "co" must not resolve to corn and fill in 80,000.
+ */
+export function matchCrop(text) {
+  const q = String(text || '').trim().toLowerCase()
+  if (q.length < 3) return null
+  let best = null
+  let bestLength = 0
+  for (const crop of SEED_CROPS) {
+    for (const term of crop.terms) {
+      if (term.length > bestLength && q.includes(term)) {
+        best = crop
+        bestLength = term.length
+      }
+    }
+  }
+  return best
+}
 
 /** Best category match for a free-typed name, or '' when nothing matches. */
 export function matchCategory(name, catalog = EQUIPMENT_CATALOG) {

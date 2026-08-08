@@ -634,3 +634,120 @@ describe('preharvest interest basis excludes hauling/drying/marketing', () => {
     assert.equal(out.preharvestBasis, 0, 'basis should be exactly 0 when only postharvest lines are nonzero')
   })
 })
+
+/* ══════════════════════════════════════════════════════════════════════════
+   The v6 entry modes, under the same poison
+   ══════════════════════════════════════════════════════════════════════════ */
+
+describe('the population and total modes never produce NaN/Infinity', () => {
+  // Same table as the block at the top of this file. These two modes introduced
+  // the first DIVISION inside a variable expense line, which is exactly the
+  // shape that turns two finite inputs into Infinity and then, one multiply
+  // later, into "NaN" on a producer's screen.
+  const poisonValues = [
+    '', 'abc', '3.', '-', '1e400', '-1e400', '0.1', ' 5 ', null, undefined,
+    [], [5], {}, { a: 1 }, 'NaN', 'Infinity', '-Infinity', '$5', '1,000',
+    '007', '  ', '5px', true, false, () => 5, 0, -0, -1,
+  ]
+
+  for (const poison of poisonValues) {
+    test(`seed.seedsPerBag = ${JSON.stringify(poison)}`, () => {
+      // The divisor. safeDiv guards an exact zero; everything else has to come
+      // through num() finite or this is the one that breaks.
+      const s = deepClone(fixtureScenario)
+      s.enterprises[0].variable.seed = {
+        mode: 'population',
+        costPerBag: 285,
+        population: 33000,
+        seedsPerBag: poison,
+      }
+      assertAllFinite(calcScenario(s), `seedsPerBag=${JSON.stringify(poison)}`)
+    })
+
+    test(`seed.population = ${JSON.stringify(poison)}`, () => {
+      const s = deepClone(fixtureScenario)
+      s.enterprises[0].variable.seed = {
+        mode: 'population',
+        costPerBag: 285,
+        population: poison,
+        seedsPerBag: 80000,
+      }
+      assertAllFinite(calcScenario(s), `population=${JSON.stringify(poison)}`)
+    })
+
+    test(`cropInsurance.totalCost = ${JSON.stringify(poison)}`, () => {
+      const s = deepClone(fixtureScenario)
+      s.enterprises[0].variable.cropInsurance = { mode: 'total', totalCost: poison }
+      assertAllFinite(calcScenario(s), `totalCost=${JSON.stringify(poison)}`)
+    })
+
+    test(`acres = ${JSON.stringify(poison)} with a total-mode premium`, () => {
+      // The other divisor, and the one that varies independently of the line.
+      const s = deepClone(fixtureScenario)
+      s.enterprises[0].acres = poison
+      s.enterprises[0].variable.cropInsurance = { mode: 'total', totalCost: 3200 }
+      assertAllFinite(calcScenario(s), `acres=${JSON.stringify(poison)}`)
+    })
+  }
+
+  test('an overflow in the numerator collapses to 0, as everywhere else', () => {
+    // costPerBag x population can exceed Number.MAX_VALUE with both inputs
+    // finite. finite() catches it before safeDiv sees it.
+    const s = deepClone(fixtureScenario)
+    s.enterprises[0].variable.seed = {
+      mode: 'population',
+      costPerBag: 1e308,
+      population: 1e308,
+      seedsPerBag: 1,
+    }
+    const out = calcScenario(s)
+    assertAllFinite(out, 'population overflow')
+    assert.equal(out.enterprises[0].lines.seed, 0)
+  })
+
+  test('a mode nobody recognises falls back to the sheet, never to zero', () => {
+    // A hand-edited file or a future key. Falling back to 0 would silently erase
+    // a real cost, the same failure perYearFactor() returns 1 to avoid.
+    const line = { mode: 'wat', costPerUnit: 10, unitsPerAcre: 3 }
+    assert.equal(linePerAcre(line), 30)
+  })
+
+  test('the new modes are ignored while the line is set to another', () => {
+    // Each mode reads only its own keys, so switching back and forth round-trips
+    // and a stale figure in an unused mode can never leak into a total.
+    const line = {
+      mode: 'unit',
+      costPerUnit: 10,
+      unitsPerAcre: 3,
+      perAcre: 99,
+      costPerBag: 285,
+      population: 33000,
+      seedsPerBag: 80000,
+      totalCost: 5000,
+    }
+    assert.equal(linePerAcre(line, 100), 30)
+    assert.equal(linePerAcre({ ...line, mode: 'perAcre' }, 100), 99)
+    assert.equal(linePerAcre({ ...line, mode: 'population' }, 100), 117.5625)
+    assert.equal(linePerAcre({ ...line, mode: 'total' }, 100), 50)
+  })
+
+  test('a negative figure in either new mode is worth zero, never a credit', () => {
+    // The invariant the whole suite asserts: treating a typo as $0 can RAISE
+    // profit, because it removes a real cost. What must never happen is a
+    // negative expense being handed back as income.
+    for (const line of [
+      { mode: 'population', costPerBag: -285, population: 33000, seedsPerBag: 80000 },
+      { mode: 'population', costPerBag: 285, population: -33000, seedsPerBag: 80000 },
+      { mode: 'total', totalCost: -3200 },
+    ]) {
+      const s = deepClone(fixtureScenario)
+      s.enterprises[0].variable.seed = { mode: 'perAcre', perAcre: 0 }
+      s.enterprises[0].variable.cropInsurance = line.mode === 'total' ? line : { mode: 'perAcre', perAcre: 0 }
+      if (line.mode === 'population') s.enterprises[0].variable.seed = line
+      const out = calcScenario(s)
+      assertAllFinite(out, JSON.stringify(line))
+      const key = line.mode === 'total' ? 'cropInsurance' : 'seed'
+      assert.equal(out.enterprises[0].lines[key], 0, `${JSON.stringify(line)} counted as $0`)
+    }
+  })
+})

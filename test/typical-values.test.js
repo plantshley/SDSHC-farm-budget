@@ -11,7 +11,14 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { TYPICAL_VALUES, EQUIPMENT_CATALOG, BUILDING_CATALOG, matchCategory } from '../src/data/typical-values.js'
+import {
+  TYPICAL_VALUES,
+  EQUIPMENT_CATALOG,
+  BUILDING_CATALOG,
+  SEED_CROPS,
+  matchCategory,
+  matchCrop,
+} from '../src/data/typical-values.js'
 import { YIELD_UNITS } from '../src/ui/enterprise.js'
 
 const specs = Object.entries(TYPICAL_VALUES)
@@ -98,12 +105,35 @@ describe('every typical value is citable and well formed', () => {
   })
 
   test('an entry-mode claim is one the line UI can honour', () => {
+    // Checked at BOTH levels. A spec may declare `appliesTo` per group, because
+    // phosphorus is published as a price per pound and as a cost per acre and
+    // both are worth offering — and a group's claim decides which box the value
+    // lands in, so a typo there is a figure written into the wrong field and
+    // multiplied by a rate a second time.
     for (const [key, spec] of specs) {
-      if (!spec.appliesTo) continue
-      assert.ok(
-        spec.appliesTo === 'perAcre' || spec.appliesTo === 'unit',
-        `${key} appliesTo must name an entry mode`
-      )
+      const claims = [spec.appliesTo, ...spec.groups.map((g) => g.appliesTo)]
+      for (const claim of claims) {
+        if (!claim) continue
+        assert.ok(
+          claim === 'perAcre' || claim === 'unit',
+          `${key} appliesTo must name an entry mode, got "${claim}"`
+        )
+      }
+    }
+  })
+
+  test('a group quoted in its own unit also says which box it belongs in', () => {
+    // The two travel together. A group that overrides the unit but not the
+    // entry mode prints "$/acre" over figures that land in the cost-per-unit
+    // box, which is the exact mismatch the unit line exists to prevent.
+    for (const [key, spec] of specs) {
+      for (const g of spec.groups) {
+        if (g.unit == null) continue
+        assert.ok(
+          g.appliesTo,
+          `${key} group "${g.label}" overrides the unit and must also declare appliesTo`
+        )
+      }
     }
   })
 
@@ -438,5 +468,385 @@ describe('equipment name matching only ever filters', () => {
     assert.equal(matchCategory('John Deere 1770 planter'), 'planting')
     assert.equal(matchCategory('no-till drill'), 'planting')
     assert.equal(matchCategory('something nobody sells'), '')
+  })
+})
+
+/* ══════════════════════════════════════════════════════════════════════════
+   South Dakota crop budgets
+   ══════════════════════════════════════════════════════════════════════════ */
+
+describe('South Dakota crop budgets, as published', () => {
+  // Re-transcribed from the workbook rather than read back out of the module,
+  // the same way the FINBIN block above does it. A test that reads the figure
+  // from the code it is checking proves only that the code is self-consistent.
+  //
+  // Source: SDSU Extension, 2026 Crop Production Budgets (P-00138-2026), sheets
+  // "East & Central High Production", "East & Central Mid Production" and
+  // "Central & West Low Production". Columns are corn, soybeans, spring wheat,
+  // winter wheat, in the workbook's own order.
+  const PUBLISHED = {
+    fuelOil: [
+      [36, 22, 20, 20],
+      [36, 23, 26, 21],
+      [29, 27, 20, 20],
+    ],
+    repairs: [
+      [66, 41, 36, 36],
+      [67, 41, 36, 34],
+      [64, 36, 33, 34],
+    ],
+    cropInsurance: [
+      [32, 26, 22, 22],
+      [31, 27, 21, 22],
+      [27, 23, 19, 18],
+    ],
+  }
+
+  const CROPS = ['Corn', 'Soybeans', 'Spring wheat', 'Winter wheat']
+
+  for (const [key, table] of Object.entries(PUBLISHED)) {
+    test(`${key} matches the workbook, zone by zone`, () => {
+      const spec = TYPICAL_VALUES[key]
+      assert.ok(spec, `${key} is shipped`)
+      assert.equal(spec.groups.length, 3, 'one group per production zone')
+      table.forEach((row, z) => {
+        const options = spec.groups[z].options
+        assert.deepEqual(
+          options.map((o) => o.label),
+          CROPS,
+          `${key} zone ${z} offers every crop the budget covers`
+        )
+        assert.deepEqual(
+          options.map((o) => o.value),
+          row,
+          `${key} zone ${z}`
+        )
+      })
+    })
+  }
+
+  test('the three zones are named in the workbook order', () => {
+    // High, mid, low. A producer picking "the middle one" off a list that has
+    // been reordered gets a different farm's costs.
+    for (const key of Object.keys(PUBLISHED)) {
+      const labels = TYPICAL_VALUES[key].groups.map((g) => g.label)
+      assert.match(labels[0], /high production/i, key)
+      assert.match(labels[1], /mid production/i, key)
+      assert.match(labels[2], /low production/i, key)
+    }
+  })
+
+  test('the citation names the publisher, the file number, and the author', () => {
+    for (const key of [...Object.keys(PUBLISHED), 'phosphorus', 'potassium', 'seed']) {
+      const source = TYPICAL_VALUES[key].source
+      assert.match(source, /SDSU Extension/, key)
+      assert.match(source, /P-00138-2026/, key)
+      assert.match(source, /Sellars/, key)
+    }
+  })
+
+  test('these carry no "not South Dakota" caveat, because they are', () => {
+    // The Iowa lists have to warn that they are Iowa. These are the reason that
+    // caveat exists, and repeating it here would be false.
+    for (const key of Object.keys(PUBLISHED)) {
+      assert.doesNotMatch(TYPICAL_VALUES[key].note ?? '', /not South Dakota/i, key)
+    }
+  })
+})
+
+describe('the three nutrients are offered on the same terms', () => {
+  // A picker that quotes a price per pound for potash and nothing at all for
+  // nitrogen invites a budget with two nutrients costed and one left blank.
+  const NUTRIENTS = ['nitrogen', 'phosphorus', 'potassium']
+
+  // $/lb of NUTRIENT, derived the way the workbook's own "Input Assumptions"
+  // sheet derives them: price per ton, over 2000, over the analysis. Urea is
+  // 46% N at $575/ton, MAP 11-52-0 is 52% P2O5 at $800, potash 0-0-60 is 60%
+  // K2O at $470. Written out rather than pasted so the arithmetic is checkable.
+  const PRICE_PER_LB = {
+    nitrogen: 575 / 2000 / 0.46,
+    phosphorus: 800 / 2000 / 0.52,
+    potassium: 470 / 2000 / 0.6,
+  }
+
+  test('each offers a price per pound and a cost per acre', () => {
+    for (const key of NUTRIENTS) {
+      const spec = TYPICAL_VALUES[key]
+      const modes = new Set(spec.groups.map((g) => g.appliesTo ?? spec.appliesTo))
+      assert.ok(modes.has('unit'), `${key} offers a per-pound price`)
+      assert.ok(modes.has('perAcre'), `${key} offers a per-acre cost`)
+    }
+  })
+
+  test('the per-pound price is the one the workbook publishes', () => {
+    for (const key of NUTRIENTS) {
+      const spec = TYPICAL_VALUES[key]
+      const perLb = spec.groups.find((g) => (g.appliesTo ?? spec.appliesTo) === 'unit')
+      // Nitrogen offers a choice of source; the other two are one product each.
+      // Whichever is FIRST has to be the one the per-acre figures below were
+      // computed from, or the two halves of the picker disagree.
+      // A tenth of a cent: the shipped figure is rounded for the data file and
+      // the picker prints three decimals, but it has to be close enough that
+      // rate x price still lands on the per-acre figures.
+      assert.ok(
+        Math.abs(perLb.options[0].value - PRICE_PER_LB[key]) < 0.001,
+        `${key}: shipped ${perLb.options[0].value}, workbook ${PRICE_PER_LB[key]}`
+      )
+    }
+  })
+
+  test('every nitrogen source is priced off its own analysis', () => {
+    // Four products, and the arithmetic is the same each time: price per ton,
+    // over 2000, over the percentage of N in the bag. Written out so a future
+    // addition has a worked example to copy.
+    const SOURCES = {
+      'Urea, 46-0-0': 575 / 2000 / 0.46,
+      'UAN solution, 28-0-0': 395 / 2000 / 0.28,
+      // NOT the workbook's own figure. It divides AMS by 11% nitrogen, a formula
+      // dragged down from the MAP row above it, and publishes $2.32. AMS is 21%
+      // N. The sulfur figure on the same row is right, which is what makes the
+      // slip visible rather than merely suspicious. See TYPICAL-VALUES.md.
+      'Ammonium sulfate, 21-0-0-24S': 510 / 2000 / 0.21,
+      // The one figure here that is not South Dakota's, from a different
+      // publication and with the state on its own label. Nothing in South
+      // Dakota prices anhydrous, and it is the cheapest nitrogen per pound and
+      // the one most corn acres actually get, so leaving it off the list left
+      // the picker missing the product a producer is most likely to be pricing.
+      'Anhydrous ammonia, 82-0-0, Illinois': 786 / 2000 / 0.82,
+    }
+    const offered = TYPICAL_VALUES.nitrogen.groups
+      .filter((g) => (g.appliesTo ?? TYPICAL_VALUES.nitrogen.appliesTo) === 'unit')
+      .flatMap((g) => g.options)
+
+    assert.deepEqual(
+      offered.map((o) => o.label),
+      Object.keys(SOURCES),
+      'every N source offered is one this test knows how to check'
+    )
+    for (const o of offered) {
+      assert.ok(
+        Math.abs(o.value - SOURCES[o.label]) < 0.001,
+        `${o.label}: shipped ${o.value}, derived ${SOURCES[o.label].toFixed(4)}`
+      )
+    }
+  })
+
+  test('no multi-nutrient product is priced as if it were all nitrogen', () => {
+    // MAP 11-52-0 and 10-34-0 are in the same table and are deliberately absent.
+    // Charging a whole multi-nutrient product to nitrogen prices N at $3.64 and
+    // $3.00 a pound, five times urea, because the phosphate in the bag is being
+    // paid for on the nitrogen line.
+    const offered = TYPICAL_VALUES.nitrogen.groups
+      .filter((g) => (g.appliesTo ?? TYPICAL_VALUES.nitrogen.appliesTo) === 'unit')
+      .flatMap((g) => g.options)
+    for (const o of offered) {
+      assert.ok(o.value < 2, `${o.label} at $${o.value}/lb of N is a whole blend charged to N`)
+    }
+  })
+
+  test('every per-acre figure is its zone rate times that price', () => {
+    // The check that catches a transcription slip: each option's caption states
+    // the pounds per acre it came from, so the figure and its own explanation
+    // have to agree.
+    //
+    // One cent, not half a cent. Spring wheat's nitrogen works out to exactly
+    // $78.125, which rounds to 78.12 or 78.13 depending on which convention you
+    // reach for, and both are right. A cent is still three orders of magnitude
+    // tighter than any real transcription error, which moves dollars.
+    for (const key of NUTRIENTS) {
+      const spec = TYPICAL_VALUES[key]
+      for (const g of spec.groups) {
+        // Material groups only. Nitrogen's application group is also per acre
+        // and is a different quantity entirely: the charge for putting
+        // fertilizer on, with no pounds of nutrient in it to multiply.
+        if (!/^Cost per acre/.test(g.label)) continue
+        for (const o of g.options) {
+          const lb = Number(/^(\d+(?:\.\d+)?) lb/.exec(o.desc ?? '')?.[1])
+          assert.ok(Number.isFinite(lb), `${key} ${o.label} states the rate it came from`)
+          const expected = lb * PRICE_PER_LB[key]
+          assert.ok(
+            Math.abs(o.value - expected) <= 0.01,
+            `${key} ${g.label} ${o.label}: ${o.value} should be ${lb} lb x price = ${expected.toFixed(4)}`
+          )
+        }
+      }
+    }
+  })
+
+  test('the three nutrients reconcile to the workbook’s own fertilizer line', () => {
+    // THIS is the test that says the per-acre figures are legitimate rather
+    // than merely arithmetic. The workbook does not publish a cost per nutrient
+    // — it publishes ONE Fertilizer line per crop — so these are derived, and
+    // TYPICAL-VALUES.md is explicit that a derived rate has to be checked
+    // against a line whose right answer is already known.
+    //
+    // N + P2O5 + K2O, at the rates and prices above, reproduces that published
+    // Fertilizer figure to the cent for every crop that takes no sulfur. Corn
+    // is excluded because it does, and this app has no sulfur line.
+    //
+    // Published Fertilizer, from the three zone sheets: soybeans, spring wheat,
+    // winter wheat.
+    const PUBLISHED_FERTILIZER = [
+      [62.0038, 136.2404, 159.3654],
+      [42.5897, 102.7564, 115.2564],
+      [23.1474, 58.3846, 91.8686],
+    ]
+    // The workbook's own rates, same three crops, same zone order.
+    const RATES = {
+      nitrogen: [[0, 125, 162], [0, 90, 110], [0, 50, 85]],
+      phosphorus: [[47, 45, 45], [35, 35, 35], [25, 20, 30]],
+      potassium: [[66, 60, 60], [40, 50, 50], [10, 30, 40]],
+    }
+
+    PUBLISHED_FERTILIZER.forEach((zone, z) => {
+      zone.forEach((published, c) => {
+        const derived = NUTRIENTS.reduce(
+          (sum, key) => sum + RATES[key][z][c] * PRICE_PER_LB[key],
+          0
+        )
+        assert.ok(
+          Math.abs(derived - published) < 0.01,
+          `zone ${z} crop ${c}: N+P+K came to ${derived.toFixed(4)}, workbook says ${published}`
+        )
+      })
+    })
+  })
+
+  test('nitrogen alone carries an application group, and says it is separate', () => {
+    // Application is a different quantity from material: the charge for putting
+    // fertilizer on, with no fertilizer in it. Picking one and stopping books a
+    // nitrogen line with no nitrogen in it.
+    const application = TYPICAL_VALUES.nitrogen.groups.filter((g) =>
+      /application only/i.test(g.label)
+    )
+    assert.equal(application.length, 1)
+    assert.match(TYPICAL_VALUES.nitrogen.note, /separate/i)
+
+    // Spreading is quoted ONCE per pass. Offering it under all three nutrients
+    // would have it entered three times.
+    for (const key of ['phosphorus', 'potassium']) {
+      assert.equal(
+        TYPICAL_VALUES[key].groups.some((g) => /application/i.test(g.label)),
+        false,
+        `${key} does not repeat the spreading charge`
+      )
+      assert.match(TYPICAL_VALUES[key].note, /nitrogen line/i, `${key} says where it is`)
+    }
+  })
+})
+
+describe('insecticide, where the two states disagree', () => {
+  test('both publications are named in the one source', () => {
+    const spec = TYPICAL_VALUES.insecticide
+    assert.match(spec.source, /North Dakota/i)
+    assert.match(spec.source, /Iowa/i)
+  })
+
+  test('the state is on the option, never in the group heading', () => {
+    // Which state a figure is from is the whole difference between $0 and $25,
+    // so it has to be visible on the row being chosen. It goes on the OPTION
+    // because a group label naming a publication is a citation, and citations
+    // belong in the source footer.
+    const spec = TYPICAL_VALUES.insecticide
+    for (const g of spec.groups) {
+      assert.doesNotMatch(g.label, /Iowa|North Dakota|NDSU|SDSU/i, `group "${g.label}"`)
+      for (const o of g.options) {
+        assert.match(o.label, /Iowa|North Dakota/, `option "${o.label}" names its state`)
+      }
+    }
+  })
+
+  test('no option fills the box with nothing', () => {
+    // The crops whose budgets carry no insecticide used to be listed as a group
+    // of $0 rows. Honest, and useless: a button that writes nothing is a tap to
+    // achieve what leaving the line alone already does, and it padded the
+    // picker with three rows nobody would ever choose. A crop absent from this
+    // list is one budgeted without an insecticide.
+    const all = TYPICAL_VALUES.insecticide.groups.flatMap((g) => g.options)
+    for (const o of all) {
+      assert.ok(o.value > 0, `"${o.label}" offers $${o.value}`)
+    }
+    assert.ok(
+      all.some((o) => o.value === 25),
+      'the Iowa corn figure is still there'
+    )
+  })
+})
+
+describe('seed, and the two crops sold by seed count', () => {
+  test('only crops with a published seeding rate are offered', () => {
+    // Wheat, oats and barley are priced BY WEIGHT, so a seeds-per-unit figure
+    // is not a thing they have. Sunflower and sorghum are absent from every
+    // source checked. Nothing here is guessed to fill the list out.
+    assert.deepEqual(
+      SEED_CROPS.map((c) => c.label),
+      ['Corn', 'Soybeans']
+    )
+    for (const crop of SEED_CROPS) {
+      assert.ok(Number.isFinite(crop.seedsPerUnit) && crop.seedsPerUnit > 0, crop.label)
+      assert.ok(crop.terms.length, crop.label)
+    }
+  })
+
+  test('one denomination per crop, and it is the bag it is bought in', () => {
+    // Corn is PUBLISHED per thousand seeds and was offered that way alongside
+    // the 80,000-seed bag. Two ways of quoting the same corn seed, sitting next
+    // to each other on one list, is a choice a producer has to work out before
+    // they can answer — and picking the wrong one is off by a factor of eighty
+    // with no way to see it. The published price is converted instead.
+    const values = TYPICAL_VALUES.seedsPerBag.groups.flatMap((g) => g.options.map((o) => o.value))
+    assert.deepEqual(
+      values.sort((a, b) => a - b),
+      [80000, 140000]
+    )
+    assert.equal(values.length, SEED_CROPS.length, 'one per crop, no alternatives')
+  })
+
+  test('the seed price is quoted against the bag the picker offers', () => {
+    // The two pickers fill the two halves of one multiplication, so their
+    // denominations have to agree. SDSU publishes corn at $3.80 per thousand;
+    // an 80,000-seed bag is that x80.
+    const prices = TYPICAL_VALUES.seed.groups[0].options
+    const corn = prices.find((o) => /^Corn/.test(o.label))
+    assert.match(corn.label, /80,000/, 'the price names the bag it is for')
+    assert.ok(Math.abs(corn.value - 3.8 * 80) < 0.01, `corn at ${corn.value} should be 3.80 x 80`)
+
+    const soy = prices.find((o) => /^Soybeans/.test(o.label))
+    assert.match(soy.label, /140,000/)
+    assert.equal(soy.value, 51.0)
+  })
+
+  test('nothing anywhere still quotes seed per thousand', () => {
+    // The per-thousand denomination was removed from both pickers, so a
+    // leftover mention of it in a note or a caption would send a producer
+    // looking for an option that is not there.
+    const spec = TYPICAL_VALUES.seedsPerBag
+    const text = [
+      spec.note,
+      ...spec.groups.map((g) => g.label),
+      ...spec.groups.flatMap((g) => g.options.map((o) => `${o.label} ${o.desc ?? ''}`)),
+      TYPICAL_VALUES.seed.note,
+      ...TYPICAL_VALUES.seed.groups[0].options.map((o) => o.label),
+    ].join(' ')
+    assert.doesNotMatch(text, /per thousand|1,000 seed|per 1,000/i)
+  })
+
+  test('a crop match is strict enough not to fire on two letters', () => {
+    // matchCategory() also matches when the CATALOG entry contains the query,
+    // which is right for a type-ahead and wrong here: this one WRITES a number
+    // into a box, so "co" must not resolve to corn and fill in 80,000.
+    assert.equal(matchCrop('co'), null)
+    assert.equal(matchCrop('cor'), null, 'a prefix is not a match')
+    assert.equal(matchCrop(''), null)
+    assert.equal(matchCrop(null), null)
+    assert.equal(matchCrop('sorghum'), null, 'a crop with no published rate gets nothing')
+  })
+
+  test('a crop match reads the way producers write a crop', () => {
+    assert.equal(matchCrop('Corn')?.seedsPerUnit, 80000)
+    assert.equal(matchCrop('corn silage')?.seedsPerUnit, 80000, 'bought in the same bags')
+    assert.equal(matchCrop('Seed corn, north quarter')?.seedsPerUnit, 80000)
+    assert.equal(matchCrop('Soybeans')?.seedsPerUnit, 140000)
+    assert.equal(matchCrop('soybean, no-till')?.seedsPerUnit, 140000)
   })
 })

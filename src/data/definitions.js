@@ -204,6 +204,23 @@ export const DEFINITIONS = {
       'A negative number is not a calculation error. It means the enterprises as entered are not covering the full cost of the land, labor, and machinery behind them.',
     ],
   },
+
+  // Not a budget term, and it opens from the footer rather than from a `?`
+  // beside a field. It belongs here because it is the same kind of thing: a
+  // read-only explanation that changes no number. Producers are being asked to
+  // type their yields, their prices, and their land rent into a web page at a
+  // workshop, and the honest answer to "who can see this?" should be one tap
+  // away rather than something they have to ask a person about.
+  privacy: {
+    title: 'Where your budgets live',
+    body: [
+      'Everything you enter stays on this device, in this browser. It is not sent anywhere and it is not stored on any server.',
+      'The South Dakota Soil Health Coalition cannot see your budgets. Nobody can, except someone using this device.',
+      'Your saved budgets will not appear on your other phone or computer, and they are not shared with anyone.',
+      'To move a budget to another device, or to give one to somebody else, use "Save budget file" to download it and "Upload a budget file" on the Saved tab to read it back in. That file is the only thing that ever leaves this device, and only when you download it yourself.',
+      'Because the budgets live in this browser, clearing your browsing data deletes them. Save a file for anything you want to keep.',
+    ],
+  },
 }
 
 /**

@@ -152,6 +152,23 @@ function migrate(scenario) {
     scenario.schemaVersion = 5
   }
 
+  // v5 → v6: two variable expense lines gained a third entry mode and the keys
+  // it reads — seed's `costPerBag` / `seedsPerBag` / `population` (plus the
+  // `seedsPerBagAuto` provenance marker), and crop insurance's `totalCost`.
+  //
+  // Nothing is written here, for the v2 → v3 reason and one more besides. The
+  // keys are only ever read while the line's `mode` names them, and a v5 budget
+  // has no line set to either new mode, so they cannot be reached. Seeding them
+  // as empty strings would rewrite every stored record to add fields nothing
+  // will look at, and `seedsPerBagAuto` in particular must NOT be invented: it
+  // means "the app put this number here, so the app may replace it", and
+  // stamping it onto figures a producer typed would hand their own work to the
+  // clearing logic. Absent is the only correct value for a budget that predates
+  // the feature.
+  if (Number(scenario.schemaVersion) < 6) {
+    scenario.schemaVersion = 6
+  }
+
   return scenario
 }
 
