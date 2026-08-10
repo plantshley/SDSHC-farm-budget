@@ -851,11 +851,19 @@ input.invalid {
 /* File-folder tabs rather than free-floating pills: the tab and the content
    under it are visibly one object, so "Saved" reads as another drawer of the
    same thing rather than a separate button that might do something. */
+/* `margin-left: auto`, not `justify-content` on the parent. The header holds
+   the budget name AND the tabs on the Budget screen but ONLY the tabs on the
+   Saved one — the name belongs to the budget being edited, and on the Saved tab
+   every row carries its own. `space-between` therefore put the tabs at the
+   right-hand end on one screen and hard against the left on the other, so they
+   jumped across the page as you switched between them. An auto margin absorbs
+   the free space whatever else is on the row, and the tabs stay put. */
 .app-nav {
   display: flex;
   gap: 4px;
   align-items: flex-end;
   margin-bottom: -1px;
+  margin-left: auto;
   flex: 0 0 auto;
 }
 
@@ -991,6 +999,53 @@ input.invalid {
   font-size: 12px;
   color: var(--muted);
   white-space: nowrap;
+}
+
+/* The two figures a folded card is folded AROUND: what the crop makes an acre,
+   and what it makes altogether. Hidden while the card is open, where both are
+   already readout rows a few inches below — the same rule .fold-sub follows on
+   the fixed block, and for the same reason: one number twice on one card reads
+   as two numbers that disagree.
+
+   Each figure is nowrap so a money amount never breaks away from its own label,
+   while the block itself is free to stack. Widening this means --fold-h has to
+   move with it; the shut card clips rather than growing. */
+.ent-fold-sub {
+  display: none;
+}
+
+.ent.collapsed .ent-fold-sub {
+  display: block;
+  margin-top: 3px;
+}
+
+.ent-fig {
+  display: block;
+  white-space: nowrap;
+}
+
+/* A point smaller than the figure beside it, so the money is what the eye lands
+   on. The labels are the full names the open card uses -- "Enterprise gross
+   margin: $12,345" is the longest line a shut card carries, and .ent.collapsed's
+   width is set to hold it without clipping. */
+.ent-fig-key {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+/* The figure itself carries the tone, so it needs to out-rank .ent-sub's muted
+   grey. Green for money that is there, red for money that is not — the same
+   pairing as the KPI cards, which is what makes a folded card scannable. */
+.ent-fold-sub [data-out] {
+  color: var(--text);
+}
+
+.ent-fold-sub [data-out].pos {
+  color: var(--save);
+}
+
+.ent-fold-sub [data-out].neg {
+  color: var(--cost);
 }
 
 /* ---- folding (enterprises and the fixed-cost block) -------------------- */
@@ -2518,15 +2573,22 @@ input.invalid {
   min-height: 0;
 }
 
+/* A column now: the title row, and under it the one message that must not be
+   able to scroll away. The head is `flex: 0 0 auto` in a modal whose BODY does
+   the scrolling, which is exactly why the error was moved up here. */
 .modal-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  display: block;
   padding: 14px 16px;
   border-bottom: 1px solid var(--border);
   background: var(--card);
   border-radius: var(--radius) var(--radius) 0 0;
   flex: 0 0 auto;
+}
+
+.modal-head-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .modal-title {
@@ -2821,12 +2883,17 @@ body.modal-open {
   margin-right: auto;
 }
 
+/* Sits in the head, under the title row. `[hidden]` is honoured because the
+   global `[hidden] { display: none !important }` rule beats this one — without
+   it an empty red bar would sit under every modal title. */
 .modal-err {
   background: var(--cost-bg);
   color: var(--cost);
   border-radius: 6px;
   padding: 9px 11px;
+  margin: 10px 0 0;
   font-size: 13.5px;
+  line-height: 1.45;
 }
 
 .typ-group {
@@ -2935,13 +3002,19 @@ body.modal-open {
      plus Remove; the card clips rather than growing, because a single tall tile
      is the thing this is here to prevent. */
   .ent-grid {
-    --fold-h: 100px;
+    /* 100px before the shut card carried its gross margin. Two more lines of
+       12px text plus their leading is about 34px, and the tile clips rather
+       than growing — so this is set with a little room to spare. */
+    --fold-h: 138px;
   }
 
   .ent.collapsed {
-    flex: 0 0 200px;
-    min-width: 200px;
-    width: 200px;
+    /* 200px before the margin lines. "Enterprise gross margin: $123,456" is the
+       longest of them and has to stay on one line, or the money breaks away
+       from the label it belongs to. */
+    flex: 0 0 240px;
+    min-width: 240px;
+    width: 240px;
     padding: 12px 10px;
     align-self: flex-start;
     height: var(--fold-h);
@@ -3090,9 +3163,13 @@ body.modal-open {
     width: 100%;
   }
 
+  /* Full width on a phone, so the auto margin that right-aligns the tabs on a
+     computer has no free space to absorb and does nothing. Reset anyway rather
+     than relying on that: the tabs share this row with nothing here. */
   .app-nav {
     width: 100%;
     justify-content: flex-start;
+    margin-left: 0;
   }
 
   .tab {

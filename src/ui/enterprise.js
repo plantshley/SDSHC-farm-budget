@@ -74,7 +74,24 @@ function renderEnterprise(e, i, collapsed, notice) {
           aria-label="${isShut ? 'Expand' : 'Collapse'} ${esc(heading)}">
           <span class="chev" aria-hidden="true"></span>
           <span class="ent-name">${esc(heading)}</span>
-          <span class="ent-sub" data-out="${p}.acres" data-fmt="acres">—</span>
+          <span class="ent-sub">
+            <span data-out="${p}.acres" data-fmt="acres">—</span>
+            <!-- Shown only while the card is SHUT. Open, both figures are
+                 already readout rows a few inches below, and the same number
+                 twice on one card is the thing .fold-sub exists to prevent.
+                 They are the two the card is folded around: what the crop
+                 makes an acre, and what it makes altogether. -->
+            <span class="ent-fold-sub">
+              <span class="ent-fig">
+                <span class="ent-fig-key">Gross margin / ac:</span>
+                <span data-out="${p}.grossMarginPerAcre" data-fmt="usdCents" data-tone>—</span>
+              </span>
+              <span class="ent-fig">
+                <span class="ent-fig-key">Enterprise gross margin:</span>
+                <span data-out="${p}.enterpriseGrossMargin" data-fmt="usd" data-tone>—</span>
+              </span>
+            </span>
+          </span>
         </button>
         <button type="button" class="btn-remove" data-action="remove-enterprise"
           data-index="${i}" aria-label="Remove ${esc(heading)}">Remove</button>
@@ -213,9 +230,23 @@ function renderLine(def, e, entPath, seedNote) {
         ${
           typicalAvailable(typical)
             ? `<button type="button" class="tip line-tip" data-typical="${esc(typical)}"
-                 data-target="${esc(p)}.${mode === 'perAcre' ? 'perAcre' : 'costPerUnit'}"
+                 data-target="${esc(p)}.${
+                   mode === 'perAcre'
+                     ? 'perAcre'
+                     : mode === 'population'
+                       ? 'costPerBag'
+                       : 'costPerUnit'
+                 }"
                  data-mode-path="${esc(p)}.mode" data-line-mode="${esc(mode)}"
                  data-target-per-acre="${esc(p)}.perAcre" data-target-unit="${esc(p)}.costPerUnit"
+                 ${
+                   // Only on a line that offers seeds/ac. Its cost box holds the
+                   // same quantity a $/unit list is quoting, so a seed price is
+                   // at home in either mode -- see placeValue() in ui/modals.js.
+                   modes.includes('population')
+                     ? `data-target-population="${esc(p)}.costPerBag"`
+                     : ''
+                 }
                >use typical value</button>`
             : ''
         }
@@ -301,6 +332,43 @@ function moneyBox(o) {
     </span>`
 }
 
+/**
+ * What a `$/unit` line's two boxes are counting, in one place.
+ *
+ * The noun appears twice on the row — as the cost box's trailing affix (`/lb`)
+ * and as the units box's placeholder (`lb/acre`) — and the two must never
+ * disagree, because between them they are the whole sentence: dollars per pound,
+ * times pounds per acre. `unit` is the honest default: until a typical value has
+ * been chosen, nothing in the app knows what the line is counting.
+ */
+export function unitLabels(noun) {
+  const word = noun || 'unit'
+  return { post: `/${word}`, unitsPlaceholder: `${word}/acre` }
+}
+
+/**
+ * Write those two labels straight onto a line's boxes, without a render.
+ *
+ * Both moments this is needed are keystroke-or-tap moments that do NOT rebuild
+ * the card: choosing a figure in the mode the line is already in, and typing
+ * over that figure afterwards. Rendering for either would take the caret out of
+ * the box being used. Same idiom as applyValue() writing `.value` directly.
+ */
+export function applyUnitLabels(root, linePath, noun) {
+  const labels = unitLabels(noun)
+  const sel = (path) => {
+    const escaped = globalThis.CSS?.escape ? CSS.escape(path) : path
+    return root?.querySelector(`[data-path="${escaped}"]`)
+  }
+
+  const units = sel(`${linePath}.unitsPerAcre`)
+  if (units) units.placeholder = labels.unitsPlaceholder
+
+  const cost = sel(`${linePath}.costPerUnit`)
+  const affix = cost?.closest('.in-box')?.querySelector('.in-post')
+  if (affix) affix.textContent = labels.post
+}
+
 /** The boxes for one mode. Money everywhere except the two seed counts. */
 function lineInputs(def, line, p, mode) {
   const box = (key, o) =>
@@ -352,8 +420,12 @@ function lineInputs(def, line, p, mode) {
   if (mode === 'total') {
     // Divided by THIS enterprise's acres, which is said on the placeholder
     // rather than left to be inferred from a figure that comes out per acre.
+    // The noun comes off the line, not from here. Crop insurance is the only
+    // line offering this mode today and "total premium" is what a producer
+    // calls that figure, but a second line taking the mode would not be a
+    // premium — so the word lives beside the line it describes.
     return `${box('totalCost', {
-      placeholder: '$ for this crop',
+      placeholder: def.totalHint ?? 'total for this crop',
       ariaLabel: 'total cost for this enterprise',
       pre: '$',
       post: 'total',
@@ -361,15 +433,25 @@ function lineInputs(def, line, p, mode) {
       <span class="times">÷ acres</span>`
   }
 
+  // Both boxes take the noun from the same place, so the row always reads as one
+  // sentence: dollars per pound, times pounds per acre.
+  const labels = unitLabels(line.typicalUnitLabel)
   return `${box('costPerUnit', {
     placeholder: '$/unit',
     ariaLabel: 'cost per unit',
     pre: '$',
-    post: '/unit',
+    post: labels.post,
   })}
     <span class="times">×</span>
     ${box('unitsPerAcre', {
-      placeholder: `${def.unitHint}/acre`,
+      // "unit/acre" until the app has been TOLD what the unit is, and then the
+      // real noun. `def.unitHint` used to fill this from a guess about the
+      // line, which gave crop insurance and repairs a box reading "acre/acre",
+      // and gave seed "bag, unit/acre" — two nouns and a comma inside a
+      // placeholder. A typical value quotes its own unit and is the only thing
+      // here that actually knows one, so the generic word stands until one is
+      // picked. See markQuotedUnitLabel() in ui/modals.js.
+      placeholder: labels.unitsPlaceholder,
       ariaLabel: 'units per acre',
       post: '/ac',
     })}`

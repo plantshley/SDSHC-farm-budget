@@ -36,7 +36,7 @@ function baselineNote() {
       </span>
       <button type="button" class="note-dismiss" data-action="dismiss-note"
         data-note="${esc(BASELINE_NOTE_ID)}"
-        aria-label="Hide this note">Got it</button>
+        aria-label="Hide this note">Don't show this again</button>
     </p>`
 }
 
@@ -356,7 +356,13 @@ function renderScenarioRow(s, currentId, index, total, hasFolders) {
  * the same spurious-digit problem as matching on rendered text. "2026" and
  * "august" are how a producer says a date out loud; the slashed form is not.
  */
-function searchText(s) {
+/**
+ * The named field list a row answers the filter on.
+ *
+ * Exported so main.js can rebuild it after an inline rename, which writes
+ * straight to storage and never re-renders -- see commitRename().
+ */
+export function searchText(s) {
   const when = new Date(s.updatedAt || s.createdAt)
   const saved = isNaN(when)
     ? []

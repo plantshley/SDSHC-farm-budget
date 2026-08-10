@@ -80,6 +80,29 @@ function type(path, value) {
   return el
 }
 
+/** Let a deferred render run. See deferRender() in main.js. */
+function flush() {
+  return new Promise((resolve) => setTimeout(resolve, 0))
+}
+
+/**
+ * Type a crop name AND leave the box, which is when the app acts on it.
+ *
+ * Naming a crop fills seeds-per-unit and can open the seeds/ac mode, which
+ * changes which boxes exist. That is a structural render, so it waits for
+ * `change` rather than running on every keystroke — otherwise the card is
+ * rebuilt mid-word and "Corn silage" cannot be typed in one go. The render is
+ * then deferred past the click that caused the blur, which is why this is
+ * async: a synchronous one would detach the element the producer pressed and
+ * the click would never land.
+ */
+async function typeCrop(path, value) {
+  const el = type(path, value)
+  el.dispatchEvent(new win.Event('change', { bubbles: true }))
+  await flush()
+  return el
+}
+
 function textOf(selector) {
   return doc.querySelector(selector)?.textContent?.trim() ?? null
 }
@@ -97,7 +120,7 @@ describe('the app boots', () => {
     await boot()
   })
 
-  test('renders the budget screen with one enterprise', () => {
+  test('renders the budget screen with one enterprise', async () => {
     assert.ok(app.innerHTML.length > 500, 'app rendered something')
     assert.equal(doc.querySelectorAll('.ent').length, 1)
     assert.ok(doc.querySelector('.fixed-block'), 'fixed costs block present')
@@ -105,11 +128,11 @@ describe('the app boots', () => {
     assert.ok(doc.querySelector('.sticky-bar'), 'sticky results bar present')
   })
 
-  test('warns that acres are needed before anything can be per-acre', () => {
+  test('warns that acres are needed before anything can be per-acre', async () => {
     assert.match(textOf('.warnings'), /acres/i)
   })
 
-  test('a warning sits inside the card it is about, and clears on a keystroke', () => {
+  test('a warning sits inside the card it is about, and clears on a keystroke', async () => {
     // Almost every warning names a specific box on a specific card, and read
     // from anywhere else that box is a scroll away. The exception is the one
     // warning that names no box at all.
@@ -149,7 +172,7 @@ describe('the app boots', () => {
     assert.ok(doc.querySelector('[data-warnings]'), 'the holders stay')
   })
 
-  test('font control shows both options with Browser active', () => {
+  test('font control shows both options with Browser active', async () => {
     const browser = doc.querySelector('[data-font-choice="browser"]')
     const classic = doc.querySelector('[data-font-choice="classic"]')
     assert.equal(browser.getAttribute('aria-pressed'), 'true')
@@ -162,7 +185,7 @@ describe('the app boots', () => {
     assert.equal(browser.getAttribute('aria-pressed'), 'false')
   })
 
-  test('dark mode toggles and persists', () => {
+  test('dark mode toggles and persists', async () => {
     click('#themeToggle')
     assert.equal(doc.documentElement.getAttribute('data-theme'), 'dark')
     assert.equal(win.localStorage.getItem('sdshc-fb-theme'), 'dark')
@@ -174,8 +197,8 @@ describe('entering a budget', () => {
     await boot()
   })
 
-  test('typing updates the results without re-rendering the field', () => {
-    type('enterprises.0.crop', 'Corn')
+  test('typing updates the results without re-rendering the field', async () => {
+    await typeCrop('enterprises.0.crop', 'Corn')
     type('enterprises.0.acres', '500')
     type('enterprises.0.yieldPerAcre', '180')
     type('enterprises.0.pricePerUnit', '4.25')
@@ -189,7 +212,7 @@ describe('entering a budget', () => {
     assert.match(textOf('[data-out="enterprises.0.acres"]'), /500 acres/)
   })
 
-  test('a variable expense line switches between $/unit and $/acre', () => {
+  test('a variable expense line switches between $/unit and $/acre', async () => {
     type('enterprises.0.acres', '100')
     type('enterprises.0.variable.seed.costPerUnit', '320')
     type('enterprises.0.variable.seed.unitsPerAcre', '0.35')
@@ -213,7 +236,7 @@ describe('entering a budget', () => {
     )
   })
 
-  test('the mode pill shows every option and marks exactly one', () => {
+  test('the mode pill shows every option and marks exactly one', async () => {
     const segments = () => [
       ...doc.querySelectorAll('[data-path="enterprises.0.variable.seed.mode"]'),
     ]
@@ -244,7 +267,7 @@ describe('entering a budget', () => {
     )
   })
 
-  test('switching to $/acre says so in the empty box, and again once filled', () => {
+  test('switching to $/acre says so in the empty box, and again once filled', async () => {
     click('[data-path="enterprises.0.variable.seed.mode"][data-mode="perAcre"]')
     const box = doc.querySelector('[data-path="enterprises.0.variable.seed.perAcre"]')
     assert.equal(
@@ -261,7 +284,7 @@ describe('entering a budget', () => {
     assert.equal(wrap.querySelector('.in-post').textContent, '/ac')
   })
 
-  test('a box that is not money gets no dollar sign', () => {
+  test('a box that is not money gets no dollar sign', async () => {
     // The rule is the unit, not the box. Units-per-acre and a planting
     // population are counts, and a $ in front of one is simply wrong.
     const units = doc
@@ -277,7 +300,7 @@ describe('entering a budget', () => {
     assert.equal(pop.querySelector('.in-pre'), null)
   })
 
-  test('preharvest interest is calculated, and can be switched to manual', () => {
+  test('preharvest interest is calculated, and can be switched to manual', async () => {
     type('enterprises.0.acres', '100')
     type('enterprises.0.variable.seed.costPerUnit', '100')
     type('enterprises.0.variable.seed.unitsPerAcre', '1')
@@ -289,12 +312,12 @@ describe('entering a budget', () => {
     assert.equal(textOf('[data-out="enterprises.0.preharvestInterestPerAcre"]'), '$25.50')
   })
 
-  test('enterprises can be added past the spreadsheet’s limit of four', () => {
+  test('enterprises can be added past the spreadsheet’s limit of four', async () => {
     for (let i = 0; i < 5; i += 1) click('[data-action="add-enterprise"]')
     assert.equal(doc.querySelectorAll('.ent').length, 6)
   })
 
-  test('equipment is entered once and yields both depreciation and interest', () => {
+  test('equipment is entered once and yields both depreciation and interest', async () => {
     type('enterprises.0.acres', '800')
     click('[data-action="add-equipment"]')
     type('fixed.equipment.0.name', 'Tractor')
@@ -307,7 +330,7 @@ describe('entering a budget', () => {
     assert.equal(textOf('[data-out="fixed.equipment.0.annualInt"]'), '$13,300')
   })
 
-  test('a typed equipment name sets a category but fills nothing', () => {
+  test('a typed equipment name sets a category but fills nothing', async () => {
     click('[data-action="add-equipment"]')
     type('fixed.equipment.0.name', 'John Deere 1770 planter')
 
@@ -328,7 +351,7 @@ describe('help affordances stay separate', () => {
     await boot()
   })
 
-  test('a `?` opens a definition and changes no value', () => {
+  test('a `?` opens a definition and changes no value', async () => {
     type('enterprises.0.acres', '500')
     const before = doc.querySelector('[data-path="enterprises.0.acres"]').value
 
@@ -343,7 +366,7 @@ describe('help affordances stay separate', () => {
     assert.equal(overlay.querySelectorAll('.typ-option').length, 0, 'no actionable rows in an info modal')
   })
 
-  test('"use typical value" writes exactly one field', () => {
+  test('"use typical value" writes exactly one field', async () => {
     click('[data-action="add-equipment"]')
     type('fixed.equipment.0.initialCost', '200000')
 
@@ -372,7 +395,7 @@ describe('help affordances stay separate', () => {
     )
   })
 
-  test('a sentinel with nothing to resolve against explains itself', () => {
+  test('a sentinel with nothing to resolve against explains itself', async () => {
     click('[data-action="add-equipment"]')
     const btn = doc.querySelector(
       '[data-typical="salvageValue"][data-target="fixed.equipment.0.salvageValue"]'
@@ -394,7 +417,7 @@ describe('help affordances stay separate', () => {
     )
   })
 
-  test('every "use typical value" link sits in its field label row', () => {
+  test('every "use typical value" link sits in its field label row', async () => {
     // Under the input it read as a caption belonging to the NEXT field down,
     // and added a row of height to every field carrying one. If a link ever
     // escapes the label row again, this is what catches it.
@@ -421,7 +444,7 @@ describe('help affordances stay separate', () => {
     }
   })
 
-  test('the seeds-per-unit offer is rendered twice, one copy per width', () => {
+  test('the seeds-per-unit offer is rendered twice, one copy per width', async () => {
     // Two positions with different parents, and no amount of `order` moves a
     // flex item between containers — so it is rendered in both and CSS hides
     // one. `display: none` takes the hidden copy out of the accessibility tree
@@ -461,7 +484,7 @@ describe('help affordances stay separate', () => {
     assert.equal(doc.querySelectorAll('.seeds-link-head, .seeds-link-row').length, 0)
   })
 
-  test('the stylesheet shows exactly one of them at each width', () => {
+  test('the stylesheet shows exactly one of them at each width', async () => {
     // jsdom loads no CSS, so this is a stylesheet-source assertion. If both
     // copies were ever visible at once the offer would be on screen twice, and
     // if neither were it would be gone entirely.
@@ -500,7 +523,7 @@ describe('help affordances stay separate', () => {
     )
   })
 
-  test('an overhead rate is multiplied by the farm, and forced to a yearly period', () => {
+  test('an overhead rate is multiplied by the farm, and forced to a yearly period', async () => {
     // The published figure is $6.11 PER ACRE; the box holds a whole-farm total.
     // Two things have to happen at once or the budget is silently wrong: the
     // rate is multiplied by acres, and the period select is moved to yearly so
@@ -527,7 +550,7 @@ describe('help affordances stay separate', () => {
     assert.equal(doc.querySelector('[data-path="fixed.annualBasis.utilities"]').value, 'year')
   })
 
-  test('the acres sentinel sums every enterprise, not just the first', () => {
+  test('the acres sentinel sums every enterprise, not just the first', async () => {
     type('enterprises.0.acres', '500')
     click('[data-action="add-enterprise"]')
     type('enterprises.1.acres', '300')
@@ -544,13 +567,20 @@ describe('help affordances stay separate', () => {
     assert.equal(doc.querySelector('[data-path="fixed.annual.farmInsurance"]').value, '9992')
   })
 
-  test('an overhead rate with no acres to multiply refuses, and says why', () => {
+  test('an overhead rate with no acres to multiply refuses, and says why', async () => {
     doc
       .querySelector('[data-typical="overheadUtilities"]')
       .dispatchEvent(new win.MouseEvent('click', { bubbles: true }))
 
-    // The warning is up before anything is chosen, not only after a failed tap.
-    assert.match(doc.querySelector('.overlay.open').textContent, /Enter your acres/i)
+    // Said ONCE, and in answer to something the producer actually did. It used
+    // to be rendered at the top of the body as well, so the same sentence was
+    // on screen twice about the same tap.
+    const open = doc.querySelector('.overlay.open')
+    assert.equal(
+      open.textContent.match(/Enter your acres/gi),
+      null,
+      'nothing is claimed before anything is chosen'
+    )
 
     const corn = [...doc.querySelectorAll('.overlay.open .typ-option')].find((o) =>
       /Corn farms/.test(o.textContent)
@@ -560,10 +590,16 @@ describe('help affordances stay separate', () => {
     const err = doc.querySelector('.modal-err')
     assert.equal(err.hidden, false)
     assert.match(err.textContent, /acres/i)
+    assert.ok(err.closest('.modal-head'), 'from the head, where it cannot scroll away')
+    assert.equal(
+      open.textContent.match(/Enter your acres/gi).length,
+      1,
+      'and exactly once on the whole panel'
+    )
     assert.equal(doc.querySelector('[data-path="fixed.annual.utilities"]').value, '')
   })
 
-  test('the overhead picker shows the acreage it is about to multiply by', () => {
+  test('the overhead picker shows the acreage it is about to multiply by', async () => {
     type('enterprises.0.acres', '640')
     doc
       .querySelector('[data-typical="overheadDues"]')
@@ -571,7 +607,7 @@ describe('help affordances stay separate', () => {
     assert.match(doc.querySelector('.overlay.open').textContent, /640/)
   })
 
-  test('a long picker can be searched, and a match inside a fold is revealed', () => {
+  test('a long picker can be searched, and a match inside a fold is revealed', async () => {
     const btn = doc.querySelector('[data-typical="landRent"]')
     assert.ok(btn, 'land rent offers a typical value')
     btn.dispatchEvent(new win.MouseEvent('click', { bubbles: true }))
@@ -604,7 +640,7 @@ describe('help affordances stay separate', () => {
     assert.equal(doc.querySelector('.typ-search-empty').hidden, false, 'no match says so')
   })
 
-  test('searching then picking still writes the county rate', () => {
+  test('searching then picking still writes the county rate', async () => {
     doc
       .querySelector('[data-typical="landRent"]')
       .dispatchEvent(new win.MouseEvent('click', { bubbles: true }))
@@ -619,7 +655,7 @@ describe('help affordances stay separate', () => {
     assert.equal(doc.querySelector('[data-path="fixed.landRentPerAcre"]').value, '207')
   })
 
-  test('the how-to guide covers saving and comparing scenarios', () => {
+  test('the how-to guide covers saving and comparing scenarios', async () => {
     click('[data-action="how-to"]')
     const body = doc.querySelector('.overlay.open .modal-body').textContent
     assert.match(body, /Duplicate it/i)
@@ -634,9 +670,9 @@ describe('saving, duplicating and comparing', () => {
     await boot()
   })
 
-  test('a budget saves and reappears in the saved list', () => {
+  test('a budget saves and reappears in the saved list', async () => {
     type('name', 'Field corn, conventional')
-    type('enterprises.0.crop', 'Corn')
+    await typeCrop('enterprises.0.crop', 'Corn')
     type('enterprises.0.acres', '500')
     click('[data-action="save-scenario"]')
 
@@ -648,9 +684,9 @@ describe('saving, duplicating and comparing', () => {
     assert.equal(doc.querySelector('.scn-name-input').value, 'Field corn, conventional')
   })
 
-  test('duplicate then compare shows both budgets side by side', () => {
+  test('duplicate then compare shows both budgets side by side', async () => {
     type('name', 'Conventional')
-    type('enterprises.0.crop', 'Soybeans')
+    await typeCrop('enterprises.0.crop', 'Soybeans')
     type('enterprises.0.acres', '300')
     type('enterprises.0.yieldPerAcre', '55')
     type('enterprises.0.pricePerUnit', '10.50')
@@ -684,7 +720,7 @@ describe('saving, duplicating and comparing', () => {
     assert.match(table.textContent, /9,600/)
   })
 
-  test('deleting a budget removes it', () => {
+  test('deleting a budget removes it', async () => {
     click('[data-action="save-scenario"]')
     click('[data-action="go-scenarios"]')
     assert.equal(doc.querySelectorAll('.scn').length, 1)
@@ -692,7 +728,7 @@ describe('saving, duplicating and comparing', () => {
     assert.equal(doc.querySelectorAll('.scn').length, 0)
   })
 
-  test('removing the last enterprise leaves a blank one, never zero', () => {
+  test('removing the last enterprise leaves a blank one, never zero', async () => {
     click('[data-action="remove-enterprise"]')
     assert.equal(doc.querySelectorAll('.ent').length, 1)
   })
@@ -767,7 +803,7 @@ describe('every figure on screen agrees', () => {
     await boot()
   })
 
-  test('the KPI cards move with the sticky bar as revenue is typed', () => {
+  test('the KPI cards move with the sticky bar as revenue is typed', async () => {
     type('enterprises.0.acres', '500')
     type('enterprises.0.yieldPerAcre', '180')
     type('enterprises.0.pricePerUnit', '4.25')
@@ -778,7 +814,7 @@ describe('every figure on screen agrees', () => {
     assert.match(kpi, /382,500/, '180 x $4.25 x 500 acres, no costs entered yet')
   })
 
-  test('every whole-farm figure updates without a re-render', () => {
+  test('every whole-farm figure updates without a re-render', async () => {
     type('enterprises.0.acres', '100')
     type('enterprises.0.yieldPerAcre', '50')
     type('enterprises.0.pricePerUnit', '10')
@@ -789,7 +825,7 @@ describe('every figure on screen agrees', () => {
     assert.equal(textOf('[data-out="totalAcres"]'), '100')
   })
 
-  test('fixed costs reach the results table as they are typed', () => {
+  test('fixed costs reach the results table as they are typed', async () => {
     type('enterprises.0.acres', '200')
     type('fixed.landRentPerAcre', '150')
 
@@ -798,7 +834,7 @@ describe('every figure on screen agrees', () => {
     assert.match(textOf('[data-out="totals.totalProfit"]'), /30,000/)
   })
 
-  test('the acres warning clears once acres are entered', () => {
+  test('the acres warning clears once acres are entered', async () => {
     assert.match(textOf('.results [data-warnings]'), /Enter acres/)
     type('enterprises.0.acres', '80')
     assert.equal(textOf('.results [data-warnings]'), '')
@@ -810,8 +846,8 @@ describe('naming an enterprise', () => {
     await boot()
   })
 
-  test('the name is separate from the crop and wins as the label', () => {
-    type('enterprises.0.crop', 'Corn')
+  test('the name is separate from the crop and wins as the label', async () => {
+    await typeCrop('enterprises.0.crop', 'Corn')
     assert.equal(textOf('.ent-name'), 'Corn', 'crop is the fallback label')
 
     type('enterprises.0.name', 'No-till, east half')
@@ -823,7 +859,7 @@ describe('naming an enterprise', () => {
     )
   })
 
-  test('the results table follows the rename without a re-render', () => {
+  test('the results table follows the rename without a re-render', async () => {
     type('enterprises.0.acres', '100')
     type('enterprises.0.name', 'Silage')
     assert.equal(textOf('[data-ent-label="0"]'), 'Silage')
@@ -835,7 +871,7 @@ describe('folding cards away', () => {
     await boot()
   })
 
-  test('an enterprise collapses and stays collapsed through a re-render', () => {
+  test('an enterprise collapses and stays collapsed through a re-render', async () => {
     const card = doc.querySelector('.ent')
     assert.equal(card.classList.contains('collapsed'), false)
 
@@ -848,27 +884,91 @@ describe('folding cards away', () => {
     assert.equal(doc.querySelectorAll('.ent')[0].classList.contains('collapsed'), true)
   })
 
-  test('a newly added enterprise arrives folded shut', () => {
+  test('adding an enterprise while one is open hands the open card over', async () => {
+    // A new budget starts with its single enterprise open.
+    assert.equal(doc.querySelector('.ent').classList.contains('collapsed'), false)
+
     click('[data-action="add-enterprise"]')
     const cards = doc.querySelectorAll('.ent')
     assert.equal(cards.length, 2)
-    // The one already being worked on is left exactly as it was.
-    assert.equal(cards[0].classList.contains('collapsed'), false)
-    assert.equal(cards[1].classList.contains('collapsed'), true)
-
-    // And it opens on a tap, rather than needing anything else first.
-    cards[1].querySelector('[data-action="toggle-enterprise"]').click()
-    assert.equal(doc.querySelectorAll('.ent')[1].classList.contains('collapsed'), false)
+    assert.equal(cards[0].classList.contains('collapsed'), true)
+    assert.equal(cards[1].classList.contains('collapsed'), false)
   })
 
-  test('the shared fixed costs block collapses', () => {
+  test('every open card shuts, not just the last one', async () => {
+    click('[data-action="add-enterprise"]')
+    // Two open at once, which is the ordinary desktop arrangement.
+    doc.querySelectorAll('.ent')[0].querySelector('[data-action="toggle-enterprise"]').click()
+    let cards = doc.querySelectorAll('.ent')
+    assert.equal(cards[0].classList.contains('collapsed'), false)
+    assert.equal(cards[1].classList.contains('collapsed'), false)
+
+    click('[data-action="add-enterprise"]')
+    cards = doc.querySelectorAll('.ent')
+    assert.equal(cards.length, 3)
+    assert.equal(cards[0].classList.contains('collapsed'), true)
+    assert.equal(cards[1].classList.contains('collapsed'), true)
+    assert.equal(cards[2].classList.contains('collapsed'), false)
+  })
+
+  /**
+   * Add an enterprise at a chosen width, recording every scrollIntoView.
+   *
+   * jsdom has no layout, so it implements neither matchMedia nor
+   * scrollIntoView. Both are stubbed here and put back afterwards: leaking
+   * either into the next test would change what `isNarrow()` answers for the
+   * rest of the file.
+   */
+  function addEnterpriseAt(narrow) {
+    const scrolled = []
+    const realMatch = globalThis.matchMedia
+    globalThis.matchMedia = () => ({ matches: narrow })
+    win.Element.prototype.scrollIntoView = function (opts) {
+      scrolled.push([this, opts])
+    }
+    try {
+      click('[data-action="add-enterprise"]')
+    } finally {
+      globalThis.matchMedia = realMatch
+      delete win.Element.prototype.scrollIntoView
+    }
+    return scrolled
+  }
+
+  test('on a phone the new card is scrolled to by its top edge', async () => {
+    // Stacked cards put a new enterprise below everything already on the page,
+    // so without this the press appears to have done nothing at all.
+    const scrolled = addEnterpriseAt(true)
+    assert.equal(scrolled.length, 1)
+    assert.equal(scrolled[0][0], doc.querySelectorAll('.ent')[1], 'the card just added')
+    assert.equal(scrolled[0][1].block, 'start', 'landing on its top edge, not its bottom')
+  })
+
+  test('a wide screen scrolls nowhere, because the card is a column beside the others', async () => {
+    assert.deepEqual(addEnterpriseAt(false), [])
+  })
+
+  test('the new card opens even when every other one was already shut', async () => {
+    click('.ent [data-action="toggle-enterprise"]')
+    assert.equal(doc.querySelector('.ent').classList.contains('collapsed'), true)
+
+    // Add is a request for a box to type in, so it is answered the same way
+    // whatever the page looked like beforehand.
+    click('[data-action="add-enterprise"]')
+    const cards = doc.querySelectorAll('.ent')
+    assert.equal(cards.length, 2)
+    assert.equal(cards[0].classList.contains('collapsed'), true)
+    assert.equal(cards[1].classList.contains('collapsed'), false)
+  })
+
+  test('the shared fixed costs block collapses', async () => {
     click('[data-action="toggle-fixed"]')
     assert.equal(doc.querySelector('.fixed-block').classList.contains('collapsed'), true)
     click('[data-action="add-enterprise"]')
     assert.equal(doc.querySelector('.fixed-block').classList.contains('collapsed'), true)
   })
 
-  test('folding is not part of the budget, so it never marks it unsaved', () => {
+  test('folding is not part of the budget, so it never marks it unsaved', async () => {
     click('[data-action="save-scenario"]')
     assert.equal(textOf('#saveState'), SAVED_LABEL)
     click('.ent [data-action="toggle-enterprise"]')
@@ -885,7 +985,7 @@ describe('only a real change marks a budget unsaved', () => {
   // leave?" on the way out. An input event that leaves the value where it was
   // is not an edit, and raising the flag over one means the producer is asked
   // to confirm losing work they never did.
-  test('an input event that changes nothing leaves the budget saved', () => {
+  test('an input event that changes nothing leaves the budget saved', async () => {
     type('enterprises.0.acres', '500')
     click('[data-action="save-scenario"]')
     assert.equal(textOf('#saveState'), SAVED_LABEL)
@@ -895,14 +995,14 @@ describe('only a real change marks a budget unsaved', () => {
     assert.equal(textOf('#saveState'), SAVED_LABEL)
   })
 
-  test('a different value still marks it unsaved', () => {
+  test('a different value still marks it unsaved', async () => {
     type('enterprises.0.acres', '500')
     click('[data-action="save-scenario"]')
     type('enterprises.0.acres', '501')
     assert.equal(textOf('#saveState'), 'Unsaved changes')
   })
 
-  test('the stored number and the box’s string are compared as text', () => {
+  test('the stored number and the box’s string are compared as text', async () => {
     // A typical value writes a real number into the scenario; the input then
     // reports it back as a string. Comparing them loosely is what keeps that
     // round trip from registering as an edit.
@@ -936,7 +1036,7 @@ describe('labour and overhead periods', () => {
     el.dispatchEvent(new win.Event('change', { bubbles: true }))
   }
 
-  test('hours a week become hours a year', () => {
+  test('hours a week become hours a year', async () => {
     type('enterprises.0.acres', '100')
     type('fixed.labor.ratePerHour', '20')
     type('fixed.labor.hours', '10')
@@ -946,14 +1046,14 @@ describe('labour and overhead periods', () => {
     assert.match(textOf('[data-out="fixed.laborTotal"]'), /10,400/)
   })
 
-  test('a monthly bill is annualised', () => {
+  test('a monthly bill is annualised', async () => {
     type('enterprises.0.acres', '100')
     type('fixed.annual.utilities', '180')
     setSelect('fixed.annualBasis.utilities', 'month')
     assert.match(textOf('[data-out="fixed.annualTotal"]'), /2,160/)
   })
 
-  test('the default period is yearly, so nothing changes until it is chosen', () => {
+  test('the default period is yearly, so nothing changes until it is chosen', async () => {
     type('enterprises.0.acres', '100')
     type('fixed.annual.utilities', '1200')
     assert.match(textOf('[data-out="fixed.annualTotal"]'), /1,200/)
@@ -965,7 +1065,7 @@ describe('the saved list', () => {
     await boot()
   })
 
-  test('renaming a row saves without opening that budget', () => {
+  test('renaming a row saves without opening that budget', async () => {
     type('name', 'Original')
     click('[data-action="save-scenario"]')
     click('[data-action="go-scenarios"]')
@@ -980,7 +1080,7 @@ describe('the saved list', () => {
     assert.equal(doc.querySelector('.scn-name-input').value, 'Renamed in the list')
   })
 
-  test('a row name is sized to its text, so the pencil and the tag follow it', () => {
+  test('a row name is sized to its text, so the pencil and the tag follow it', async () => {
     // A full-width box put the pencil at the far right of the card and "open"
     // beyond it, so on a short name the three read as three unrelated things
     // scattered across the row instead of one title with its two marks.
@@ -1007,14 +1107,14 @@ describe('the saved list', () => {
     assert.ok(row.querySelector('.name-edit .edit-icon'), 'the pencil is inside the box')
   })
 
-  test('the budget name is not shown twice on the saved tab', () => {
+  test('the budget name is not shown twice on the saved tab', async () => {
     click('[data-action="save-scenario"]')
     assert.ok(doc.querySelector('#scenarioName'), 'shown while building')
     click('[data-action="go-scenarios"]')
     assert.equal(doc.querySelector('#scenarioName'), null, 'each row carries its own')
   })
 
-  test('the baseline rule is stated where budgets are picked', () => {
+  test('the baseline rule is stated where budgets are picked', async () => {
     click('[data-action="save-scenario"]')
     click('[data-action="go-scenarios"]')
     // The RULE has to be on screen; the verb it is phrased with is free to
@@ -1022,7 +1122,7 @@ describe('the saved list', () => {
     assert.match(textOf('.baseline-note').replace(/\s+/g, ' '), /first one you \w+ becomes the\s*baseline/i)
   })
 
-  test('rows can be dragged, and the order survives leaving the tab', () => {
+  test('rows can be dragged, and the order survives leaving the tab', async () => {
     type('name', 'First')
     click('[data-action="save-scenario"]')
     for (const name of ['Second', 'Third']) {
@@ -1049,7 +1149,7 @@ describe('the saved list', () => {
     assert.deepEqual(after, expected)
   })
 
-  test('the arrows reorder without a mouse, and the ends are disabled', () => {
+  test('the arrows reorder without a mouse, and the ends are disabled', async () => {
     type('name', 'First')
     click('[data-action="save-scenario"]')
     for (const name of ['Second', 'Third']) {
@@ -1205,7 +1305,7 @@ describe('the saved list', () => {
     )
   })
 
-  test('opening a budget file explains what one is', () => {
+  test('opening a budget file explains what one is', async () => {
     click('[data-action="go-scenarios"]')
     const help = doc.querySelector('.open-file .help-btn')
     assert.ok(help, 'the ? sits beside the Open a budget file link')
@@ -1223,7 +1323,7 @@ describe('filtering the saved list', () => {
   })
 
   /** Save one budget per entry, then land on the Saved tab. */
-  function saveBudgets(entries) {
+  async function saveBudgets(entries) {
     for (const entry of entries) {
       // The app boots holding one blank budget; every one after that has to be
       // started, and "+ New budget" only exists on the Saved tab.
@@ -1232,7 +1332,7 @@ describe('filtering the saved list', () => {
         click('[data-action="new-scenario"]')
       }
       type('name', entry.name)
-      if (entry.crop) type('enterprises.0.crop', entry.crop)
+      if (entry.crop) await typeCrop('enterprises.0.crop', entry.crop)
       if (entry.year) type('scenarioYear', entry.year)
       click('[data-action="save-scenario"]')
       saved += 1
@@ -1241,8 +1341,8 @@ describe('filtering the saved list', () => {
   }
 
   /** Six budgets: enough for the filter box to appear at all. */
-  function sixBudgets() {
-    saveBudgets([
+  async function sixBudgets() {
+    await saveBudgets([
       { name: 'North quarter', crop: 'Corn' },
       { name: 'South quarter', crop: 'Soybeans' },
       { name: 'Home place', crop: 'Corn' },
@@ -1265,22 +1365,22 @@ describe('filtering the saved list', () => {
       .filter((row) => !row.hidden)
       .map((row) => row.querySelector('.scn-name-input').value)
 
-  test('the box is there from the first saved budget, but not before', () => {
+  test('the box is there from the first saved budget, but not before', async () => {
     // A control that materialises partway down a list is one a producer has to
     // notice arriving. Over nothing at all it has nothing to filter.
     click('[data-action="go-scenarios"]')
     assert.equal(doc.querySelector('[data-scn-filter]'), null, 'nothing saved, nothing to filter')
 
     click('[data-action="go-build"]')
-    saveBudgets([{ name: 'One' }])
+    await saveBudgets([{ name: 'One' }])
     assert.ok(doc.querySelector('[data-scn-filter]'), 'and from then on it is always there')
   })
 
-  test('the scenario year and the year it was saved are two different filters', () => {
+  test('the scenario year and the year it was saved are two different filters', async () => {
     // A 2031 plan written today is not a 2026 budget, and a producer reaching
     // for either of those numbers should find it. Nothing derives one from the
     // other, which is the whole reason scenarioYear exists as a stored field.
-    saveBudgets([
+    await saveBudgets([
       { name: 'North quarter', year: '2031' },
       { name: 'South quarter' },
     ])
@@ -1294,8 +1394,8 @@ describe('filtering the saved list', () => {
     assert.equal(visible().length, 2, 'and both are still found by the day they were saved')
   })
 
-  test('a year finds the budgets saved in it', () => {
-    saveBudgets([{ name: 'North quarter' }, { name: 'South quarter' }])
+  test('a year finds the budgets saved in it', async () => {
+    await saveBudgets([{ name: 'North quarter' }, { name: 'South quarter' }])
     const year = String(new Date().getFullYear())
 
     filterTo(year)
@@ -1311,8 +1411,8 @@ describe('filtering the saved list', () => {
     assert.equal(visible().length, 2)
   })
 
-  test('typing hides the rows that do not match, without re-rendering', () => {
-    sixBudgets()
+  test('typing hides the rows that do not match, without re-rendering', async () => {
+    await sixBudgets()
     const box = filterTo('quarter')
     assert.deepEqual(visible().sort(), ['North quarter', 'South quarter'])
     // The box the producer is typing into must survive its own keystroke. A
@@ -1322,27 +1422,27 @@ describe('filtering the saved list', () => {
     assert.equal(box.value, 'quarter')
   })
 
-  test('a crop finds a budget whose name never mentions it', () => {
+  test('a crop finds a budget whose name never mentions it', async () => {
     // "Which of these had soybeans in it" is the actual question, and the
     // budget's own name frequently cannot answer it.
-    sixBudgets()
+    await sixBudgets()
     filterTo('soybeans')
     assert.deepEqual(visible(), ['South quarter'])
   })
 
-  test('the filter matches named fields, not whatever the row happens to print', () => {
+  test('the filter matches named fields, not whatever the row happens to print', async () => {
     // The row also carries an acreage and a profit figure. Matching on rendered
     // text would have "acres" return every budget, and a digit return whichever
     // ones have it somewhere in a dollar amount.
-    sixBudgets()
+    await sixBudgets()
     filterTo('acres')
     assert.deepEqual(visible(), [], 'the word next to the number is not searchable')
     filterTo('profit')
     assert.deepEqual(visible(), [])
   })
 
-  test('nothing matching says so rather than showing an empty list', () => {
-    sixBudgets()
+  test('nothing matching says so rather than showing an empty list', async () => {
+    await sixBudgets()
     filterTo('alfalfa')
     assert.deepEqual(visible(), [])
     const empty = doc.querySelector('[data-scn-empty]')
@@ -1350,11 +1450,11 @@ describe('filtering the saved list', () => {
     assert.match(empty.textContent, /No saved budget matches "alfalfa"/)
   })
 
-  test('reordering is off while filtered, and comes straight back', () => {
+  test('reordering is off while filtered, and comes straight back', async () => {
     // Moving a row while most of the list is hidden is an operation whose
     // result the producer cannot see: the arrow swaps it past a budget that is
     // not on screen and appears to do nothing at all.
-    sixBudgets()
+    await sixBudgets()
     const grips = () => [...doc.querySelectorAll('.scn-grip')]
     const arrows = () => [...doc.querySelectorAll('.scn-move')]
 
@@ -1387,8 +1487,8 @@ describe('filtering the saved list', () => {
     assert.match(textOf('[data-scn-hint]'), /Reorder the list with the ▲▼ arrows/)
   })
 
-  test('Clear puts every budget back and keeps the ticks', () => {
-    sixBudgets()
+  test('Clear puts every budget back and keeps the ticks', async () => {
+    await sixBudgets()
     const tick = (name) => {
       const row = [...doc.querySelectorAll('.scn')].find(
         (r) => r.querySelector('.scn-name-input').value === name
@@ -1408,12 +1508,12 @@ describe('filtering the saved list', () => {
     assert.equal(doc.querySelectorAll('[data-compare-id]:checked').length, 1)
   })
 
-  test('a selected budget hidden by the filter is still compared, and says so', () => {
+  test('a selected budget hidden by the filter is still compared, and says so', async () => {
     // Hiding a row does not untick it: "select two corn budgets, filter to
     // soybeans, select two more" is a real way to build a comparison. But a
     // comparison that quietly contains budgets nobody can see is the failure
     // this app is careful about, so the discrepancy is named on screen.
-    sixBudgets()
+    await sixBudgets()
     const tickVisible = () => {
       for (const row of doc.querySelectorAll('.scn')) {
         if (row.hidden) continue
@@ -1440,7 +1540,7 @@ describe('filtering the saved list', () => {
     assert.match(textOf('.compare .title'), /Comparing 3 budgets/)
   })
 
-  test('hiding a row actually hides it', () => {
+  test('hiding a row actually hides it', async () => {
     // Everything else in this block asserts `row.hidden`, and in jsdom that is
     // true the moment the property is set because jsdom loads no CSS at all. In
     // a browser the UA rule `[hidden] { display: none }` is outranked by any
@@ -1455,13 +1555,13 @@ describe('filtering the saved list', () => {
     )
   })
 
-  test('a budget saved while the list is filtered is never filtered out of sight', () => {
+  test('a budget saved while the list is filtered is never filtered out of sight', async () => {
     // Otherwise the row arrives hidden and the save reads as having failed.
-    sixBudgets()
+    await sixBudgets()
     filterTo('corn')
     click('[data-action="new-scenario"]')
     type('name', 'Bottom field')
-    type('enterprises.0.crop', 'Sunflowers')
+    await typeCrop('enterprises.0.crop', 'Sunflowers')
     click('[data-action="save-scenario"]')
     click('[data-action="go-scenarios"]')
 
@@ -1476,12 +1576,12 @@ describe('typical values know their units', () => {
     await boot()
   })
 
-  test('the picker states the unit its figures are quoted in', () => {
+  test('the picker states the unit its figures are quoted in', async () => {
     click('[data-typical="customHire"]')
     assert.match(textOf('.modal-unit'), /\$\/acre/)
   })
 
-  test('a $/bu list warns when the line is set to $/ac, then fixes it', () => {
+  test('a $/bu list warns when the line is set to $/ac, then fixes it', async () => {
     // Hauling is quoted per bushel; put the line in $/acre mode first. The pill
     // segments share a data-path, so the one being clicked has to be named.
     click('[data-line="hauling"] .mode-seg[data-mode="perAcre"]')
@@ -1507,7 +1607,7 @@ describe('typical values know their units', () => {
     assert.equal(Number(unitInput.value) > 0, true)
   })
 
-  test('the offer sits beside the label it belongs to, not below the inputs', () => {
+  test('the offer sits beside the label it belongs to, not below the inputs', async () => {
     const tip = doc.querySelector('[data-line="customHire"] .line-head .tip')
     assert.ok(tip, 'inline with the line label')
     assert.equal(tip.textContent.trim(), 'use typical value')
@@ -1519,7 +1619,7 @@ describe('long modals stay put', () => {
     await boot()
   })
 
-  test('the how-to guide opens folded, one heading per section', () => {
+  test('the how-to guide opens folded, one heading per section', async () => {
     click('[data-action="how-to"]')
     const folds = doc.querySelectorAll('.modal-body details.def-fold')
     assert.ok(folds.length >= 5, 'every section is its own fold')
@@ -1545,7 +1645,7 @@ describe('a figure is shown in the units it is actually in', () => {
   // shares of a sibling field: 0.25 of what you paid is "25%". The overhead
   // sentinels are a RATE multiplied by acres, and the same rule turned $6.11 an
   // acre of utilities into "611%" on the button.
-  test('an overhead rate reads as dollars an acre, not as a percentage', () => {
+  test('an overhead rate reads as dollars an acre, not as a percentage', async () => {
     type('enterprises.0.acres', '500')
     doc
       .querySelector('[data-typical="overheadUtilities"]')
@@ -1558,7 +1658,7 @@ describe('a figure is shown in the units it is actually in', () => {
     for (const v of values) assert.doesNotMatch(v, /%/, 'a per-acre rate is not a percentage')
   })
 
-  test('a share of a sibling field still reads as a percentage', () => {
+  test('a share of a sibling field still reads as a percentage', async () => {
     click('[data-action="add-equipment"]')
     doc
       .querySelector('[data-typical="salvageValue"][data-target="fixed.equipment.0.salvageValue"]')
@@ -1588,7 +1688,7 @@ describe('changing a yield unit does not silently reinterpret a figure', () => {
     select.dispatchEvent(new win.Event('change', { bubbles: true }))
   }
 
-  test('a $/bushel figure is cleared when the enterprise moves to tons', () => {
+  test('a $/bushel figure is cleared when the enterprise moves to tons', async () => {
     const rate = pickHaulingRate()
     assert.ok(Number(rate) > 0, 'the picker wrote a per-bushel rate')
 
@@ -1601,7 +1701,7 @@ describe('changing a yield unit does not silently reinterpret a figure', () => {
     )
   })
 
-  test('the producer is told why the figure went, on the card it went from', () => {
+  test('the producer is told why the figure went, on the card it went from', async () => {
     pickHaulingRate()
     setUnit('ton')
 
@@ -1612,7 +1712,7 @@ describe('changing a yield unit does not silently reinterpret a figure', () => {
     assert.match(notice.textContent, /ton/i)
   })
 
-  test('the notice is shown once and is not part of the budget', () => {
+  test('the notice is shown once and is not part of the budget', async () => {
     pickHaulingRate()
     setUnit('ton')
     assert.ok(doc.querySelector('.unit-notice'))
@@ -1623,7 +1723,7 @@ describe('changing a yield unit does not silently reinterpret a figure', () => {
     assert.equal(doc.querySelector('.unit-notice'), null)
   })
 
-  test('the notice goes when the producer taps into the box it is about', () => {
+  test('the notice goes when the producer taps into the box it is about', async () => {
     // It explains why a box is empty. Once they are filling that box in it has
     // said everything it has to say, and a paragraph still sitting above them
     // while they type is a standing complaint rather than an explanation.
@@ -1642,7 +1742,7 @@ describe('changing a yield unit does not silently reinterpret a figure', () => {
     assert.equal(doc.querySelector('.unit-notice'), null)
   })
 
-  test('tabbing past a neighbouring box is not reading the notice', () => {
+  test('tabbing past a neighbouring box is not reading the notice', async () => {
     pickHaulingRate()
     setUnit('ton')
 
@@ -1652,7 +1752,7 @@ describe('changing a yield unit does not silently reinterpret a figure', () => {
     assert.ok(doc.querySelector('.unit-notice'), 'still there')
   })
 
-  test('the overhead notice goes when its own line is tapped into', () => {
+  test('the overhead notice goes when its own line is tapped into', async () => {
     type('enterprises.0.acres', '500')
     doc
       .querySelector('[data-typical="overheadUtilities"]')
@@ -1678,7 +1778,7 @@ describe('changing a yield unit does not silently reinterpret a figure', () => {
     assert.equal(doc.querySelector('.unit-notice'), null)
   })
 
-  test('a figure the producer typed themselves is left alone', () => {
+  test('a figure the producer typed themselves is left alone', async () => {
     // The app knows the unit changed. It does not know what the producer meant
     // by the number they typed, so it must not throw it away.
     type('enterprises.0.variable.hauling.costPerUnit', '0.22')
@@ -1691,7 +1791,7 @@ describe('changing a yield unit does not silently reinterpret a figure', () => {
     assert.equal(doc.querySelector('.unit-notice'), null)
   })
 
-  test('an overhead figure is cleared when its period is moved off yearly', () => {
+  test('an overhead figure is cleared when its period is moved off yearly', async () => {
     // The published FINBIN rate is a full year, and the picker moves the select
     // to "$ / year" to say so. Moving it to "$ / month" afterwards has
     // calcFixed() multiply an already-annual figure by twelve: $3,055 of
@@ -1719,7 +1819,7 @@ describe('changing a yield unit does not silently reinterpret a figure', () => {
     assert.match(notice.textContent, /month/)
   })
 
-  test('only the overhead line whose period moved is cleared', () => {
+  test('only the overhead line whose period moved is cleared', async () => {
     type('enterprises.0.acres', '500')
     for (const key of ['overheadUtilities', 'overheadInsurance']) {
       doc.querySelector(`[data-typical="${key}"]`).dispatchEvent(
@@ -1739,7 +1839,7 @@ describe('changing a yield unit does not silently reinterpret a figure', () => {
     assert.equal(doc.querySelector('[data-path="fixed.annual.farmInsurance"]').value, '6245')
   })
 
-  test('an overhead figure the producer typed is left alone', () => {
+  test('an overhead figure the producer typed is left alone', async () => {
     type('fixed.annual.utilities', '1800')
     const basis = doc.querySelector('[data-path="fixed.annualBasis.utilities"]')
     basis.value = 'month'
@@ -1749,7 +1849,7 @@ describe('changing a yield unit does not silently reinterpret a figure', () => {
     assert.equal(doc.querySelector('.unit-notice'), null)
   })
 
-  test('a $/acre figure is untouched by a unit change', () => {
+  test('a $/acre figure is untouched by a unit change', async () => {
     // Custom Hire is quoted per acre, so bushels or tons makes no difference.
     click('[data-line="customHire"] [data-typical="customHire"]')
     doc.querySelector('.typ-option').dispatchEvent(new win.MouseEvent('click', { bubbles: true }))
@@ -1769,20 +1869,20 @@ describe('a card `?` is a list of terms, not a wall of prose', () => {
     await boot()
   })
 
-  test('several definitions open as folds, all shut', () => {
+  test('several definitions open as folds, all shut', async () => {
     click('.fixed-block .block-head .help-btn')
     const folds = doc.querySelectorAll('.modal-body details.def-fold')
     assert.ok(folds.length >= 5, 'one fold per definition')
     assert.equal([...folds].every((d) => !d.open), true, 'nothing is open to start with')
   })
 
-  test('a single definition is not folded, because there is nothing to choose', () => {
+  test('a single definition is not folded, because there is nothing to choose', async () => {
     click('[data-info="landRent"]')
     assert.equal(doc.querySelectorAll('.modal-body details.def-fold').length, 0)
     assert.ok(doc.querySelector('.modal-body .def h3'), 'the answer is simply shown')
   })
 
-  test('a multi-section guide opens with every section shut', () => {
+  test('a multi-section guide opens with every section shut', async () => {
     click('[data-action="how-to"]')
     const folds = doc.querySelectorAll('.modal-body details.def-fold')
     assert.ok(folds.length >= 5)
@@ -1795,7 +1895,7 @@ describe('a saved budget is opened from the same row as the rest of its actions'
     await boot()
   })
 
-  test('Open Budget sits first, beside Duplicate and Delete, and opens it', () => {
+  test('Open Budget sits first, beside Duplicate and Delete, and opens it', async () => {
     type('name', 'Kept budget')
     type('enterprises.0.acres', '640')
     click('[data-action="save-scenario"]')
@@ -1821,14 +1921,14 @@ describe('a budget opens folded, and a new one opens ready to type in', () => {
     await boot()
   })
 
-  test('a new budget leaves its one enterprise open', () => {
+  test('a new budget leaves its one enterprise open', async () => {
     assert.equal(doc.querySelector('.ent').classList.contains('collapsed'), false)
   })
 
-  test('every enterprise of a saved budget arrives folded', () => {
+  test('every enterprise of a saved budget arrives folded', async () => {
     type('name', 'Two enterprises')
     click('[data-action="add-enterprise"]')
-    type('enterprises.1.crop', 'Soybeans')
+    await typeCrop('enterprises.1.crop', 'Soybeans')
     click('[data-action="save-scenario"]')
 
     // Go away and come back, the way a producer does the next morning.
@@ -1844,7 +1944,7 @@ describe('a budget opens folded, and a new one opens ready to type in', () => {
     )
   })
 
-  test('a duplicate opens folded too, because it is a farm already built', () => {
+  test('a duplicate opens folded too, because it is a farm already built', async () => {
     type('name', 'Original')
     click('[data-action="save-scenario"]')
     click('[data-action="go-scenarios"]')
@@ -1852,7 +1952,7 @@ describe('a budget opens folded, and a new one opens ready to type in', () => {
     assert.equal(doc.querySelector('.ent').classList.contains('collapsed'), true)
   })
 
-  test('starting a new budget from the saved tab opens its enterprise', () => {
+  test('starting a new budget from the saved tab opens its enterprise', async () => {
     click('[data-action="save-scenario"]')
     click('[data-action="go-scenarios"]')
     click('[data-action="new-scenario"]')
@@ -1865,9 +1965,9 @@ describe('a comparison can be handed to somebody', () => {
     await boot()
   })
 
-  function twoBudgets() {
+  async function twoBudgets() {
     type('name', 'Conventional')
-    type('enterprises.0.crop', 'Corn')
+    await typeCrop('enterprises.0.crop', 'Corn')
     type('enterprises.0.acres', '500')
     type('enterprises.0.yieldPerAcre', '180')
     type('enterprises.0.pricePerUnit', '4.25')
@@ -1876,7 +1976,7 @@ describe('a comparison can be handed to somebody', () => {
     click('[data-action="go-scenarios"]')
     click('[data-action="new-scenario"]')
     type('name', 'No-till')
-    type('enterprises.0.crop', 'Corn')
+    await typeCrop('enterprises.0.crop', 'Corn')
     type('enterprises.0.acres', '500')
     type('enterprises.0.yieldPerAcre', '186')
     type('enterprises.0.pricePerUnit', '4.25')
@@ -1890,8 +1990,8 @@ describe('a comparison can be handed to somebody', () => {
     click('[data-action="compare-selected"]')
   }
 
-  test('the comparison screen offers its own export and print', () => {
-    twoBudgets()
+  test('the comparison screen offers its own export and print', async () => {
+    await twoBudgets()
     assert.ok(doc.querySelector('.compare [data-action="export-compare-csv"]'))
     assert.ok(doc.querySelector('.compare [data-action="print"]'))
   })
@@ -1899,7 +1999,7 @@ describe('a comparison can be handed to somebody', () => {
   test('the CSV carries every figure on screen, plus the difference', async () => {
     const { compareToCSV } = await import('../src/export.js')
     const { listScenarios } = await import('../src/storage.js')
-    twoBudgets()
+    await twoBudgets()
 
     // Explicit order: the saved list is newest-first, and which budget is the
     // baseline decides the sign of every difference in the file.
@@ -1944,14 +2044,15 @@ describe('a folded enterprise can still be taken away', () => {
     await boot()
   })
 
-  test('Remove is reachable without opening the card first', () => {
-    // A new enterprise arrives folded, so the card you are most likely to want
-    // rid of is the one you would have had to open to reach the button.
+  test('Remove is reachable without opening the card first', async () => {
+    // Adding an enterprise folds the one you were working on, so a card added
+    // by mistake leaves a shut card beside it either way round. Reaching
+    // Remove must never require opening a card first.
     click('[data-action="add-enterprise"]')
-    const added = doc.querySelectorAll('.ent')[1]
-    assert.equal(added.classList.contains('collapsed'), true)
+    const folded = doc.querySelectorAll('.ent')[0]
+    assert.equal(folded.classList.contains('collapsed'), true)
 
-    const remove = added.querySelector('[data-action="remove-enterprise"]')
+    const remove = folded.querySelector('[data-action="remove-enterprise"]')
     assert.ok(remove, 'Remove is present on a folded card')
     remove.dispatchEvent(new win.MouseEvent('click', { bubbles: true }))
     assert.equal(doc.querySelectorAll('.ent').length, 1)
@@ -2040,7 +2141,71 @@ describe('folders on the saved tab', () => {
       .find((s) => s.querySelector('.fld-name').textContent === name)
       ?.getAttribute('data-scn-section')
 
-  test('a producer who never makes a folder sees the page they had before', () => {
+  /** The rows belonging to the folder called `name`, hidden or not. */
+  const listNamed = (name) =>
+    doc.querySelector(`[data-scn-list][data-folder-id="${folderIdNamed(name)}"]`)
+
+  test('opening a filed budget leaves the folder it came from open', async () => {
+    saveBudgets(['North quarter', 'River bottom'])
+    newFolder('Rented ground')
+    moveTo('North quarter', 'Rented ground')
+
+    // Filing a budget opens its folder, so shut it. This is the state every
+    // folder is in on the next visit, which is the case that matters.
+    click(`[data-scn-section="${folderIdNamed('Rented ground')}"] .fld-toggle`)
+    assert.equal(listNamed('Rented ground').hidden, true, 'shut to start with')
+
+    rowNamed('North quarter')
+      .querySelector('[data-action="open-scenario"]')
+      .dispatchEvent(new win.MouseEvent('click', { bubbles: true }))
+    click('[data-action="go-scenarios"]')
+
+    assert.equal(listNamed('Rented ground').hidden, false, 'and open on the way back')
+  })
+
+  test('the folder opens again on the next visit to the Saved tab', async () => {
+    saveBudgets(['North quarter', 'River bottom'])
+    newFolder('Rented ground')
+    // The last budget saved is the one on the Budget tab.
+    moveTo('River bottom', 'Rented ground')
+
+    click(`[data-scn-section="${folderIdNamed('Rented ground')}"] .fld-toggle`)
+    assert.equal(listNamed('Rented ground').hidden, true, 'shut')
+
+    // A render on this page must not undo that. Shutting a section is allowed
+    // to stick for as long as the producer is looking at it.
+    rowNamed('North quarter')
+      .querySelector('[data-action="delete-scenario"]')
+      .dispatchEvent(new win.MouseEvent('click', { bubbles: true }))
+    assert.equal(listNamed('Rented ground').hidden, true, 'and still shut after a re-render')
+
+    // Leaving and coming back is a fresh look for the budget in hand.
+    click('[data-action="go-build"]')
+    click('[data-action="go-scenarios"]')
+    assert.equal(listNamed('Rented ground').hidden, false, 'open again on the way back')
+  })
+
+  test('the folder holding the reopened budget is open next session, alone', async () => {
+    saveBudgets(['North quarter'])
+    newFolder('Corn trials')
+    newFolder('Rented ground')
+    moveTo('North quarter', 'Rented ground')
+
+    // Carry this session's store into the next one. Saving is what records the
+    // budget to reopen, so "North quarter" is the one that comes back, and
+    // every folder comes back shut.
+    const keys = ['sdshc-fb-scenarios', 'sdshc-fb-folders', 'sdshc-fb-last-open']
+    const store = keys.map((k) => [k, win.localStorage.getItem(k)])
+    await boot((ls) => {
+      for (const [k, v] of store) if (v != null) ls.setItem(k, v)
+    })
+    click('[data-action="go-scenarios"]')
+
+    assert.equal(listNamed('Rented ground').hidden, false, 'the section holding it is open')
+    assert.equal(listNamed('Corn trials').hidden, true, 'and no other section is')
+  })
+
+  test('a producer who never makes a folder sees the page they had before', async () => {
     // Most producers here keep three to eight budgets and folders are net
     // negative for them, so the cost of the feature to somebody not using it has
     // to be as close to nothing as it can be. One heading, and no fourth button
@@ -2066,7 +2231,7 @@ describe('folders on the saved tab', () => {
     ])
   })
 
-  test('a new folder is a section, and Move appears once there is somewhere to go', () => {
+  test('a new folder is a section, and Move appears once there is somewhere to go', async () => {
     saveBudgets(['North quarter'])
     newFolder('Corn trials', { icon: 'sprout', color: 'pink' })
 
@@ -2079,7 +2244,7 @@ describe('folders on the saved tab', () => {
     assert.match(section.querySelector('.fld-empty').textContent, /No budgets in this folder yet/)
   })
 
-  test('the ungrouped pile is at the top, and stays there once it is empty', () => {
+  test('the ungrouped pile is at the top, and stays there once it is empty', async () => {
     // "I just saved it and it is gone" is the worst thing an organising feature
     // can do, and a budget saved a moment ago lands in the pile.
     saveBudgets(['North quarter'])
@@ -2094,7 +2259,7 @@ describe('folders on the saved tab', () => {
     assert.match(textOf('.fld-empty'), /take it back out of a folder/)
   })
 
-  test('deleting the last folder cannot leave the budgets folded out of sight', () => {
+  test('deleting the last folder cannot leave the budgets folded out of sight', async () => {
     // Shut the pile while a folder exists, then delete the folder. The pile
     // comes back with no heading — and if it also came back still marked shut,
     // every budget on the device would be behind a control no longer on the
@@ -2120,7 +2285,7 @@ describe('folders on the saved tab', () => {
     assert.deepEqual(shape(), ['[South quarter,North quarter]'])
   })
 
-  test('Move files a budget, and the counts follow it', () => {
+  test('Move files a budget, and the counts follow it', async () => {
     saveBudgets(['North quarter', 'South quarter'])
     newFolder('Corn trials')
     moveTo('North quarter', 'Corn trials')
@@ -2132,7 +2297,7 @@ describe('folders on the saved tab', () => {
     )
   })
 
-  test('a folder made from inside the Move modal is created and chosen in one pass', () => {
+  test('a folder made from inside the Move modal is created and chosen in one pass', async () => {
     // Filing into a folder that does not exist yet should not be a trip out to
     // the header and back.
     saveBudgets(['North quarter'])
@@ -2194,7 +2359,7 @@ describe('folders on the saved tab', () => {
     assert.equal(toggle.getAttribute('aria-expanded'), 'true')
   })
 
-  test('folding a section keeps every compare tick', () => {
+  test('folding a section keeps every compare tick', async () => {
     // Folding is a view over the list exactly as the filter box is. A render()
     // here would rebuild every row and throw the selection away.
     saveBudgets(['North quarter', 'South quarter'])
@@ -2211,7 +2376,7 @@ describe('folders on the saved tab', () => {
     assert.match(textOf('[data-action="compare-selected"]'), /Compare 2 budgets/)
   })
 
-  test('a budget ticked and then folded out of sight says so', () => {
+  test('a budget ticked and then folded out of sight says so', async () => {
     // Two ways to be off screen now — filtered out, and folded away. A
     // comparison quietly containing budgets nobody can see is the failure this
     // app is careful about, so the discrepancy is named either way.
@@ -2230,7 +2395,7 @@ describe('folders on the saved tab', () => {
     assert.match(note.textContent, /1 budget you have selected is not on screen/)
   })
 
-  test('a filter reaches inside a shut folder, and hides one holding nothing', () => {
+  test('a filter reaches inside a shut folder, and hides one holding nothing', async () => {
     // The land-rent county search hit this exact failure: a search appeared to
     // find nothing while the row sat inside a closed fold.
     saveBudgets(['North quarter', 'South quarter'])
@@ -2261,7 +2426,7 @@ describe('folders on the saved tab', () => {
     )
   })
 
-  test('a filtered folder says how many of its budgets are showing', () => {
+  test('a filtered folder says how many of its budgets are showing', async () => {
     saveBudgets(['North corn', 'South corn', 'West beans'])
     newFolder('Corn trials')
     moveTo('North corn', 'Corn trials')
@@ -2277,7 +2442,7 @@ describe('folders on the saved tab', () => {
     assert.equal(count.textContent, '2 of 3 budgets')
   })
 
-  test('the row arrows move a budget inside its own folder and nowhere else', () => {
+  test('the row arrows move a budget inside its own folder and nowhere else', async () => {
     saveBudgets(['A', 'B', 'C'])
     newFolder('Corn trials')
     moveTo('A', 'Corn trials')
@@ -2300,7 +2465,7 @@ describe('folders on the saved tab', () => {
     assert.equal(c.querySelector('[data-action="move-scenario-down"]').disabled, true)
   })
 
-  test('the folder arrows reorder the sections and stop at the ends', () => {
+  test('the folder arrows reorder the sections and stop at the ends', async () => {
     saveBudgets(['A'])
     newFolder('First')
     newFolder('Second')
@@ -2314,7 +2479,7 @@ describe('folders on the saved tab', () => {
     assert.deepEqual(shape(), ['Not in a folder[A]', 'Second[]', 'First[]'])
   })
 
-  test('a drag with a shut folder present does not disturb what is inside it', () => {
+  test('a drag with a shut folder present does not disturb what is inside it', async () => {
     // The bug this feature would otherwise have shipped with. reorderScenarios
     // appends ids it was not given, so a partial order rewrites the rank of
     // every budget the producer cannot see. It is only safe because a shut
@@ -2343,7 +2508,7 @@ describe('folders on the saved tab', () => {
     assert.deepEqual(shape()[0], 'Not in a folder[D,C]', 'and the visible rows did move')
   })
 
-  test('a drag across a section boundary reorders and re-files in one gesture', () => {
+  test('a drag across a section boundary reorders and re-files in one gesture', async () => {
     saveBudgets(['A', 'B'])
     newFolder('Corn trials')
     const id = folderIdNamed('Corn trials')
@@ -2357,7 +2522,7 @@ describe('folders on the saved tab', () => {
     assert.equal(stored.find((s) => s.name === 'A').folderId, id)
   })
 
-  test('a budget can be dragged back out of a folder', () => {
+  test('a budget can be dragged back out of a folder', async () => {
     // The drop target has to still be there afterwards. Emptying the ungrouped
     // pile hides it, and a hidden section cannot be dragged into — which is why
     // a cross-section drop re-renders.
@@ -2370,7 +2535,7 @@ describe('folders on the saved tab', () => {
     assert.deepEqual(shape(), ['Not in a folder[A]', 'Corn trials[]'])
   })
 
-  test('comparing still works across two folders', () => {
+  test('comparing still works across two folders', async () => {
     // The reason folders are sections on one page and not a screen you navigate
     // into. Selection lives in the DOM, so navigating would throw it away.
     saveBudgets(['A', 'B'])
@@ -2387,7 +2552,7 @@ describe('folders on the saved tab', () => {
     assert.match(textOf('.compare .title'), /Comparing 2 budgets/)
   })
 
-  test('a duplicate lands in the same folder as the budget it came from', () => {
+  test('a duplicate lands in the same folder as the budget it came from', async () => {
     saveBudgets(['North quarter'])
     newFolder('Corn trials')
     moveTo('North quarter', 'Corn trials')
@@ -2414,7 +2579,7 @@ describe('folders on the saved tab', () => {
     assert.equal(result.scenario.folderId, undefined)
   })
 
-  test('a folder with an icon and colour this version has never heard of still draws', () => {
+  test('a folder with an icon and colour this version has never heard of still draws', async () => {
     // The state after a hand-edited file, and after a future version writes a
     // token this one does not know. Same rule as perYearFactor() returning 1 for
     // an unrecognised basis: fall back, never crash and never render nothing.
@@ -2439,7 +2604,7 @@ describe('folders on the saved tab', () => {
     })
   })
 
-  test('a budget filed in a folder that no longer exists is drawn, not lost', () => {
+  test('a budget filed in a folder that no longer exists is drawn, not lost', async () => {
     // The pile is built as "everything no section claimed", NOT "everything with
     // no folderId". Those differ in exactly this case, and the other definition
     // would put this budget in a section that is never rendered.
@@ -2467,7 +2632,7 @@ describe('folders on the saved tab', () => {
     })
   })
 
-  test('a shut folder prints expanded', () => {
+  test('a shut folder prints expanded', async () => {
     // Paper has no chevron to tap, so a printed list that silently leaves out
     // half the budgets is a wrong document. This has to out-specify
     // `[hidden] { display: none !important }`, which is why the rule carries
@@ -2497,14 +2662,14 @@ describe('the folder palette and glyph set', () => {
     css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
   })
 
-  test('there are as many glyphs as there are colours', () => {
+  test('there are as many glyphs as there are colours', async () => {
     // The editor lays them out as two rows of the same width and they read as a
     // matched pair. Twelve and nine would look like one of them failed to load.
     assert.equal(FOLDER_ICONS.length, FOLDER_COLORS.length)
     assert.equal(FOLDER_ICONS.length, 12)
   })
 
-  test('every colour has its class and both its theme values', () => {
+  test('every colour has its class and both its theme values', async () => {
     // The one failure in this feature that nothing warns you about: a key in
     // FOLDER_COLORS with no `.fld-c-<key>` class renders with no colour at all —
     // no error, no fallback, just a chip the same shade as the card. jsdom loads
@@ -2541,7 +2706,7 @@ describe('the folder palette and glyph set', () => {
     }
   })
 
-  test('red is not on offer, under any of its names', () => {
+  test('red is not on offer, under any of its names', async () => {
     // --green means a positive dollar figure and --cost a negative one. A red
     // folder mark on a page whose every row prints a profit or a loss re-opens
     // the question the palette exists to settle. Pink sits next to red on the
@@ -2551,7 +2716,7 @@ describe('the folder palette and glyph set', () => {
     }
   })
 
-  test('the fold caret is drawn, never typed', () => {
+  test('the fold caret is drawn, never typed', async () => {
     // `.chev` builds the caret out of two borders of a rotated box. A ▾ put
     // inside it as well renders a second caret roughly twice the size,
     // underneath the real one — which shipped once and looked like a bug in the
@@ -2572,7 +2737,7 @@ describe('the folder palette and glyph set', () => {
     })
   })
 
-  test('the ink on an olive fill is its own token, in both themes', () => {
+  test('the ink on an olive fill is its own token, in both themes', async () => {
     // The selected segment of a mode pill is filled with --olive, which is a
     // light yellow-green. White on it is 2.0:1 and unreadable, and --on-sky IS
     // white — so reaching for it is the mistake --on-olive exists to prevent.
@@ -2593,7 +2758,7 @@ describe('the folder palette and glyph set', () => {
     assert.match(css, /\.mode-seg\[aria-pressed='true'\][^}]*var\(--on-olive\)/s)
   })
 
-  test('the mode pill is pinned to the height of the button it replaced', () => {
+  test('the mode pill is pinned to the height of the button it replaced', async () => {
     // Fifteen of these per enterprise, so a few pixels of drift is a screenful.
     // The height is declared rather than left to fall out of three segments
     // plus a container border.
@@ -2611,7 +2776,7 @@ describe('markup written as template literals', () => {
   //
   // Both times the smoke tests caught it, as a hundred and twenty failures
   // saying nothing about the cause. This one names it.
-  test('no HTML comment carries a backtick', () => {
+  test('no HTML comment carries a backtick', async () => {
     const roots = [new URL('../src/', import.meta.url), new URL('../src/ui/', import.meta.url)]
 
     let checked = 0
@@ -2648,77 +2813,77 @@ describe('the one field that fills itself', () => {
   const seedsBox = () => doc.querySelector('[data-path="enterprises.0.variable.seed.seedsPerBag"]')
   const note = () => doc.querySelector('[data-line="seed"] .field-note')
 
-  test('an empty box is filled from the crop, and says where it came from', () => {
+  test('an empty box is filled from the crop, and says where it came from', async () => {
     assert.equal(seedsBox().value, '', 'nothing is filled in before a crop is named')
-    type('enterprises.0.crop', 'Corn')
+    await typeCrop('enterprises.0.crop', 'Corn')
     assert.equal(seedsBox().value, '80000')
     assert.match(note().textContent, /filled in from "Corn"/)
   })
 
-  test('a crop nobody has a published rate for gets nothing', () => {
+  test('a crop nobody has a published rate for gets nothing', async () => {
     // Guessing here would be worse than leaving it blank: a wrong denominator
     // is a silently wrong seed cost, and a blank one computes as $0 and shows a
     // warning naming the box.
-    type('enterprises.0.crop', 'Sorghum')
+    await typeCrop('enterprises.0.crop', 'Sorghum')
     assert.equal(seedsBox().value, '')
     assert.equal(note(), null)
   })
 
-  test('two letters of a crop name do not fill anything in', () => {
-    type('enterprises.0.crop', 'Co')
+  test('two letters of a crop name do not fill anything in', async () => {
+    await typeCrop('enterprises.0.crop', 'Co')
     assert.equal(seedsBox().value, '', 'a prefix is not a match')
   })
 
-  test('a figure the producer typed is never overwritten', () => {
+  test('a figure the producer typed is never overwritten', async () => {
     // THE guard. The app knows the crop changed; it does not know what they
     // meant by the number, and overwriting it would be destroying work.
     type('enterprises.0.variable.seed.seedsPerBag', '78000')
-    type('enterprises.0.crop', 'Corn')
+    await typeCrop('enterprises.0.crop', 'Corn')
     assert.equal(seedsBox().value, '78000')
     assert.equal(note(), null, 'and no caption claims the app put it there')
   })
 
-  test('typing in the box takes it over, and the crop stops driving it', () => {
-    type('enterprises.0.crop', 'Corn')
+  test('typing in the box takes it over, and the crop stops driving it', async () => {
+    await typeCrop('enterprises.0.crop', 'Corn')
     assert.equal(seedsBox().value, '80000')
 
     type('enterprises.0.variable.seed.seedsPerBag', '78000')
     assert.equal(note(), null, 'the caption goes as soon as the box is theirs')
 
-    type('enterprises.0.crop', 'Soybeans')
+    await typeCrop('enterprises.0.crop', 'Soybeans')
     assert.equal(seedsBox().value, '78000', 'the crop no longer drives the box')
   })
 
-  test('the caption is removed without re-rendering the card', () => {
+  test('the caption is removed without re-rendering the card', async () => {
     // render() would rebuild the card and take the focus out of the input they
     // are mid-keystroke in, which is the rule updateOutputs() exists for.
-    type('enterprises.0.crop', 'Corn')
+    await typeCrop('enterprises.0.crop', 'Corn')
     const box = seedsBox()
     box.focus()
     type('enterprises.0.variable.seed.seedsPerBag', '78000')
     assert.equal(doc.activeElement, box, 'focus stayed in the box being typed in')
   })
 
-  test('while the number is still ours, changing the crop revises it', () => {
-    type('enterprises.0.crop', 'Corn')
+  test('while the number is still ours, changing the crop revises it', async () => {
+    await typeCrop('enterprises.0.crop', 'Corn')
     assert.equal(seedsBox().value, '80000')
-    type('enterprises.0.crop', 'Soybeans')
+    await typeCrop('enterprises.0.crop', 'Soybeans')
     assert.equal(seedsBox().value, '140000')
     assert.match(note().textContent, /Soybeans/)
   })
 
-  test('a crop cleared to something unrecognised drops what we put there', () => {
+  test('a crop cleared to something unrecognised drops what we put there', async () => {
     // A stale 80,000 sitting under a crop the app can no longer vouch for is
     // worse than a blank box, which computes as $0 and says so.
-    type('enterprises.0.crop', 'Corn')
-    type('enterprises.0.crop', 'Sunflower')
+    await typeCrop('enterprises.0.crop', 'Corn')
+    await typeCrop('enterprises.0.crop', 'Sunflower')
     assert.equal(seedsBox().value, '')
     assert.equal(note(), null)
   })
 
-  test('the population figure reaches the same cost as the fraction of a bag', () => {
+  test('the population figure reaches the same cost as the fraction of a bag', async () => {
     type('enterprises.0.acres', '100')
-    type('enterprises.0.crop', 'Corn')
+    await typeCrop('enterprises.0.crop', 'Corn')
     type('enterprises.0.variable.seed.costPerBag', '285')
     type('enterprises.0.variable.seed.population', '33000')
     // 33,000 / 80,000 = 0.4125 of a bag at $285.
@@ -2731,7 +2896,7 @@ describe('a picker whose groups are quoted in different units', () => {
     await boot()
   })
 
-  test('each list says which unit it is in, and the banner does not claim one', () => {
+  test('each list says which unit it is in, and the banner does not claim one', async () => {
     // Phosphorus is published both as a price per pound and as a cost per acre.
     // One banner at the top cannot be true of both lists.
     click('[data-line="phosphorus"] [data-typical="phosphorus"]')
@@ -2743,7 +2908,7 @@ describe('a picker whose groups are quoted in different units', () => {
     assert.ok(units.some((u) => /\$\/acre/.test(u)))
   })
 
-  test('a value lands in the box ITS OWN group belongs in', () => {
+  test('a value lands in the box ITS OWN group belongs in', async () => {
     // The bug this prevents: resolving the destination once for the whole modal
     // puts a per-acre figure into the cost-per-unit box, where it is multiplied
     // by the rate a second time.
@@ -2761,7 +2926,7 @@ describe('a picker whose groups are quoted in different units', () => {
     assert.equal(doc.querySelector('[data-path="enterprises.0.variable.phosphorus.perAcre"]').value, '47.69')
   })
 
-  test('the mismatch warning sits on the group it is about', () => {
+  test('the mismatch warning sits on the group it is about', async () => {
     // With the line in $/unit, the price-per-pound list needs no warning and
     // the cost-per-acre list below it does. One banner could not say both.
     click('[data-line="phosphorus"] [data-typical="phosphorus"]')
@@ -2773,7 +2938,7 @@ describe('a picker whose groups are quoted in different units', () => {
     assert.ok(perAcre.querySelector('.modal-warn'), 'the mismatched one is')
   })
 
-  test('a mismatch warning names the mode the line is actually in', () => {
+  test('a mismatch warning names the mode the line is actually in', async () => {
     // modeName() was a two-way ternary and described a line set to "population"
     // as "$/unit × units". A warning that misnames one of the two things it is
     // comparing is worse than no warning, because it is the sentence a producer
@@ -2790,7 +2955,7 @@ describe('a picker whose groups are quoted in different units', () => {
     assert.equal(pressed.textContent.trim(), 'seeds/ac', 'the pill says the same thing')
   })
 
-  test('a bare count is printed with separators', () => {
+  test('a bare count is printed with separators', async () => {
     click('[data-path="enterprises.0.variable.seed.mode"][data-mode="population"]')
     click('[data-line="seed"] [data-typical="seedsPerBag"]')
     const values = [...doc.querySelectorAll('.typ-value')].map((v) => v.textContent)
@@ -2804,7 +2969,7 @@ describe('where the data lives is said, not only linked', () => {
     await boot()
   })
 
-  test('the footer states it in one sentence on every screen', () => {
+  test('the footer states it in one sentence on every screen', async () => {
     // A producer typing their yields, prices, and land rent into a web page at
     // a workshop is entitled to know where it goes without going looking.
     for (const action of ['go-build', 'go-scenarios']) {
@@ -2815,7 +2980,7 @@ describe('where the data lives is said, not only linked', () => {
     }
   })
 
-  test('the link opens the full explanation and writes nothing', () => {
+  test('the link opens the full explanation and writes nothing', async () => {
     click('.footer-privacy [data-info="privacy"]')
     const body = textOf('.overlay.open .modal-body')
     assert.match(body, /not sent anywhere/i)
@@ -2829,7 +2994,7 @@ describe('where the data lives is said, not only linked', () => {
     )
   })
 
-  test('the how-to guide gives it its own heading', () => {
+  test('the how-to guide gives it its own heading', async () => {
     click('[data-action="how-to"]')
     const headings = [...doc.querySelectorAll('.modal-body summary')].map((s) => s.textContent)
     assert.ok(
@@ -2838,7 +3003,7 @@ describe('where the data lives is said, not only linked', () => {
     )
   })
 
-  test('the sentence survives printing, the link does not', () => {
+  test('the sentence survives printing, the link does not', async () => {
     // A budget handed to a lender still carries the statement, and it is true
     // on paper. `.footer button` is what the print block hides.
     const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
@@ -2856,15 +3021,15 @@ describe('naming corn or soybeans opens the seeds/ac mode', () => {
   const pressed = () =>
     doc.querySelector('[data-line="seed"] .mode-seg[aria-pressed="true"]')?.dataset.mode
 
-  test('a new budget starts on the sheet’s own mode', () => {
+  test('a new budget starts on the sheet’s own mode', async () => {
     assert.equal(pressed(), 'unit')
   })
 
-  test('typing a crop this app knows opens it', () => {
+  test('typing a crop this app knows opens it', async () => {
     // Population is how corn and soybean seed is bought and quoted. Working out
     // a fraction of a bag is the arithmetic this mode exists to remove, and a
     // producer who has to find the mode first mostly will not.
-    type('enterprises.0.crop', 'Corn')
+    await typeCrop('enterprises.0.crop', 'Corn')
     assert.equal(pressed(), 'population')
     assert.equal(
       doc.querySelector('[data-path="enterprises.0.variable.seed.seedsPerBag"]').value,
@@ -2873,18 +3038,18 @@ describe('naming corn or soybeans opens the seeds/ac mode', () => {
     )
   })
 
-  test('a crop with no published seeding rate does not', () => {
-    type('enterprises.0.crop', 'Sorghum')
+  test('a crop with no published seeding rate does not', async () => {
+    await typeCrop('enterprises.0.crop', 'Sorghum')
     assert.equal(pressed(), 'unit')
   })
 
-  test('a line somebody has already typed in is left where it is', () => {
+  test('a line somebody has already typed in is left where it is', async () => {
     // THE guard. The mode decides which boxes exist, so switching it out from
     // under an entered figure hides that figure — it is still stored, which
     // makes it worse rather than better, because nothing on screen says where
     // it went.
     type('enterprises.0.variable.seed.costPerUnit', '320')
-    type('enterprises.0.crop', 'Corn')
+    await typeCrop('enterprises.0.crop', 'Corn')
     assert.equal(pressed(), 'unit', 'the mode did not move')
     assert.equal(
       doc.querySelector('[data-path="enterprises.0.variable.seed.costPerUnit"]').value,
@@ -2893,15 +3058,15 @@ describe('naming corn or soybeans opens the seeds/ac mode', () => {
     )
   })
 
-  test('a mode the producer chose themselves is left alone', () => {
+  test('a mode the producer chose themselves is left alone', async () => {
     click('[data-path="enterprises.0.variable.seed.mode"][data-mode="perAcre"]')
     type('enterprises.0.variable.seed.perAcre', '125')
-    type('enterprises.0.crop', 'Soybeans')
+    await typeCrop('enterprises.0.crop', 'Soybeans')
     assert.equal(pressed(), 'perAcre')
   })
 
-  test('opening the mode brings the seeds-per-unit offer with it', () => {
-    type('enterprises.0.crop', 'Corn')
+  test('opening the mode brings the seeds-per-unit offer with it', async () => {
+    await typeCrop('enterprises.0.crop', 'Corn')
     const offers = [...doc.querySelectorAll('[data-line="seed"] .tip[data-typical="seedsPerBag"]')]
     assert.equal(offers.length, 2, 'one copy for each width — see renderLine()')
     for (const el of offers) {
@@ -2913,12 +3078,12 @@ describe('naming corn or soybeans opens the seeds/ac mode', () => {
     )
   })
 
-  test('the caption stays under the whole line, below both offers', () => {
+  test('the caption stays under the whole line, below both offers', async () => {
     // The OFFER moved. The CAPTION did not, and the two are different things:
     // the offer is a control belonging to one box, the caption is a sentence
     // about a figure that is already there. Inside the row of boxes it squeezed
     // three number inputs into two columns' worth of width.
-    type('enterprises.0.crop', 'Corn')
+    await typeCrop('enterprises.0.crop', 'Corn')
     const note = doc.querySelector('[data-line="seed"] .field-note')
     assert.ok(note, 'the caption is on the seed line')
     assert.match(note.textContent, /filled in from/i)
@@ -2978,7 +3143,7 @@ describe('units read the same everywhere they are shown', () => {
     await boot()
   })
 
-  test('the pill abbreviates, the box does not, and both are deliberate', () => {
+  test('the pill abbreviates, the box does not, and both are deliberate', async () => {
     // A pill segment is one of three sharing a row with a label and a "use
     // typical value" link on a 360px screen, and it is what gives when any of
     // them grows. A placeholder has the whole box to itself, so there is no
@@ -2995,7 +3160,7 @@ describe('units read the same everywhere they are shown', () => {
     assert.equal(box.closest('.in-box').querySelector('.in-post').textContent, '/ac')
   })
 
-  test('nothing user-facing spells out "bushel"', () => {
+  test('nothing user-facing spells out "bushel"', async () => {
     // The yield-unit select offers "bu", so a picker that spells it out reads
     // as a different quantity. Checked across every spec's own strings.
     for (const [key, spec] of Object.entries(TYPICAL_VALUES)) {
@@ -3015,7 +3180,7 @@ describe('a picker opens as a list of headings', () => {
     await boot()
   })
 
-  test('every fold starts shut, including the first', () => {
+  test('every fold starts shut, including the first', async () => {
     // Same rule openInfo() holds for a card's definitions: when a modal opens
     // folded, the list of headings is itself the answer to "what is on offer
     // here?", and one group left open pushes the rest below the fold on a
@@ -3101,7 +3266,7 @@ describe('a money box wears the same affixes as a fixed-cost field', () => {
     return css.slice(at, css.indexOf('}', at))
   }
 
-  test('the size and the two offsets are the ones the labor-rate field uses', () => {
+  test('the size and the two offsets are the ones the labor-rate field uses', async () => {
     // A page carrying both treatments read as two different controls doing the
     // same job: a 10.5px grey tail inside an expense box, a 14px one inside the
     // Labor rate box an inch below it.
@@ -3115,7 +3280,7 @@ describe('a money box wears the same affixes as a fixed-cost field', () => {
     assert.match(ruleFor('.in-post'), /right:\s*10px/)
   })
 
-  test('and so is the room reserved for them', () => {
+  test('and so is the room reserved for them', async () => {
     // Same size at the same offset needs the same padding, or the figure runs
     // under its own unit.
     assert.match(ruleFor('.has-prefix input'), /padding-left:\s*24px/)
@@ -3137,7 +3302,7 @@ describe('the save state stands next to the button it is about', () => {
     await boot()
   })
 
-  test('it is in the sticky bar, immediately left of Save', () => {
+  test('it is in the sticky bar, immediately left of Save', async () => {
     // It used to sit up in the page header beside the tabs, which put
     // "Unsaved changes" and the control that answers it at opposite ends of a
     // long page.
@@ -3156,7 +3321,7 @@ describe('the save state stands next to the button it is about', () => {
     assert.equal(doc.querySelectorAll('#saveState').length, 1)
   })
 
-  test('the button loses a word on a phone, not a meaning', () => {
+  test('the button loses a word on a phone, not a meaning', async () => {
     const btn = doc.querySelector('[data-action="save-scenario"]')
     assert.equal(btn.textContent.replace(/\s+/g, ' ').trim(), 'Save budget')
     assert.equal(
@@ -3171,5 +3336,486 @@ describe('the save state stands next to the button it is about', () => {
     const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
     const mobile = css.slice(css.indexOf('@media (max-width: 899px)'))
     assert.match(mobile, /\n {2}\.btn-word \{[^}]*display: none/)
+  })
+})
+
+/* ══════════════════════════════════════════════════════════════════════════
+   A render that answers a keystroke must not evict the producer
+   ══════════════════════════════════════════════════════════════════════════ */
+
+describe('a structural render puts the producer back in the box', () => {
+  beforeEach(async () => {
+    await boot()
+  })
+
+  test('a crop name can be typed in full before the app acts on it', async () => {
+    // "Corn silage" matches corn at four characters. Acting on the keystroke
+    // rebuilt the card at that point, focus fell to the body, and on a phone the
+    // keyboard closed — so the rest of the word went nowhere. The mode now waits
+    // for the producer to leave the box.
+    const el = doc.querySelector('[data-path="enterprises.0.crop"]')
+    el.focus()
+    for (const value of ['Corn', 'Corn ', 'Corn s', 'Corn silage']) {
+      el.value = value
+      el.dispatchEvent(new win.Event('input', { bubbles: true }))
+      assert.equal(
+        doc.activeElement?.getAttribute('data-path'),
+        'enterprises.0.crop',
+        `still in the crop box after typing "${value}"`
+      )
+    }
+    assert.equal(doc.activeElement.value, 'Corn silage', 'and the whole name is in it')
+    assert.equal(
+      doc.querySelector(
+        '[data-path="enterprises.0.variable.seed.mode"][data-mode="population"][aria-pressed="true"]'
+      ),
+      null,
+      'nothing structural happened while they were typing'
+    )
+
+    // Leaving the box is when it acts.
+    el.dispatchEvent(new win.Event('change', { bubbles: true }))
+    await flush()
+    assert.ok(
+      doc.querySelector(
+        '[data-path="enterprises.0.variable.seed.mode"][data-mode="population"][aria-pressed="true"]'
+      ),
+      'the seeds/ac mode opens once they are done'
+    )
+  })
+
+  test('the render is deferred past the click that caused the blur', async () => {
+    // `change` fires DURING the blur a click causes. A synchronous render there
+    // replaces the page between mousedown and mouseup, detaching the element
+    // the producer pressed — so tapping Acres straight after typing a crop
+    // would put them nowhere and tapping Save would do nothing at all.
+    const el = doc.querySelector('[data-path="enterprises.0.crop"]')
+    el.value = 'Corn'
+    el.dispatchEvent(new win.Event('input', { bubbles: true }))
+    el.dispatchEvent(new win.Event('change', { bubbles: true }))
+
+    assert.equal(
+      doc.querySelector(
+        '[data-path="enterprises.0.variable.seed.mode"][data-mode="population"][aria-pressed="true"]'
+      ),
+      null,
+      'the page is still standing when change returns'
+    )
+
+    await flush()
+    assert.ok(
+      doc.querySelector(
+        '[data-path="enterprises.0.variable.seed.mode"][data-mode="population"][aria-pressed="true"]'
+      ),
+      'and rebuilt on the next turn of the loop'
+    )
+  })
+
+  test('restoring focus does not dismiss the notice that render just raised', async () => {
+    // The focusin listener dismisses a notice when the producer taps into the
+    // field it names. A focus the APP moved is not that, and without the guard
+    // the notice explaining a cleared box was killed by the same render that
+    // raised it, leaving an empty box and nothing saying why.
+    click('[data-line="hauling"] [data-typical="hauling"]')
+    doc.querySelector('.typ-option').dispatchEvent(new win.MouseEvent('click', { bubbles: true }))
+
+    const select = doc.querySelector('[data-path="enterprises.0.yieldUnit"]')
+    select.value = 'ton'
+    select.dispatchEvent(new win.Event('change', { bubbles: true }))
+
+    assert.ok(doc.querySelector('.ent .unit-notice'), 'the notice survived the render')
+  })
+})
+
+/* ══════════════════════════════════════════════════════════════════════════
+   The app may only ever revise a figure IT wrote
+   ══════════════════════════════════════════════════════════════════════════ */
+
+describe('a provenance marker is released when the figure stops being ours', () => {
+  beforeEach(async () => {
+    await boot()
+  })
+
+  function pickFirstOption() {
+    doc.querySelector('.typ-option').dispatchEvent(new win.MouseEvent('click', { bubbles: true }))
+  }
+
+  test('a seeds-per-unit figure the producer PICKED is theirs', async () => {
+    await typeCrop('enterprises.0.crop', 'Corn')
+    assert.ok(
+      doc.querySelector('[data-line="seed"] .field-note'),
+      'the app filled the box and said so'
+    )
+
+    // Choosing from the picker is the producer answering the question. It is
+    // written programmatically, which fires no input event, so the keystroke
+    // path that normally releases the marker never runs.
+    click('[data-line="seed"] [data-typical="seedsPerBag"]')
+    pickFirstOption()
+    const picked = doc.querySelector(
+      '[data-path="enterprises.0.variable.seed.seedsPerBag"]'
+    ).value
+    assert.ok(Number(picked) > 0, 'the picker wrote a figure')
+
+    await typeCrop('enterprises.0.crop', 'Soybeans')
+    assert.equal(
+      doc.querySelector('[data-path="enterprises.0.variable.seed.seedsPerBag"]').value,
+      picked,
+      'and changing the crop does not overwrite what they chose'
+    )
+  })
+
+  test('a hauling rate typed over the picker\u2019s survives a yield-unit change', async () => {
+    click('[data-line="hauling"] [data-typical="hauling"]')
+    pickFirstOption()
+
+    type('enterprises.0.variable.hauling.costPerUnit', '0.20')
+
+    const select = doc.querySelector('[data-path="enterprises.0.yieldUnit"]')
+    select.value = 'ton'
+    select.dispatchEvent(new win.Event('change', { bubbles: true }))
+
+    assert.equal(
+      doc.querySelector('[data-path="enterprises.0.variable.hauling.costPerUnit"]').value,
+      '0.20',
+      'their own number is not deleted as if the picker had written it'
+    )
+    assert.equal(doc.querySelector('.ent .unit-notice'), null, 'and nothing claims it was')
+  })
+
+  test('an overhead figure typed over the picker\u2019s survives a period change', async () => {
+    type('enterprises.0.acres', '500')
+    click('[data-typical="overheadUtilities"]')
+    pickFirstOption()
+
+    type('fixed.annual.utilities', '380')
+
+    const select = doc.querySelector('[data-path="fixed.annualBasis.utilities"]')
+    select.value = 'month'
+    select.dispatchEvent(new win.Event('change', { bubbles: true }))
+
+    assert.equal(
+      doc.querySelector('[data-path="fixed.annual.utilities"]').value,
+      '380',
+      'a producer converting their own figure on purpose is why the select exists'
+    )
+  })
+})
+
+describe('a seed price is at home in either entry mode', () => {
+  beforeEach(async () => {
+    await boot()
+  })
+
+  test('picking a cost per bag in seeds/ac mode does not switch the line', async () => {
+    // A list quoted "per unit of seed" is quoting a cost per BAG, which is
+    // exactly what the seeds/ac mode's own cost box holds. Switching to
+    // $/unit would hide the population already entered, leaving it stored with
+    // nothing on screen to say where it went.
+    click('[data-path="enterprises.0.variable.seed.mode"][data-mode="population"]')
+    type('enterprises.0.variable.seed.population', '33000')
+
+    click('[data-line="seed"] [data-typical="seed"]')
+
+    // Per GROUP, because this spec also carries three $/acre lists that must
+    // still warn — the exemption is about two boxes holding the same quantity,
+    // not about the seed line as a whole.
+    const perBag = doc.querySelector('.typ-option').closest('.typ-group')
+    assert.match(perBag.textContent, /per bag or unit/i, 'this is the cost-per-bag list')
+    assert.equal(
+      perBag.querySelector('.modal-warn'),
+      null,
+      'and no warning claims the mode is about to change'
+    )
+    const perAcre = [...doc.querySelectorAll('.typ-group')].find((g) =>
+      /cost per acre/i.test(g.textContent)
+    )
+    assert.ok(perAcre.querySelector('.modal-warn'), 'while a $/acre list still warns')
+
+    doc.querySelector('.typ-option').dispatchEvent(new win.MouseEvent('click', { bubbles: true }))
+
+    assert.ok(
+      doc.querySelector(
+        '[data-path="enterprises.0.variable.seed.mode"][data-mode="population"][aria-pressed="true"]'
+      ),
+      'the line is still in seeds/ac'
+    )
+    assert.ok(
+      Number(doc.querySelector('[data-path="enterprises.0.variable.seed.costPerBag"]').value) > 0,
+      'and the figure landed in the cost-per-bag box'
+    )
+    assert.equal(
+      doc.querySelector('[data-path="enterprises.0.variable.seed.population"]').value,
+      '33000',
+      'with the population they entered untouched'
+    )
+  })
+
+  test('a genuinely different unit still switches the mode', async () => {
+    // The exemption is only for two boxes holding the SAME quantity. A $/acre
+    // list and a $/unit line are different figures and must still switch.
+    click('[data-path="enterprises.0.variable.hauling.mode"][data-mode="perAcre"]')
+    click('[data-line="hauling"] [data-typical="hauling"]')
+    assert.ok(doc.querySelector('.modal-warn'), 'the mismatch is still announced')
+  })
+})
+
+describe('a folded enterprise card still shows what it earns', () => {
+  beforeEach(async () => {
+    await boot()
+  })
+
+  test('the shut card carries gross margin per acre and in total', async () => {
+    type('enterprises.0.acres', '500')
+    type('enterprises.0.yieldPerAcre', '180')
+    type('enterprises.0.pricePerUnit', '4.25')
+
+    const card = doc.querySelector('.ent')
+    const perAcre = card.querySelector('.ent-fold-sub [data-out$="grossMarginPerAcre"]')
+    const total = card.querySelector('.ent-fold-sub [data-out$="enterpriseGrossMargin"]')
+    assert.ok(perAcre && total, 'both figures are on the card head')
+
+    // They are the same numbers the open card and the results table print, so
+    // they must be [data-out] placeholders rather than baked into the literal —
+    // otherwise they freeze at the last structural render while the ones below
+    // them track every keystroke.
+    assert.equal(perAcre.textContent, textOf('[data-out="enterprises.0.grossMarginPerAcre"]'))
+    assert.match(total.textContent, /^\$/, 'and the total reads as money')
+
+    // Positive money is green, and that is the whole point of putting it here.
+    assert.ok(perAcre.classList.contains('pos'), 'a margin that is there reads as there')
+
+    // A cost big enough to swallow the revenue, since a blank budget has none.
+    click('[data-path="enterprises.0.variable.seed.mode"][data-mode="perAcre"]')
+    type('enterprises.0.variable.seed.perAcre', '2000')
+    assert.ok(
+      doc
+        .querySelector('.ent .ent-fold-sub [data-out$="grossMarginPerAcre"]')
+        .classList.contains('neg'),
+      'and one that is not turns red'
+    )
+  })
+
+  test('the figures are hidden while the card is open', async () => {
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+    // jsdom loads no CSS. Open, both figures are already readout rows inside the
+    // card, and the same number twice on one card reads as two that disagree.
+    assert.match(css, /\n\.ent-fold-sub \{[^}]*display: none/)
+    assert.match(css, /\n\.ent\.collapsed \.ent-fold-sub \{[^}]*display: block/)
+  })
+})
+
+describe('a modal message cannot scroll out of sight', () => {
+  beforeEach(async () => {
+    await boot()
+  })
+
+  test('the error sits in the head, which does not scroll', async () => {
+    // A sentinel like "=0.25*initialCost" needs a sibling filled in first. The
+    // option that raises it can be a long way down a long list, so at the foot
+    // of the body the answer was written where the producer was not looking:
+    // they tapped a figure, nothing appeared to happen, and the sentence saying
+    // why was off the bottom of the screen.
+    click('[data-action="add-equipment"]')
+    const salvage = doc.querySelector('.item [data-typical="salvageValue"]')
+    assert.ok(salvage, 'the salvage line offers typical values')
+    salvage.dispatchEvent(new win.MouseEvent('click', { bubbles: true }))
+    doc.querySelector('.typ-option').dispatchEvent(new win.MouseEvent('click', { bubbles: true }))
+
+    const err = doc.querySelector('.modal-err')
+    assert.equal(err.hidden, false, 'the message is shown')
+    assert.match(err.textContent, /initial cost/i, 'and says what to do first')
+    assert.ok(err.closest('.modal-head'), 'from the head, above the scrolling body')
+    assert.equal(err.closest('.modal-body'), null)
+    assert.equal(err.getAttribute('aria-live'), 'polite', 'and is announced')
+  })
+
+  test('it does not survive into the next modal', async () => {
+    click('[data-action="add-equipment"]')
+    doc
+      .querySelector('.item [data-typical="salvageValue"]')
+      .dispatchEvent(new win.MouseEvent('click', { bubbles: true }))
+    doc.querySelector('.typ-option').dispatchEvent(new win.MouseEvent('click', { bubbles: true }))
+    assert.equal(doc.querySelector('.modal-err').hidden, false)
+
+    // It lives in the head now, so it outlives the body it was raised about.
+    click('.modal-close')
+    click('[data-action="how-to"]')
+    assert.equal(doc.querySelector('.modal-err').hidden, true, 'cleared on the way in')
+  })
+})
+
+describe('an organising feature applies to the folders that are shut', () => {
+  beforeEach(async () => {
+    await boot()
+  })
+
+  async function oneBudgetAndAFolder() {
+    type('name', 'North quarter')
+    click('[data-action="save-scenario"]')
+    click('[data-action="go-scenarios"]')
+    click('[data-action="new-folder"]')
+    doc.querySelector('#fldName').value = 'Rented ground'
+    click('.fld-save')
+  }
+
+  test('hovering a shut folder while dragging opens it', async () => {
+    await oneBudgetAndAFolder()
+
+    const section = [...doc.querySelectorAll('.scn-section')].find(
+      (s) => s.getAttribute('data-scn-section') !== ''
+    )
+    assert.ok(section, 'the folder has a section')
+    // A folder is opened by the act of creating it, so shut it — this is the
+    // state every folder is in on the next visit, which is the whole problem.
+    section.querySelector('.fld-toggle').dispatchEvent(new win.MouseEvent('click', { bubbles: true }))
+    const list = doc
+      .querySelector(`[data-scn-section="${section.getAttribute('data-scn-section')}"]`)
+      .querySelector('[data-scn-list]')
+    assert.equal(list.hidden, true, 'and now it is shut')
+
+    // A shut section hides its rows, so elementFromPoint never returns the list
+    // and the drag had no way in. Since folders start shut, that meant a budget
+    // could not be dragged into most of them at all.
+    const row = doc.querySelector('.scn')
+    row.dispatchEvent(new win.MouseEvent('dragstart', { bubbles: true }))
+    section
+      .querySelector('.fld-toggle')
+      .dispatchEvent(new win.MouseEvent('dragover', { bubbles: true, cancelable: true }))
+
+    assert.equal(list.hidden, false, 'hovering the heading opens the section')
+    assert.equal(
+      section.querySelector('.fld-toggle').getAttribute('aria-expanded'),
+      'true',
+      'and the caret agrees'
+    )
+  })
+
+  test('a duplicate lands somewhere the producer can see it', async () => {
+    await oneBudgetAndAFolder()
+
+    // File the budget through the Move modal, the way a producer would.
+    doc
+      .querySelector('.scn [data-action="move-scenario"]')
+      .dispatchEvent(new win.MouseEvent('click', { bubbles: true }))
+    const options = [...doc.querySelectorAll('.fld-option')]
+    const wanted = options.find((o) => o.textContent.trim().startsWith('Rented ground'))
+    for (const o of options) o.querySelector('input').checked = false
+    wanted.querySelector('input').checked = true
+    click('.fld-save')
+
+    const section = [...doc.querySelectorAll('.scn-section')].find(
+      (s) => s.getAttribute('data-scn-section') !== ''
+    )
+    const folderId = section.getAttribute('data-scn-section')
+    const id = doc.querySelector('.scn').getAttribute('data-scn-id')
+
+    // Shut it again. Filing a budget opens its folder, so without this the
+    // section is open for a reason that has nothing to do with the duplicate
+    // and the test would pass whether or not the copy is reachable.
+    section.querySelector('.fld-toggle').dispatchEvent(new win.MouseEvent('click', { bubbles: true }))
+    assert.equal(
+      doc
+        .querySelector(`[data-scn-section="${folderId}"]`)
+        .querySelector('[data-scn-list]').hidden,
+      true,
+      'the folder is shut before the copy is made'
+    )
+
+    click(`[data-action="duplicate-scenario"][data-id="${id}"]`)
+    click('[data-action="go-scenarios"]')
+
+    const listNow = [...doc.querySelectorAll('.scn-section')]
+      .find((s) => s.getAttribute('data-scn-section') === folderId)
+      .querySelector('[data-scn-list]')
+    assert.equal(listNow.hidden, false, 'the section holding the copy is open')
+    assert.equal(listNow.querySelectorAll('.scn').length, 2, 'and the copy is in it')
+  })
+})
+
+describe('a placeholder says what the box is actually for', () => {
+  beforeEach(async () => {
+    await boot()
+  })
+
+  const ph = (path) => doc.querySelector(`[data-path="${path}"]`)?.getAttribute('placeholder')
+  const post = (path) =>
+    doc.querySelector(`[data-path="${path}"]`)?.closest('.in-box')?.querySelector('.in-post')
+      ?.textContent
+
+  test('the total-premium box says what the total is OF', async () => {
+    click('[data-path="enterprises.0.variable.cropInsurance.mode"][data-mode="total"]')
+    assert.equal(ph('enterprises.0.variable.cropInsurance.totalCost'), 'total premium')
+  })
+
+  test('the units/acre box says "unit" until something tells it otherwise', async () => {
+    // It used to be filled from the line's own unitHint, which was a guess:
+    // crop insurance and repairs read "acre/acre", and seed read
+    // "bag, unit/acre" — two nouns and a comma inside a placeholder.
+    assert.equal(ph('enterprises.0.variable.nitrogen.unitsPerAcre'), 'unit/acre')
+    click('[data-path="enterprises.0.variable.repairs.mode"][data-mode="unit"]')
+    assert.equal(ph('enterprises.0.variable.repairs.unitsPerAcre'), 'unit/acre')
+  })
+
+  test('picking a $/unit typical value names the unit', async () => {
+    // Nitrogen is published "$/lb of N", so the box below is counting pounds.
+    // The noun comes off the GROUP that was chosen from, which is the only
+    // thing in the app that actually knows one.
+    click('[data-line="nitrogen"] [data-typical="nitrogen"]')
+    const perLb = [...doc.querySelectorAll('.typ-option')].find(
+      (o) => o.getAttribute('data-unit') === '$/lb of N'
+    )
+    assert.ok(perLb, 'the picker offers a per-pound list')
+    perLb.dispatchEvent(new win.MouseEvent('click', { bubbles: true }))
+
+    assert.equal(ph('enterprises.0.variable.nitrogen.unitsPerAcre'), 'lb/acre')
+    // The noun appears TWICE on the row and the two must agree, because between
+    // them they are the whole sentence: dollars per pound, times pounds per acre.
+    assert.equal(post('enterprises.0.variable.nitrogen.costPerUnit'), '/lb')
+
+    // And the app stops describing the figure once it is no longer the one it
+    // wrote — the same rule the other three provenance markers follow. In place,
+    // because this runs on a keystroke: clearing the marker alone left both
+    // labels on screen describing a cost that had just been overwritten.
+    type('enterprises.0.variable.nitrogen.costPerUnit', '0.71')
+    assert.equal(
+      ph('enterprises.0.variable.nitrogen.unitsPerAcre'),
+      'unit/acre',
+      'without waiting for a render'
+    )
+    assert.equal(post('enterprises.0.variable.nitrogen.costPerUnit'), '/unit')
+
+    // And it stays that way once something does rebuild the card.
+    click('[data-action="go-scenarios"]')
+    click('[data-action="go-build"]')
+    assert.equal(ph('enterprises.0.variable.nitrogen.unitsPerAcre'), 'unit/acre')
+    assert.equal(post('enterprises.0.variable.nitrogen.costPerUnit'), '/unit')
+  })
+
+  test('clearing the cost box puts the labels back too', async () => {
+    click('[data-line="nitrogen"] [data-typical="nitrogen"]')
+    ;[...doc.querySelectorAll('.typ-option')]
+      .find((o) => o.getAttribute('data-unit') === '$/lb of N')
+      .dispatchEvent(new win.MouseEvent('click', { bubbles: true }))
+    assert.equal(ph('enterprises.0.variable.nitrogen.unitsPerAcre'), 'lb/acre')
+
+    // Deleted, not replaced. An empty box is not a figure the app wrote either.
+    type('enterprises.0.variable.nitrogen.costPerUnit', '')
+    assert.equal(ph('enterprises.0.variable.nitrogen.unitsPerAcre'), 'unit/acre')
+    assert.equal(post('enterprises.0.variable.nitrogen.costPerUnit'), '/unit')
+  })
+
+  test('the folded card names both figures in full', async () => {
+    type('enterprises.0.acres', '500')
+    const keys = [...doc.querySelectorAll('.ent-fold-sub .ent-fig-key')].map((k) =>
+      k.textContent.trim()
+    )
+    assert.deepEqual(keys, ['Gross margin / ac:', 'Enterprise gross margin:'])
+
+    // One figure per line, each nowrap so the money never breaks away from the
+    // label it belongs to.
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+    assert.match(css, /\n\.ent-fig \{[^}]*display: block/)
+    assert.match(css, /\n\.ent-fig \{[^}]*white-space: nowrap/)
   })
 })

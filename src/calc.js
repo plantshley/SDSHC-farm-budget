@@ -33,7 +33,7 @@ export const VARIABLE_LINES = [
   { key: 'potassium', label: 'Potassium', unitHint: 'lb', preharvest: true },
   { key: 'herbicide', label: 'Herbicide', unitHint: 'application', preharvest: true },
   { key: 'insecticide', label: 'Insecticide', unitHint: 'application', preharvest: true },
-  { key: 'cropInsurance', label: 'Crop Insurance', unitHint: 'acre', preharvest: true, prefersPerAcre: true, modes: ['unit', 'perAcre', 'total'] },
+  { key: 'cropInsurance', label: 'Crop Insurance', unitHint: 'acre', totalHint: 'total premium', preharvest: true, prefersPerAcre: true, modes: ['unit', 'perAcre', 'total'] },
   { key: 'fuelOil', label: 'Fuel/Oil', unitHint: 'gal', preharvest: true },
   { key: 'repairs', label: 'Repairs', unitHint: 'acre', preharvest: true, prefersPerAcre: true },
   { key: 'customHire', label: 'Custom Hire', unitHint: 'acre', preharvest: true, prefersPerAcre: true },
@@ -442,15 +442,37 @@ export function calcEnterprise(ent, index, warnings) {
   // (D23 = B23*C23) even though its own label reads "8 months at 10%", so it
   // is routinely left blank or guessed. Here it is computed from the
   // preharvest costs above it. `auto: false` restores manual entry.
+  // Every one of these three goes through nonNegative(), for the reason the
+  // whole function exists: this figure is ADDED to totalVarPerAcre, so a
+  // negative one is a cost handed back as a credit. It is the same "-7 for 7%"
+  // typo the equipment interest rate is guarded against, on a box that ships
+  // pre-filled with 10, sits on every enterprise card, and is directly
+  // editable. On a $300/acre preharvest base over 1,000 acres a "-10" moved
+  // profit by about $40,000 in the flattering direction, with an entirely
+  // ordinary number on screen and nothing naming the field.
   const preharvest = ent?.preharvest ?? {}
   const auto = preharvest.auto !== false
   const preharvestInterestPerAcre = auto
     ? finite(
         preharvestBasis *
-          (orDefault(preharvest.rate, PREHARVEST_DEFAULTS.rate) / 100) *
-          (orDefault(preharvest.months, PREHARVEST_DEFAULTS.months) / 12)
+          (nonNegative(
+            orDefault(preharvest.rate, PREHARVEST_DEFAULTS.rate),
+            `"${named}" preharvest interest rate`,
+            own
+          ) /
+            100) *
+          (nonNegative(
+            orDefault(preharvest.months, PREHARVEST_DEFAULTS.months),
+            `"${named}" preharvest interest term`,
+            own
+          ) /
+            12)
       )
-    : num(preharvest.manualPerAcre)
+    : nonNegative(
+        preharvest.manualPerAcre,
+        `"${named}" interest on preharvest costs`,
+        own
+      )
 
   const totalVarPerAcre = finite(
     Object.values(lines).reduce((a, b) => finite(a + b), 0) + preharvestInterestPerAcre

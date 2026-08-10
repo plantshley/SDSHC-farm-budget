@@ -1346,3 +1346,353 @@ are kept.
 the data lives is stated, not only linked*. That is a promise made to producers
 in the footer of every screen. Phase 2 cannot ship without changing all three
 first, and changing them is the consent conversation, not a follow-up to it.
+
+---
+
+## What a review pass found, and why each one was reachable
+
+Four defects came out of a zero-context review of the accumulated feedback work.
+They are recorded here rather than only in the fix, because three of them are the
+*same* mistake arrived at from three directions: a rule this codebase already
+states was applied everywhere it was thought about, and the places nobody thought
+about were the places it mattered.
+
+### Preharvest interest skipped `nonNegative()`
+
+`rate`, `months`, and `manualPerAcre` were the only rates in the model that did
+not pass through it. The figure is **added** to `totalVarPerAcre`, so a negative
+one lowers variable expenses, raises gross margin, and raises profit. No warning
+named the field, because no warning existed to name it.
+
+The reachability is what makes it serious rather than theoretical. The rate box
+ships **pre-filled with 10**, sits on every enterprise card, and is directly
+editable, so "-10" for 10% is the ordinary slip rather than an exotic one. On a
+$300/acre preharvest base at 10% over eight months across 1,000 acres the swing
+is roughly **$40,000 in the flattering direction**, with a perfectly ordinary
+number on screen. In manual mode a "-15" is a straight $15/acre credit.
+
+CLAUDE.md's own list of what `nonNegative()` covers did not include these three,
+which is why this reads as an oversight rather than a decision — the doc and the
+code agreed with each other and both were wrong. The list now says so explicitly.
+
+### A render answering a keystroke threw the producer out of the field
+
+`autofillSeedsPerUnit()` calls `openPopulationMode()` and then renders. The guard
+above it reads `if (alreadySet && !opened) return`, and its comment claims to
+avoid re-rendering under someone typing a crop name — but on the common path the
+mode has just been set to `population` two lines above, so the render always ran.
+
+`render()` had no focus preservation at all. Typing `c-o-r-n` replaced
+`app.innerHTML` on the fourth keystroke, focus fell to the body, and on a phone
+the keyboard closed. **"Corn silage" could not be typed in one go**, on the one
+field in the app that fills another field from what you type into it.
+
+The render is genuinely necessary — which boxes exist changes — so the fix is to
+survive it rather than to avoid it. `activeField()` records the focused field's
+`data-path` and caret before the replace; `restoreField()` puts it back after.
+
+Three details are load-bearing:
+
+- **Scoped to `INPUT` / `SELECT` / `TEXTAREA`.** The mode-pill segments carry a
+  `data-path` too, and three of them share it, so restoring by path would land on
+  whichever segment came first rather than the one just pressed.
+- **`selectionStart` is read and written inside `try`.** A number input has no
+  text selection; reading throws in some browsers and returns `null` in others.
+  The focus is the point, and the caret is a bonus.
+- **`restoringFocus` guards the `focusin` listener, and adding the restore
+  without it broke six tests.** That listener dismisses a notice when the
+  producer taps into a field the notice names. A focus the *app* moved is not
+  that — so the notice explaining why a figure had just been cleared was killed
+  by the same render that raised it, leaving an empty box and nothing on screen
+  to say why. This is the failure mode the notices exist to prevent, reintroduced
+  by the fix for something else.
+
+### All three provenance markers leaked
+
+The contract is that the app may only ever revise a figure **it** wrote. Each
+marker was set correctly and released nowhere, so each one eventually let the app
+delete a producer's work and explain it with a sentence that was not true of the
+number it deleted.
+
+- **`fixed.annualTypicalBasis.<key>`** — the most reachable of the three, because
+  using a typical value as a starting point and then typing over it is ordinary
+  behaviour. Take the $4,203 utilities figure, type `380` over it, move the
+  period to `$ / month`: `dropStaleOverheadValue()` deleted the `380` and printed
+  *"Utilities was filled in from a figure published for a full year"*, which was
+  true of a number that was no longer there.
+- **`typicalYieldUnit`** — the same shape one field over. Apply the $0.135/bu
+  hauling rate, type `0.20` over it, switch the enterprise to tons, lose the
+  `0.20`.
+- **`seedsPerBagAuto`** — `releaseSeedsPerUnit()` drops it on a keystroke, but
+  **`applyValue()` writes `input.value` programmatically, which fires no `input`
+  event.** So choosing 140,000 from the seeds-per-unit picker left the marker
+  reading `"Corn"`: the caption went on crediting the Crop field for a figure the
+  producer had explicitly chosen, and the next edit to that field overwrote their
+  140,000 with corn's 80,000.
+
+The rule that generalises all three, now stated in CLAUDE.md: **release the
+marker wherever the value is changed by anything other than the app's own
+write.** A programmatic write is not a keystroke, which is why the seed one
+needed a release inside `applyValue()` and not only in the input listener.
+
+### Six of the seven regression tests were confirmed red first
+
+The source was stashed and the new tests run against the unfixed code, because a
+regression test that passes without the fix pins nothing. The seventh — the
+notice guard — passes either way, since with no focus restore at all there is
+nothing to dismiss the notice. It is kept as a guard against the *fix* being
+regressed, and this note is why it looks redundant.
+
+---
+
+## The second feedback round on the same work
+
+### The crop field acts on `change`, not on every keystroke
+
+Deferring the seeds-per-unit auto-fill to the moment the producer LEAVES the box
+is the real fix for something an earlier pass only patched. Restoring focus after
+the render put the caret back, but the render still happened at the fourth
+character of "Corn" — and "Corn silage" is a crop, so the card was being rebuilt
+under somebody who had not finished typing.
+
+`change` on a text input fires on blur, and only when the value actually moved,
+which is exactly the signal wanted.
+
+**The render is then deferred one turn of the event loop, and that is not
+cosmetic.** `change` fires DURING the blur that a click causes, so a synchronous
+render replaces the page between mousedown and mouseup. The element the producer
+pressed is detached, no common ancestor remains for the click to be dispatched
+to, and **the click never lands** — tapping Acres straight after typing a crop
+would put them nowhere, and tapping Save would do nothing at all. `deferRender()`
+is a `setTimeout(render, 0)` on the document's own window, and the test helper
+`typeCrop()` is async for the same reason.
+
+### A seed price is at home in either entry mode
+
+A list quoted *per unit of seed* is quoting a cost per BAG, and `seeds/ac` mode
+already has a box holding exactly that — `costPerBag`, the same number in the
+same units as `costPerUnit`. Switching the line to `$/unit` to accept it was not
+merely unnecessary: it hid the population the producer had already entered,
+leaving a real figure stored with nothing on screen to say where it went.
+
+`switchesMode()` and `boxFor()` in `ui/modals.js` carry this, and the exemption
+is deliberately narrow — **two boxes holding the same quantity, nothing else.**
+The same spec's three `$/acre` groups still warn and still switch, because a cost
+per acre and a cost per bag are different figures. The test asserts both halves,
+per group, on the one spec that has both.
+
+### A folded card carries what the enterprise earns
+
+`.ent-fold-sub` holds gross margin per acre and enterprise gross margin, shown
+only while the card is SHUT — open, both are already readout rows a few inches
+below, and the same number twice on one card reads as two numbers that disagree.
+That is the rule `.fold-sub` follows on the fixed block.
+
+Both are `[data-out]` with `data-tone`, so they track a keystroke like every
+other figure and take the green/red of money that is or is not there. **`--fold-h`
+moved 100px → 138px and the shut card 200px → 220px**, because the tile clips
+rather than growing and "Gross margin $1,234.56 / ac" has to stay on one line.
+
+### The tabs stopped moving between screens
+
+`.app-head` used `justify-content: space-between`, and the header holds the
+budget name AND the tabs on the Budget screen but only the tabs on the Saved one.
+So the tabs sat at the right-hand end on one screen and hard against the left on
+the other. `margin-left: auto` on `.app-nav` absorbs the free space whatever else
+is on the row. The mobile query resets it, where the nav is full width anyway.
+
+### The modal error moved into the head
+
+It is raised in answer to a tap on an option that can be a long way down a long
+list, and the head does not scroll while the body does. At the foot of the body
+it was written to a part of the modal the producer was not looking at: they
+tapped a figure, nothing appeared to happen, and the sentence saying why was off
+the bottom of the screen. It carries `aria-live="polite"` because it appears
+without the focus moving, and `openModal()` clears it on the way in — it lives in
+the head now, so it outlives the body it was raised about.
+
+### The five smaller ones
+
+- **A `data-out` path that resolves to nothing renders `—`, not `$0.00`.** Every
+  formatter turns `undefined` into a confident dollar figure, so a mistyped path
+  would print a plausible number and nothing anywhere would say it was wrong.
+- **The CSV uses `num()`, not `Number(x) || 0`.** A stored `"$4.25"` was exported
+  as `0` in the same row as a gross revenue computed from 4.25 — a
+  self-contradicting file, and it is the copy that gets handed to somebody else.
+- **A rename rewrites the row's `data-scn-search`.** The filter matches on that
+  baked-in field list and a rename never re-renders, so the row went on answering
+  to its old name only. `searchText()` is exported and the row recomputed from
+  the stored record, rather than patching the string.
+- **`springOpenSection()`** opens a shut folder when a drag hovers its heading, on
+  both the mouse and the touch path. A shut section hides its rows, so
+  `elementFromPoint()` never returned that list — and since folders start shut,
+  **a budget could not be dragged into most of them at all.** Nothing looked
+  broken, because the Move button covered it; the affordance simply did not
+  apply, which is worse than an error because there is nothing to report. It
+  opens only, never shuts: taking a drop target away under a finger that is still
+  holding a row is its own bug.
+- **A duplicate expands the folder it lands in**, and `pointerdown` ignores a
+  non-primary pointer, so a second finger cannot strand the first row mid-air.
+
+**Eight of the nine new tests were confirmed red against stashed source.** The
+ninth needed strengthening to be worth anything: filing a budget opens its
+folder, so the duplicate test passed for a reason that had nothing to do with the
+fix until the folder was explicitly shut first.
+
+---
+
+## Placeholders, and the fourth marker
+
+### `unitHint` was a guess presented as a fact
+
+The second box of a `$/unit` line asks "how many of them per acre?", and it used
+to fill that placeholder from `VARIABLE_LINES[].unitHint`. That field is the
+line's own idea of its unit, and on the lines that naturally quote per acre it
+produced **"acre/acre"** — crop insurance, repairs, custom hire, miscellaneous
+and marketing all read that way in `$/unit` mode. Seed read **"bag, unit/acre"**,
+two nouns and a comma inside a placeholder.
+
+Nothing in the app knows a line's unit until a figure has been chosen for it, so
+the box now says **`unit/acre`** until one is, and the real noun afterwards.
+`markQuotedUnitLabel()` takes it from the first word after the `$/` in the
+**group's** unit string, because a mixed picker quotes one list per pound and the
+next per acre and only the list chosen from says what is being counted:
+`$/lb of N` → `lb`, `$/bu` → `bu`, `$/unit of seed` → `unit`.
+
+`typicalUnitLabel` is the **fourth** provenance marker and the only cosmetic one:
+it names a placeholder and never a value, so a stale one costs a wrong word
+rather than a wrong number. It is still released when the producer types their
+own cost over the top, on the same rule as the other three — the app should not
+go on describing a figure that is no longer the one it wrote.
+
+**It is not seeded in `blankVariableLines()` and did not bump `SCHEMA_VERSION`**,
+following `typicalYieldUnit` rather than the v6 value keys. Its absence is the
+correct state for every existing budget, a migration step would write nothing,
+and it is never read as a number.
+
+**The noun appears TWICE on the row and the two must never disagree** — as the
+cost box's trailing affix (`/lb`) and as the units box's placeholder
+(`lb/acre`) — because between them they are the whole sentence: dollars per
+pound, times pounds per acre. `unitLabels()` in `ui/enterprise.js` owns both
+strings so there is one place to change them.
+
+**`applyUnitLabels()` writes them straight onto the boxes, in both directions**,
+the way `applyValue()` writes the value. Neither moment rebuilds the card:
+choosing a figure in the mode the line is already in is not a structural change,
+and the release runs on a keystroke, where a render would take the caret out of
+the box being typed in. Clearing the marker alone was not enough — the labels are
+baked in at render time, so `lb/acre` and `/lb` stayed on screen describing a
+cost the producer had just overwritten with their own, and a label that
+contradicts the box beside it is worse than the stale one it replaced.
+
+Both directions are asserted, including **deleting** the cost rather than
+replacing it: an empty box is not a figure the app wrote either.
+
+### "total premium" lives beside the line, not in the renderer
+
+Crop insurance is the only line offering `total` mode today and "total premium"
+is what a producer calls that figure — but a second line taking the mode would
+not have a premium, so the noun is `def.totalHint` with a neutral fallback.
+
+### One sentence, once
+
+`spec.requires.message` was rendered twice: as a `.modal-warn` at the top of the
+picker body, and again as the `.modal-err` in the head when a value could not be
+applied. Two copies of the same sentence about the same tap. The head one is
+kept, because it answers something the producer actually did and cannot scroll
+away. The `.modal-note` showing the acreage a figure will be multiplied by is
+unaffected — that is a different thing said for a different reason, and it only
+appears when there ARE acres.
+
+### The folded card names its figures in full
+
+`Gross margin / ac:` and `Enterprise gross margin:`, one per line, matching the
+readout rows on the open card word for word. Each `.ent-fig` is `nowrap` so money
+never breaks away from its label, the key is a point smaller than the figure so
+the money is what the eye lands on, and **`.ent.collapsed` went 220px → 240px**
+to hold the longer of the two labels with a six-figure total beside it.
+
+### Add opens the new card, and shuts every other one
+
+Pressing *Add enterprise* is asking for a box to type in. Arriving shut, the new
+card was a closed spine below everything already on the page and the press
+looked like it had done nothing. Leaving the previous cards open is the other
+half of the same problem: on a phone the new one sits below fifteen rows of the
+enterprise just finished with, and on a computer every open column is squeezed
+narrower to make room for an empty one.
+
+It was shipped for one round as *hand the open card over* — fold whatever was
+open, and if nothing was, add a shut card. The reasoning was that all-shut is a
+budget being skimmed rather than worked on. That was wrong about what the button
+is: Add is not a view control, and a producer who presses it wants to type
+whatever else is on screen. The answer is the same every time.
+
+Two details:
+
+- **Every open card shuts, not just the last one.** Desktop lays enterprises out
+  as parallel columns and several are routinely open at once. Folding one and
+  leaving the rest is the same problem in a smaller size.
+- **They are shut BEFORE the new one is pushed.** Afterwards the new enterprise
+  is itself counted as open — it is not in `collapsedEnterprises` yet — and gets
+  shut along with them.
+
+Remove staying reachable on a folded card is unaffected and if anything firmer:
+a card added by mistake now leaves the *previous* card shut, so either way round
+there is a shut card to get rid of.
+
+`scrollCardIntoView()` finishes the job on a phone, where the cards are stacked
+and a new one below four others still opens off the bottom of the page. Narrow
+only: a wide screen lays them out side by side and there is nothing to scroll
+to. `block: 'start'` because nothing is fixed to the top of the page — the
+sticky bar is at the bottom — so the card's own top edge is the right landing
+place. The call is optional (`?.`) for jsdom, which has no layout and therefore
+no `scrollIntoView` at all; the tests stub both it and `matchMedia`, and put
+both back, because leaking either would change what `isNarrow()` answers for the
+rest of the file.
+
+### The Saved tab opens the folder you are working in
+
+Folders start shut, which is right for eleven sections nobody has looked at yet
+and wrong for the one holding the budget currently on the Budget tab. The list
+already marks that row as the open one, and a marked row inside a shut section
+is not on screen at all — so the producer had to remember which folder they
+filed it under and open it by hand, every visit, to find the thing they were
+already working on.
+
+`revealScenarioFolder()` clears `expandedFolders` and adds exactly one id, so
+arriving at the Saved tab always shows the same arrangement: one section open,
+holding the budget in hand, everything else shut. Four details:
+
+- **The ungrouped pile is shut with the folders.** It is seeded open at boot
+  because it is where a budget with nowhere else to go lands, and while it is
+  the only section on the device it cannot be folded at all (`bare` in
+  `applySectionVisibility()`). But once folders exist it is a section like any
+  other, and leaving it open while shutting the folders would put the budget the
+  producer came for below a pile of ones they did not. A budget in no folder
+  opens it by exactly the same rule, so `''` needs no special case — including
+  for an unsaved budget, which resolves to `''` because that is the pile it
+  would land in.
+- **It reads the `folderId` off the STORED record, not the working copy.**
+  Filing is done from the Saved tab and does not bump `updatedAt`, so the copy
+  in hand can predate the move. The stored record is the one the list renders
+  from, which makes it the one that decides which section the row is in.
+- **It runs on every ARRIVAL at the Saved tab**, not once when a budget becomes
+  the working one. The first build seeded it at the transition only, so shutting
+  the section stuck for the rest of the session and the producer was back to
+  hunting for the budget they had open. Every visit is a fresh look for the
+  budget in hand.
+- **Never from inside `render()`**, which is a different rule wearing the same
+  clothes. Deleting a budget or committing a reorder re-renders the list, and
+  every section the producer had opened would collapse under them without their
+  having left the page. What they arrange while looking at the list has to stick
+  for as long as they are looking at it, and both halves are asserted in the
+  same test.
+
+`duplicate-scenario` and the Move modal keep their own `expandedFolders.add()`
+calls. Those answer a different question — *the list just changed, is what I
+asked for on screen* — and fire whether or not the budget became the working
+one.
+
+The next-session case is tested by carrying the store forward into a second
+`boot()`, because folders created in-session are left open by the act of
+creating them and the shut state only exists on a later visit.

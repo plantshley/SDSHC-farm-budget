@@ -31,10 +31,10 @@ import {
   moveScenarioToFolder,
 } from './storage.js'
 import { openMoveModal, openFolderEditor, folderCountText } from './ui/folders.js'
-import { renderEnterprises } from './ui/enterprise.js'
+import { renderEnterprises, applyUnitLabels } from './ui/enterprise.js'
 import { renderFixed, OVERHEAD_LINES } from './ui/fixed.js'
 import { renderResults, renderWarningsInto } from './ui/results.js'
-import { renderScenarioList, renderCompare, scenarioHint } from './ui/scenarios.js'
+import { renderScenarioList, renderCompare, scenarioHint, searchText } from './ui/scenarios.js'
 import { openInfo, openTypical, openGuide } from './ui/modals.js'
 import { usd, usdCents, esc, signClass } from './ui/format.js'
 import {
@@ -122,6 +122,58 @@ let scenarioIsNew = true
 const isNarrow = () => globalThis.matchMedia?.('(max-width: 899px)').matches ?? false
 
 /**
+ * Open the section holding the budget that is open on the Budget tab, and shut
+ * every other one.
+ *
+ * Folders start shut, so a producer arriving at the Saved tab to find the
+ * budget they have open had to remember which section it was filed under and
+ * open it by hand. The list marks that row as the open one, and a marked row
+ * inside a shut section is not on screen at all.
+ *
+ * The ungrouped pile is shut along with the folders. It is seeded open at boot
+ * because it is where a budget with nowhere else to go lands, but on arrival
+ * there is a better answer: exactly one section is open, and it is the one with
+ * the budget in it. A budget in no folder opens the pile by the same rule, so
+ * `''` is a section id here like any other.
+ *
+ * Run on ARRIVAL at the Saved tab, every time. Each visit is a fresh look for
+ * the budget in hand, so shutting a section, going back to the Budget tab and
+ * returning restores the arrangement rather than remembering the last one.
+ *
+ * Never from inside render(), which would be a different rule entirely:
+ * deleting a budget or committing a reorder re-renders the list, and every
+ * section a producer had opened would collapse under them without their having
+ * left the page.
+ *
+ * Read from the STORED record rather than the working copy, because filing is
+ * done from the Saved tab and the copy in hand may predate it. An unsaved
+ * budget resolves to `''`, which is the pile it would land in.
+ */
+function revealScenarioFolder(id) {
+  expandedFolders.clear()
+  expandedFolders.add(getScenarioById(id)?.folderId || '')
+}
+
+/**
+ * Put the top of an enterprise card at the top of the screen.
+ *
+ * Phones stack the cards, so a card added below four others opens off the
+ * bottom of the page and the press looks like it did nothing. Wide screens lay
+ * them out as parallel columns and have no such gap, so this is narrow-only.
+ *
+ * Nothing is fixed to the top of the page — the sticky bar is at the bottom —
+ * so the card's own top edge is the right place to land. The optional call is
+ * for jsdom, which has no layout and therefore no scrollIntoView.
+ */
+function scrollCardIntoView(id) {
+  if (!isNarrow()) return
+  app.querySelector(`.ent[data-ent-id="${id}"]`)?.scrollIntoView?.({
+    block: 'start',
+    behavior: 'smooth',
+  })
+}
+
+/**
  * Every enterprise starts folded, at every width.
  *
  * A card is fifteen expense lines tall. Opening one is a decision to work on
@@ -157,8 +209,81 @@ function applyCollapseDefaults(scenario) {
  * the DOM under a focused input would move the caret and lose the keyboard on
  * mobile.
  */
+/**
+ * Remember which field the producer is in, so a render can put them back.
+ *
+ * Almost every render answers a click, where losing focus is right. A few
+ * answer a KEYSTROKE: naming a crop opens the seeds/ac mode, which changes
+ * which boxes exist and therefore cannot be an updateOutputs(). There the
+ * producer is mid-word in a box that is about to be destroyed and rebuilt, and
+ * without this the caret goes to the body and the phone keyboard closes — so
+ * "Corn silage" could not be typed in one go, on the one field the app fills
+ * itself from.
+ *
+ * Scoped to INPUT/SELECT/TEXTAREA on purpose. The mode-pill segments carry a
+ * `data-path` too, and restoring "focus" to a path shared by three buttons
+ * would land on whichever segment came first rather than the one just pressed.
+ */
+function activeField() {
+  const el = app.ownerDocument.activeElement
+  if (!el || !/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName)) return null
+  const path = el.getAttribute('data-path')
+  if (!path) return null
+  // selectionStart throws on a number input in some browsers and reads null in
+  // others, so it is taken defensively and only used when it is really there.
+  let caret = null
+  try {
+    caret = el.selectionStart
+  } catch {
+    caret = null
+  }
+  return { path, caret }
+}
+
+/**
+ * True only while render() is putting focus back, so the `focusin` listener can
+ * tell the app's own restore from the producer tapping into a field.
+ */
+let restoringFocus = false
+
+function restoreField(field) {
+  if (!field) return
+  const escaped = globalThis.CSS?.escape ? CSS.escape(field.path) : field.path
+  const el = app.querySelector(`[data-path="${escaped}"]`)
+  if (!el) return
+  restoringFocus = true
+  try {
+    el.focus()
+    if (field.caret != null) {
+      try {
+        el.setSelectionRange(field.caret, field.caret)
+      } catch {
+        // A number input has no text selection to restore. The focus is the point.
+      }
+    }
+  } finally {
+    restoringFocus = false
+  }
+}
+
+/**
+ * Render after the interaction that asked for it has finished.
+ *
+ * `change` on a text box fires during the blur that a CLICK causes, so a
+ * synchronous render there replaces the page between mousedown and mouseup. The
+ * element the producer pressed is then detached, no common ancestor remains,
+ * and the click never lands — tapping Acres straight after typing a crop name
+ * would put them nowhere, and tapping Save would do nothing at all. A timeout
+ * of 0 runs after the click has been dispatched.
+ */
+function deferRender() {
+  const view = app.ownerDocument.defaultView ?? globalThis
+  view.setTimeout(render, 0)
+}
+
 function render() {
   const scenario = getScenario()
+  const field = activeField()
 
   if (screen === 'scenarios') {
     app.innerHTML =
@@ -188,6 +313,7 @@ function render() {
   // A no-op on every screen but the saved list. The filter survives a render,
   // so a list rebuilt underneath it has to be re-filtered to match the box.
   applyScenarioFilter()
+  restoreField(field)
   // Shown once, by the render that answers the change that raised it.
   unitNotices.clear()
   fixedNotice = null
@@ -206,6 +332,12 @@ function render() {
  * neighbouring box is not reading it.
  */
 app.addEventListener('focusin', (e) => {
+  // A focus the APP moved is not the producer answering the notice. render()
+  // puts them back in the box they were typing in, and that focus() fires here
+  // synchronously — so without this guard the notice explaining why a figure
+  // was just cleared is dismissed by the same render that raised it, and the
+  // box reads empty with nothing on screen to say why.
+  if (restoringFocus) return
   const path = e.target.getAttribute?.('data-path')
   if (!path) return
   for (const notice of app.querySelectorAll('.unit-notice')) {
@@ -390,7 +522,13 @@ function updateOutputs() {
   for (const el of app.querySelectorAll('[data-out]')) {
     const raw = getPath(result, el.getAttribute('data-out'))
     const fmt = FORMATTERS[el.getAttribute('data-fmt')] || usdCents
-    el.textContent = fmt(raw)
+    // A path that resolves to nothing is a BUG in the markup, and it must not
+    // be able to look like an answer. Every formatter here turns undefined into
+    // a confident $0.00, so a mistyped data-out would print a plausible dollar
+    // figure on a producer's screen and nothing anywhere would say it was
+    // wrong. The em dash is what the placeholder in the markup already says,
+    // and it reads as "not calculated" rather than as "zero".
+    el.textContent = raw === undefined || raw === null ? '—' : fmt(raw)
     if (el.hasAttribute('data-tone')) {
       el.classList.remove('pos', 'neg')
       const tone = signClass(Number(raw))
@@ -519,11 +657,35 @@ app.addEventListener('input', (e) => {
   // The crop drives the seeds-per-unit suggestion; typing in that box takes it
   // back. Both halves are needed, and both are in one place so neither can be
   // changed without the other being read. See autofillSeedsPerUnit().
-  const changedCrop = /^enterprises\.(\d+)\.crop$/.exec(path)
-  if (changedCrop) autofillSeedsPerUnit(Number(changedCrop[1]), el.value)
-
   const typedSeedsPerBag = /^enterprises\.\d+\.variable\.seed\.seedsPerBag$/.test(path)
   if (typedSeedsPerBag) releaseSeedsPerUnit(el)
+
+  // The same rule for the other two provenance markers, and for the same
+  // reason: the app may only ever revise a figure IT wrote. Both markers were
+  // set when the picker filled the box, and nothing dropped them when the
+  // producer typed their own number over the top — so dropStaleTypicalValues()
+  // and dropStaleOverheadValue() would later delete work that was never the
+  // app's, and explain it with a sentence that is not true of the number they
+  // just deleted. Using a typical value as a starting point and then editing it
+  // is ordinary behaviour, which is what made this reachable.
+  const typedLineCost = /^(enterprises\.\d+\.variable\.\w+)\.(?:costPerUnit|perAcre)$/.exec(path)
+  if (typedLineCost) {
+    setPath(getScenario(), `${typedLineCost[1]}.typicalYieldUnit`, '')
+    // Cosmetic rather than destructive — it names the two unit labels on the row
+    // and never a value — but released on the same rule: the app stops
+    // describing a figure once the figure is no longer the one it wrote.
+    //
+    // Put back on the boxes in place, because this runs on a KEYSTROKE. The
+    // labels are baked in at render time, so clearing the marker alone left
+    // "lb/acre" and "/lb" on screen describing a cost the producer had just
+    // overwritten with their own — and a rendered answer that contradicts the
+    // box beside it is worse than the stale label it replaced.
+    setPath(getScenario(), `${typedLineCost[1]}.typicalUnitLabel`, '')
+    applyUnitLabels(app, typedLineCost[1], '')
+  }
+
+  const typedOverhead = /^fixed\.annual\.(\w+)$/.exec(path)
+  if (typedOverhead) setPath(getScenario(), `fixed.annualTypicalBasis.${typedOverhead[1]}`, '')
 
   if (/^fixed\.(equipment|buildings)\.\d+\.name$/.test(path)) {
     const isBuilding = path.includes('buildings')
@@ -545,6 +707,19 @@ app.addEventListener('input', (e) => {
 
 app.addEventListener('change', (e) => {
   const path = e.target.getAttribute?.('data-path')
+
+  // The crop field waits for `change`, which fires when the producer leaves the
+  // box, rather than acting on every keystroke. Naming a crop fills
+  // seeds-per-unit and can open the seeds/ac mode, and the mode decides which
+  // boxes exist — so it is a structural render, and running it mid-word rebuilt
+  // the card while somebody was still typing into it. "Corn silage" is the case
+  // that made this obvious: it matches corn at four characters and the rest of
+  // the word was being typed into a box that had already been replaced.
+  const changedCrop = /^enterprises\.(\d+)\.crop$/.exec(path ?? '')
+  if (changedCrop && e.target.tagName === 'INPUT') {
+    autofillSeedsPerUnit(Number(changedCrop[1]), e.target.value)
+  }
+
   if (path && e.target.tagName === 'SELECT') {
     setPath(getScenario(), path, e.target.value)
     notify()
@@ -607,7 +782,7 @@ function autofillSeedsPerUnit(index, cropText) {
     if (isOurs) {
       line.seedsPerBag = ''
       delete line.seedsPerBagAuto
-      if (line.mode === 'population') render()
+      if (line.mode === 'population') deferRender()
     }
     return
   }
@@ -630,9 +805,8 @@ function autofillSeedsPerUnit(index, cropText) {
   const opened = openPopulationMode(line)
   if (alreadySet && !opened) return
   // Only a structural render while the boxes are actually on screen. In the
-  // other modes the value is stored and waiting, and re-rendering the card
-  // under someone typing a crop name would take the caret with it.
-  if (line.mode === 'population') render()
+  // other modes the value is stored and waiting, and there is nothing to show.
+  if (line.mode === 'population') deferRender()
 }
 
 /** True if the mode was changed, so the caller knows a render is owed. */
@@ -928,6 +1102,15 @@ function commitRename(id, name) {
     // Renaming the budget that is currently open keeps the two views in step.
     const open = getScenario()
     if (open?.id === id) open.name = name
+
+    // The filter matches on data-scn-search, a field list baked into the row at
+    // render time, and a rename never re-renders. Without this the row keeps
+    // answering to its OLD name and cannot be found by its new one until
+    // something else rebuilds the list — so a producer who renames a budget and
+    // immediately searches for what they just typed finds nothing.
+    const row = app.querySelector(`.scn[data-scn-id="${globalThis.CSS?.escape(id) ?? id}"]`)
+    const record = getScenarioById(id)
+    if (row && record) row.setAttribute('data-scn-search', searchText(record))
     return
   }
 
@@ -1063,12 +1246,18 @@ app.addEventListener('dragstart', (e) => {
 })
 
 app.addEventListener('dragover', (e) => {
+  if (!draggingId) return
+  const root = app.querySelector('[data-scn-sections]')
+  // A shut folder hides its rows, so there is no list under the pointer to aim
+  // at. Opening it on hover is what makes a section that starts shut a place
+  // you can drag INTO at all — see springOpenSection().
+  springOpenSection(e.target, root)
+
   const list = e.target.closest?.('[data-scn-list]')
-  if (!list || !draggingId) return
+  if (!list) return
   e.preventDefault()
   const dragged = app.querySelector('.scn.dragging')
   if (!dragged) return
-  const root = app.querySelector('[data-scn-sections]')
   const over = e.target.closest('.scn')
 
   // Over the empty part of a section — including a folder with nothing in it,
@@ -1141,6 +1330,15 @@ let touchDrag = null
 
 app.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'mouse') return
+  // One finger at a time. A second finger landing on another handle overwrote
+  // `touchDrag`, and the first row was left carrying `.dragging` and whatever
+  // `--lift` it had reached, stuck mid-air until the next render.
+  //
+  // Explicitly `=== false`, not `!e.isPrimary`. A real browser always sets this;
+  // a synthetic event does not, and treating "absent" as "not primary" would
+  // reject every gesture rather than only the extra fingers.
+  if (e.isPrimary === false) return
+  if (touchDrag) return
   const grip = e.target.closest?.('.scn-grip')
   const row = grip?.closest('.scn')
   const root = row?.closest('[data-scn-sections]')
@@ -1266,6 +1464,31 @@ function edgeScroll(y) {
   return (win.scrollY ?? 0) - was
 }
 
+/**
+ * Hovering a shut folder's heading during a drag opens it.
+ *
+ * A shut section hides its rows with `hidden`, so `elementFromPoint()` never
+ * returns that list and the drag had no way in — and since folders START shut,
+ * that meant a budget could not be dragged into most of them at all. The Move
+ * button covered it, so nothing looked broken; the drag affordance simply did
+ * not apply, which is worse than an error because there is nothing to report.
+ *
+ * `expandedFolders` is updated as well as the DOM, so the section stays open
+ * after the drop, when the list re-renders. Opening only: a section the producer
+ * passed over on the way somewhere else stays open, because shutting it under a
+ * finger that is still holding a row would take the drop target away mid-gesture.
+ */
+function springOpenSection(under, root) {
+  const section = under?.closest?.('.scn-section')
+  if (!section || !root.contains(section)) return
+  const list = section.querySelector('[data-scn-list]')
+  if (!list?.hidden) return
+  const id = section.getAttribute('data-scn-section') ?? ''
+  expandedFolders.add(id)
+  list.hidden = false
+  section.querySelector('.fld-toggle')?.setAttribute('aria-expanded', 'true')
+}
+
 function dragFrame() {
   if (!touchDrag) return
   const { row, root, x } = touchDrag
@@ -1315,6 +1538,8 @@ function dragFrame() {
   row.style.pointerEvents = 'none'
   const under = document.elementFromPoint?.(x, y)
   row.style.pointerEvents = wasPointerEvents
+
+  springOpenSection(under, root)
 
   const list = under?.closest?.('[data-scn-list]')
   if (!list || !root.contains(list)) return
@@ -1466,6 +1691,7 @@ document.addEventListener('click', (e) => {
           mode: btn.getAttribute('data-line-mode'),
           perAcreTarget: btn.getAttribute('data-target-per-acre'),
           unitTarget: btn.getAttribute('data-target-unit'),
+          populationTarget: btn.getAttribute('data-target-population'),
         }
       : null
     // An overhead line also passes the path of its period select, so a figure
@@ -1497,15 +1723,23 @@ function handleAction(action, btn) {
 
   switch (action) {
     case 'add-enterprise': {
-      // Added folded shut. On a phone the alternative is fifteen blank expense
-      // rows appearing below an already-long page; on a computer it is every
-      // open column being squeezed narrower to make room for an empty one. The
-      // new card arrives as a closed spine you open when you are ready for it.
+      // The new card opens, and every other one shuts.
+      //
+      // Pressing Add is asking for a box to type in. Arriving shut, it was a
+      // closed spine below everything else and the press looked like it had
+      // done nothing. Leaving the previous cards open is the other half of the
+      // same problem: on a phone the new one sits below fifteen rows of the
+      // enterprise just finished with, and on a computer every open column is
+      // squeezed narrower to make room for an empty one.
+      //
+      // Shut them BEFORE pushing, or the new enterprise — not yet in
+      // collapsedEnterprises, so counted as open — is shut along with them.
+      scenario.enterprises.forEach((e) => collapsedEnterprises.add(e.id))
       const added = newEnterprise()
       scenario.enterprises.push(added)
-      collapsedEnterprises.add(added.id)
       notify()
       render()
+      scrollCardIntoView(added.id)
       break
     }
 
@@ -1647,6 +1881,7 @@ function handleAction(action, btn) {
 
     case 'go-scenarios':
       screen = 'scenarios'
+      revealScenarioFolder(scenario.id)
       render()
       break
 
@@ -1667,6 +1902,7 @@ function handleAction(action, btn) {
       const found = getScenarioById(btn.getAttribute('data-id'))
       if (found) {
         setScenario(found)
+        revealScenarioFolder(found.id)
         dirty = false
         screen = 'build'
         collapsedEnterprises.clear()
@@ -1686,6 +1922,11 @@ function handleAction(action, btn) {
         alert('Could not save the copy — this browser is out of storage space.')
         return
       }
+      // The copy inherits its source's folder, so the section holding it has to
+      // be open when the producer comes back to the list. Shut, the copy they
+      // just asked for is nowhere on screen, which reads as the duplicate
+      // having failed. Same reasoning as clearing the filter on the line below.
+      expandedFolders.add(copy.folderId ?? '')
       // A copy is a farm somebody already built, so it opens folded like any
       // other saved budget rather than like a blank one.
       setScenario(copy)
@@ -1832,6 +2073,7 @@ function handleAction(action, btn) {
 
     case 'back-to-scenarios':
       screen = 'scenarios'
+      revealScenarioFolder(scenario.id)
       render()
       break
 
@@ -2033,6 +2275,9 @@ const last = getLastOpened()
 const reopened = last ? getScenarioById(last) : null
 scenarioIsNew = !reopened
 setScenario(reopened || newScenario())
+// The Saved tab has not been drawn yet, but the section holding the budget
+// being reopened has to be open by the time it is. See revealScenarioFolder.
+if (reopened) revealScenarioFolder(reopened.id)
 render()
 
 subscribe(() => {

@@ -14,6 +14,7 @@ import { esc } from './format.js'
 import { DEFINITIONS } from '../data/definitions.js'
 import { TYPICAL_VALUES } from '../data/typical-values.js'
 import { getScenario, getPath, setPath, notify } from '../state.js'
+import { applyUnitLabels } from './enterprise.js'
 
 let overlay = null
 let lastFocused = null
@@ -30,8 +31,17 @@ function ensureOverlay() {
   overlay.innerHTML = `
     <div class="modal">
       <div class="modal-head">
-        <h2 class="modal-title" id="modalTitle"></h2>
-        <button type="button" class="modal-close" aria-label="Close">&times;</button>
+        <div class="modal-head-row">
+          <h2 class="modal-title" id="modalTitle"></h2>
+          <button type="button" class="modal-close" aria-label="Close">&times;</button>
+        </div>
+        <!-- In the HEAD, which does not scroll, because this is raised in answer
+             to a tap on an option that may be a long way down a long list. At
+             the foot of the body it was written to a part of the modal the
+             producer was not looking at: they tapped a figure, nothing appeared
+             to happen, and the sentence saying why was off the bottom of the
+             screen. aria-live because it appears without the focus moving. -->
+        <p class="modal-err" role="status" aria-live="polite" hidden></p>
       </div>
       <div class="modal-body"></div>
     </div>`
@@ -100,6 +110,11 @@ export function openModal(title, bodyHtml) {
   const body = el.querySelector('.modal-body')
   body.innerHTML = bodyHtml
   body.scrollTop = 0
+  // The error lives in the head now, so it outlives the body it was raised
+  // about. Every modal opens with it cleared.
+  const err = el.querySelector('.modal-err')
+  err.textContent = ''
+  err.hidden = true
   el.classList.add('open')
   // The modal scrolls its own body (see .modal-body in styles.css). Freezing the
   // page underneath stops a scroll gesture that runs past the end of the modal
@@ -314,14 +329,19 @@ export function openTypical(typicalKey, targetPath, category = '', line = null, 
   // second one is the number that lands in the box, and a producer who sees
   // $6.11 on the button and $4,203 in the field is entitled to think something
   // went wrong.
-  const acresNote = /\*acres$/.test(String(shown[0]?.options?.[0]?.value ?? ''))
-    ? totalAcres() > 0
+  // ONE copy of this, in the head, and only once the producer tries to pick.
+  // `spec.requires.message` is also what `.modal-err` says when a value cannot
+  // be applied, so rendering it here as well put the same sentence on screen
+  // twice — once at the top of the body and once in the head — and the two
+  // copies were saying it about the same tap.
+  //
+  // The head is the one kept: it is raised in answer to something the producer
+  // actually did, and it cannot scroll away.
+  const acresNote =
+    /\*acres$/.test(String(shown[0]?.options?.[0]?.value ?? '')) && totalAcres() > 0
       ? `<p class="modal-note">Your acres: <b>${totalAcres()}</b>. Whichever figure you pick is
            multiplied by that and entered as a total for the year.</p>`
-      : `<p class="modal-warn">${esc(
-          spec.requires?.message || 'Enter your acres first.'
-        )}</p>`
-    : ''
+      : ''
 
   const body = `
     ${
@@ -343,7 +363,7 @@ export function openTypical(typicalKey, targetPath, category = '', line = null, 
         ? `<p class="modal-source">Source: ${esc(spec.source)}</p>`
         : `<p class="modal-source">No published source. See the note above.</p>`
     }
-    <p class="modal-err" hidden></p>`
+`
 
   openModal(spec.title, body)
   if (search) wireSearch()
@@ -356,11 +376,9 @@ export function openTypical(typicalKey, targetPath, category = '', line = null, 
       // per-acre figure into the cost-per-unit box would be multiplied by the
       // rate a second time.
       const appliesTo = btn.getAttribute('data-applies-to') || spec.appliesTo || ''
-      const needsMode = Boolean(line && appliesTo && appliesTo !== line.mode)
+      const needsMode = switchesMode(appliesTo, line)
       const destination = line
-        ? (appliesTo || line.mode) === 'perAcre'
-          ? line.perAcreTarget
-          : line.unitTarget
+        ? boxFor(needsMode ? appliesTo : line.mode, line)
         : targetPath
 
       const raw = btn.getAttribute('data-value')
@@ -376,6 +394,10 @@ export function openTypical(typicalKey, targetPath, category = '', line = null, 
       }
 
       markQuotedUnit(destination, spec)
+      // The GROUP's unit, not the spec's: a mixed picker quotes one list per
+      // pound and the next per acre, and only the list actually chosen from
+      // says what the units/acre box is counting.
+      markQuotedUnitLabel(destination, btn.getAttribute('data-unit'))
 
       if (needsMode) {
         setPath(getScenario(), line.modePath, appliesTo)
@@ -426,6 +448,34 @@ export function openTypical(typicalKey, targetPath, category = '', line = null, 
  * happens; without this it has no way to know the number came from a table
  * quoted in something else.
  */
+/**
+ * Remember the NOUN a per-unit figure was quoted in, for the units/acre box.
+ *
+ * The second box of a `$/unit` line asks "how many of them per acre?", and until
+ * a figure has been chosen nothing in the app knows what "them" is — the line's
+ * own `unitHint` was a guess, and a wrong guess reads as fact. A spec does know:
+ * nitrogen is quoted `$/lb of N`, hauling `$/bu`. The first word after the `$/`
+ * is that noun.
+ *
+ * Cosmetic, unlike the other three markers: it changes a placeholder and never a
+ * value, so a stale one costs a wrong word rather than a wrong number. It is
+ * still released when the producer types their own cost over the top, for the
+ * same reason the others are — the app should not go on describing a figure that
+ * is no longer the one it wrote.
+ */
+function markQuotedUnitLabel(destination, unit) {
+  if (!destination || !/\.costPerUnit$/.test(destination)) return
+  const noun = /^\$\/(\S+)/.exec(String(unit ?? ''))?.[1]
+  if (!noun) return
+  setPath(getScenario(), destination.replace(/\.costPerUnit$/, '.typicalUnitLabel'), noun)
+
+  // Written straight onto the boxes, the way applyValue() writes the value.
+  // Choosing a figure in the mode the line is already in is not a structural
+  // change and does not re-render, so the labels would otherwise keep saying
+  // "unit" until something else rebuilt the card.
+  applyUnitLabels(document, destination.replace(/\.costPerUnit$/, ''), noun)
+}
+
 function markQuotedUnit(destination, spec) {
   if (!spec.quotedPerYieldUnit || !destination) return
   const linePath = destination.split('.').slice(0, -1).join('.')
@@ -506,6 +556,30 @@ function modeName(mode) {
   return MODE_NAMES[mode] ?? MODE_NAMES.unit
 }
 
+/** Which of a line's boxes holds the figure a given entry mode asks for. */
+function boxFor(mode, line) {
+  if (mode === 'perAcre') return line.perAcreTarget
+  if (mode === 'population') return line.populationTarget
+  return line.unitTarget
+}
+
+/**
+ * Whether choosing from this list has to change the line's entry mode.
+ *
+ * A list quoted per unit of seed is quoting a cost per BAG, and `seeds/ac` mode
+ * already has a box for exactly that: `costPerBag`, the same number in the same
+ * units as `costPerUnit`. So a seed price is at home in either mode, and
+ * switching would not merely be unnecessary — it would hide the population the
+ * producer has already entered, leaving a figure stored where nothing on screen
+ * says it went. Every other mismatch still switches, because there the two
+ * modes hold genuinely different quantities.
+ */
+function switchesMode(appliesTo, line) {
+  if (!line || !appliesTo || appliesTo === line.mode) return false
+  if (appliesTo === 'unit' && line.mode === 'population' && line.populationTarget) return false
+  return true
+}
+
 function renderGroup(g, spec, fold, line, mixed) {
   const unit = unitOf(g, spec)
   const appliesTo = appliesToOf(g, spec)
@@ -514,7 +588,7 @@ function renderGroup(g, spec, fold, line, mixed) {
     .map(
       (o) => `
     <button type="button" class="typ-option" data-value="${esc(o.value)}"
-      data-applies-to="${esc(appliesTo)}">
+      data-applies-to="${esc(appliesTo)}" data-unit="${esc(unit ?? '')}">
       <span class="typ-value">${esc(formatOption(o.value, unit))}</span>
       <span class="typ-label">${esc(o.label)}</span>
       ${o.desc ? `<small>${esc(o.desc)}</small>` : ''}
@@ -531,7 +605,7 @@ function renderGroup(g, spec, fold, line, mixed) {
   // $/unit, the price-per-pound list needs no warning and the cost-per-acre
   // list below it does.
   const modeNote =
-    line && appliesTo && appliesTo !== line.mode
+    switchesMode(appliesTo, line)
       ? `<p class="modal-warn">This list is <b>${esc(unit)}</b> and the line is set to
            <b>${esc(modeName(line.mode))}</b>. Picking one below switches the line to
            <b>${esc(modeName(appliesTo))}</b> and fills it in.</p>`
@@ -596,6 +670,17 @@ function formatFigure(value, unit) {
 /** Write the chosen value into the scenario and flash the field it landed in. */
 function applyValue(path, value) {
   setPath(getScenario(), path, value)
+
+  // Choosing a seeds-per-unit figure here makes it the PRODUCER'S, so the marker
+  // saying the app filled that box goes. It is written programmatically, which
+  // fires no `input` event, so the listener that normally releases the marker on
+  // a keystroke never runs — and without this the caption goes on crediting the
+  // Crop field for a number the producer picked, and the next edit to that field
+  // overwrites their 140,000 with corn's 80,000.
+  if (/\.seedsPerBag$/.test(path)) {
+    setPath(getScenario(), path.replace(/\.seedsPerBag$/, '.seedsPerBagAuto'), '')
+  }
+
   notify()
 
   // CSS.escape is unavailable in some older WebViews; paths only ever contain

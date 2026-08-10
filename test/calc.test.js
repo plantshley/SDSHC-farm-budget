@@ -584,6 +584,62 @@ describe('edge cases', () => {
     assert.equal(explicitZero.preharvestInterestPerAcre, 0, 'an entered 0 means 0')
   })
 
+  test('a negative preharvest rate is $0 and never a credit', () => {
+    // This figure is ADDED to total variable costs, so a negative one is a cost
+    // handed back as a credit — the one thing the model never does. The box
+    // ships pre-filled with 10 and sits on every enterprise card, so "-10" for
+    // 10% is the ordinary typo, and it moved profit in the flattering direction
+    // with nothing on screen naming the field.
+    const base = calcEnterprise({
+      ...scenario.enterprises[0],
+      preharvest: { auto: true, rate: 10, months: 8 },
+    })
+
+    for (const [field, bad] of [
+      ['rate', -10],
+      ['months', -8],
+    ]) {
+      const own = []
+      const out = calcEnterprise(
+        {
+          ...scenario.enterprises[0],
+          preharvest: { auto: true, rate: 10, months: 8, [field]: bad },
+        },
+        0,
+        own
+      )
+      assert.equal(out.preharvestInterestPerAcre, 0, `a negative ${field} counts as $0`)
+      assert.ok(
+        out.totalVarPerAcre < base.totalVarPerAcre,
+        'removing a real cost may lower costs, which is honest'
+      )
+      assert.ok(
+        out.totalVarPerAcre >= base.totalVarPerAcre - base.preharvestInterestPerAcre - 1e-9,
+        'but it is worth ZERO, never subtracted as a credit'
+      )
+      assert.ok(
+        own.some((w) => /preharvest interest/i.test(w) && /negative/i.test(w)),
+        `the producer is told which box the minus sign is in (${field})`
+      )
+    }
+  })
+
+  test('a negative hand-entered preharvest interest is $0 and never a credit', () => {
+    // Manual mode is the same hazard with one box instead of two: "-15" is a
+    // straight $15/acre credit against the crop.
+    const own = []
+    const out = calcEnterprise(
+      {
+        ...scenario.enterprises[0],
+        preharvest: { auto: false, manualPerAcre: -15 },
+      },
+      0,
+      own
+    )
+    assert.equal(out.preharvestInterestPerAcre, 0)
+    assert.ok(own.some((w) => /preharvest/i.test(w) && /negative/i.test(w)))
+  })
+
   test('negative acres are flagged, not silently sign-flipped', () => {
     const out = calcScenario({
       ...scenario,

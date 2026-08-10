@@ -3,7 +3,7 @@
  * between devices, and the browser's own print dialog for paper or PDF.
  */
 
-import { calcScenario, VARIABLE_LINES, enterpriseLabel } from './calc.js'
+import { calcScenario, VARIABLE_LINES, enterpriseLabel, num } from './calc.js'
 import { exportScenarioJSON } from './storage.js'
 // The comparison table's own row list, so the CSV cannot list a different set of
 // figures from the screen it was exported from. See the note beside it.
@@ -82,9 +82,14 @@ export function scenarioToCSV(scenario) {
       e.label,
       e.crop,
       round(e.acres),
-      round(Number(src.yieldPerAcre) || 0),
+      // num(), not `Number(x) || 0`. The stored value can still carry the "$" and
+      // thousands separators a producer pasted in, which Number() reads as NaN and
+      // `|| 0` turns into a confident zero -- sitting in the same row as a gross
+      // revenue the model computed from the real figure. The export would then
+      // contradict itself, and it is the copy that gets handed to somebody else.
+      round(num(src.yieldPerAcre)),
       src.yieldUnit ?? '',
-      round(Number(src.pricePerUnit) || 0),
+      round(num(src.pricePerUnit)),
       round(e.miscIncomePerAcre),
       round(e.grossRevPerAcre),
       ...VARIABLE_LINES.map((d) => round(e.lines[d.key])),

@@ -21,7 +21,7 @@ like one family.
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 714 tests: the economic model, storage, data, and a DOM smoke test
+npm test           # 742 tests: the economic model, storage, data, and a DOM smoke test
 npm run build      # -> dist/
 ```
 
@@ -81,6 +81,10 @@ ordinary-looking figure on screen. *See [DESIGN-NOTES.md](DESIGN-NOTES.md).*
   `calc-adversarial.test.js` passes straight over this.
 - **Two deliberate exceptions**, both warned about and both left alone: negative
   acres, and salvage above initial cost.
+- **"Every" includes the three preharvest-interest fields**, which it did not
+  until a review caught them: `rate`, `months`, and `manualPerAcre`. That figure
+  is *added* to total variable costs, so a negative one is a credit. See
+  DESIGN-NOTES.
 
 The invariant the tests assert is *not* "profit can never rise" — treating a typo
 as $0 removes a real cost, so it can. It is that **a negative figure is worth the
@@ -257,9 +261,24 @@ before changing anything here. The rules that must not be broken by accident:
   see.
 - **▲▼ swap with the neighbour in the same SECTION**, never the row above on
   screen. A drop across a section files first, then reorders.
-- **Folders start shut.** `expandedFolders` is a set of OPEN ids, and a filter
-  forces a section holding a match open without touching it. Fold state is UI
-  state: module-level in `main.js`, not in the scenario, not in `localStorage`.
+- **Hovering a shut folder during a drag OPENS it** (`springOpenSection()`, both
+  drag paths). A shut section hides its rows, so nothing could be dragged into
+  one — and folders start shut. It opens only, never shuts: taking a drop target
+  away under a held finger is its own bug.
+- **Arriving at the Saved tab opens exactly one section: the one holding the
+  budget that is open on the Budget tab.** `revealScenarioFolder()` clears
+  `expandedFolders` and adds that one, on **every arrival** — `go-scenarios`,
+  `back-to-scenarios`, and boot. **The ungrouped pile is shut with the rest**,
+  and is opened by the same rule when the budget is in no folder, so `''` is a
+  section id here like any other. `folderId` is read off the **stored** record,
+  not the working copy, which can predate a filing. **Never from inside
+  `render()`**: a delete or a reorder re-renders the list, and every section the
+  producer had opened would collapse under them without their leaving the page.
+- **Folders otherwise start shut**, including on a first visit with nothing
+  saved, where `expandedFolders` is seeded with `''` alone.
+- `expandedFolders` is a set of OPEN ids, and a filter forces a section holding
+  a match open without touching it. Fold state is UI state: module-level in
+  `main.js`, not in the scenario, not in `localStorage`.
 - `moveScenarioToFolder()` is modelled on `renameScenario()` and **does not bump
   `updatedAt`** — filing is not editing. `saveScenario()` lets the stored
   `folderId` win. `folderId` is stripped on export and on import.
@@ -389,6 +408,24 @@ wrong by a factor of the yield with an ordinary-looking number on screen.
   own group, the mismatch warning renders per group, and `.modal-unit` is
   replaced by a per-group `.typ-group-unit`. A group overriding `unit` **must**
   also declare `appliesTo`.
+- **A figure is not always a mismatch just because the modes differ.**
+  `switchesMode()` exempts exactly one pair — a `unit` list against a
+  `population` line — because `costPerBag` and `costPerUnit` hold the SAME
+  quantity, and switching would hide a population already entered. The exemption
+  is that narrow on purpose; the same spec's `$/acre` groups still switch.
+- **A message the picker raises lives in `.modal-head`**, which does not scroll,
+  and is cleared by `openModal()`. At the foot of the body it was written where
+  the producer was not looking. **It is said there and nowhere else** —
+  `spec.requires.message` used to be rendered at the top of the body too, so the
+  same sentence was on screen twice about the same tap.
+- **`markQuotedUnitLabel()` names BOTH labels on a `$/unit` row** from the chosen
+  GROUP's unit — the cost box's affix (`/lb`) and the units box's placeholder
+  (`lb/acre`). They are one sentence and must never disagree, so `unitLabels()`
+  in `ui/enterprise.js` owns both. Cosmetic, unlike the other three markers.
+- **`applyUnitLabels()` writes them in place, both ways.** Choosing in the mode
+  the line is already in does not re-render, and the release runs on a keystroke
+  — so clearing the marker alone left the old noun on screen describing a cost
+  the producer had just overwritten.
 - `modeName()` names all four modes.
 - **A sentinel is a share of a sibling; `*acres` is a rate.** `=0.25*initialCost`
   prints "25%", `=6.11*acres` must print money, not "611%".
@@ -410,6 +447,13 @@ can tell its own writes from a producer's:
 and is never touched. The notices live in `unitNotices` / `fixedNotice` in
 `main.js`, are cleared at the end of the render that shows them, and are removed
 from the DOM on `focusin` of a field they name.
+
+> **A marker MUST be released wherever the value changes by anything other than
+> the app's own write**, or the app revises work that is not its own and explains
+> it with a sentence that is false of the number it just deleted. All three
+> markers leaked this way until a review caught them; `seedsPerBagAuto` also
+> needed releasing in `applyValue()`, because a programmatic `.value` write fires
+> no `input` event. See DESIGN-NOTES.
 
 ### Exports are handed to other people
 
@@ -476,6 +520,11 @@ is the only one; do not let it become a precedent for a second. Every guard hang
 off the `seedsPerBagAuto` marker, which records that the **app** put the number
 there — the same idiom as `typicalYieldUnit`:
 
+- **acts on `change`, not on every keystroke** — the producer leaves the box
+  first, or the card is rebuilt under somebody typing "Corn silage";
+- **and the render is deferred one turn of the loop** (`deferRender()`), because
+  `change` fires during the blur a CLICK causes: a synchronous render there
+  detaches the element being pressed and **the click never lands**;
 - writes **only an empty box, or one the app itself last wrote**;
 - **typing in the box drops the marker**, without a `render()`;
 - **no match, no write** — `matchCrop()` is stricter than `matchCategory()`;
@@ -519,7 +568,12 @@ header, year and save-state rules, in [DESIGN-NOTES.md](DESIGN-NOTES.md).*
 
 - **A folded card is `align-self: flex-start`, never `stretch`**, or it grows to
   match the tallest open column beside it.
-- **Remove stays on a folded card**, since a new enterprise arrives folded.
+- **A shut card carries its gross margin per acre and in total**
+  (`.ent-fold-sub`), hidden while the card is open, where both are already
+  readout rows on it. Changing them means moving `--fold-h` and the card's width
+  together; the tile clips rather than growing.
+- **Remove stays on a folded card** — adding an enterprise folds a card either
+  way round, so a card added by mistake always leaves a shut one on screen.
 - **`.fixed-col` is a flex column with `.col-foot` pinned by `margin-top: auto`**,
   and `.col-body` exists only to stop the fields' margins collapsing.
 - **`--fold-h` on `.ent-grid` is the one number for the row of shut cards.**
@@ -550,6 +604,17 @@ This was violated once: the sticky bar tracked every keystroke while the KPI car
 below it sat frozen at the last structural render, showing two contradictory
 profit figures.
 
+**A `[data-out]` path that resolves to nothing renders `—`, never `$0.00`.**
+Every formatter turns `undefined` into a confident dollar figure, so a mistyped
+path would print a plausible number with nothing to say it was wrong.
+
+**A few renders answer a keystroke anyway, so `render()` restores focus.**
+Naming a crop opens the `seeds/ac` mode, which changes which boxes exist and
+therefore *cannot* be an `updateOutputs()`. `activeField()` / `restoreField()`
+put the producer back in the box with their caret. **The `focusin` listener
+guards on `restoringFocus`**, or the render that raises a notice dismisses it in
+the same breath. See DESIGN-NOTES.
+
 **A warning is printed in the card it is about, inside that card's fold.** One
 `[data-warnings]` holder per enterprise, one in the fixed block, one in the
 Results header, each carrying `data-warnings-for` (an index, `fixed`, or `farm`).
@@ -578,8 +643,15 @@ behaviour the button exists to stop.
 **Every enterprise starts folded, at every width** (`applyCollapseDefaults()`).
 The one exception is a brand-new budget's single enterprise, tracked by
 `scenarioIsNew`, which is set false wherever a stored budget becomes the working
-one. A newly added enterprise also arrives collapsed, which is why Remove stays
-reachable on a folded card. *Reasoning in [DESIGN-NOTES.md](DESIGN-NOTES.md).*
+one. *Reasoning in [DESIGN-NOTES.md](DESIGN-NOTES.md).*
+
+**Add opens the new card and shuts every other one**, whatever the page looked
+like beforehand. Pressing Add is asking for a box to type in. Shut them
+**before** pushing the new enterprise, or it is counted as open and shut with
+them. On a phone `scrollCardIntoView()` puts its top edge at the top of the
+screen; nothing is fixed to the top of the page, and it is narrow-only because
+a wide screen lays the cards out as columns. **Remove stays reachable on a
+folded card**, since the previous card is now the one left shut.
 
 ### The unsaved flag gates a browser dialog, so it must be honest
 
@@ -597,7 +669,7 @@ it.
 
 ## Tests
 
-714 tests across six files. `npm test` runs them, and so does the deploy
+742 tests across six files. `npm test` runs them, and so does the deploy
 workflow before it builds. *Detail in [DESIGN-NOTES.md](DESIGN-NOTES.md).*
 
 - `test/calc.test.js` — the model against real Excel output, plus the deliberate
