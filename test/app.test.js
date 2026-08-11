@@ -3605,6 +3605,81 @@ describe('a folded enterprise card still shows what it earns', () => {
   })
 })
 
+describe('a figure the app filled in has to be readable in full', () => {
+  beforeEach(async () => {
+    await boot()
+  })
+
+  test('seeds per unit takes a row of its own, with its divisor', async () => {
+    // A soybean unit is 140,000 seeds. Third of three factors on a phone row,
+    // that box rendered "1400" and scrolled the rest out of sight, which is the
+    // worst kind of wrong number: one the app wrote, that looks like an answer.
+    click('[data-path="enterprises.0.variable.seed.mode"][data-mode="population"]')
+
+    const row = doc.querySelector('[data-line="seed"] .line-inputs')
+    const kids = [...row.children]
+    const at = (path) =>
+      kids.findIndex((el) => el.querySelector?.(`[data-path$="${path}"]`))
+
+    const brk = kids.findIndex((el) => el.classList.contains('line-break'))
+    assert.notEqual(brk, -1, 'the row declares its break')
+    assert.ok(at('.population') < brk, 'population is above it')
+    assert.ok(at('.seedsPerBag') > brk, 'and seeds per unit below')
+
+    // The divisor goes with the box it divides, or the new row opens with a
+    // number and no sign to say what it is doing there.
+    assert.equal(kids[brk + 1].textContent.trim(), '÷')
+  })
+
+  test('the break is a full-width flex item, not display: none', async () => {
+    // jsdom loads no CSS. `display: none` would take it out of the layout and
+    // the break with it, leaving the bug and an element that does nothing.
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+    assert.match(css, /\n\.line-break \{[^}]*flex: 1 0 100%/)
+    assert.match(css, /\n\.line-break \{[^}]*height: 0/)
+  })
+})
+
+describe('a row of boxes reads as a row', () => {
+  beforeEach(async () => {
+    await boot()
+  })
+
+  test('Remove sits in the name field label row, not beside the box', async () => {
+    // Level with the input it was a full-height target immediately right of the
+    // text box, and a mis-tap there costs a filled-in machine.
+    click('[data-action="add-equipment"]')
+
+    const remove = doc.querySelector('[data-action="remove-equipment"]')
+    const label = remove.closest('.field-label')
+    assert.ok(label, 'it is in a label row')
+    assert.ok(
+      label.querySelector('label').textContent.includes('Equipment name'),
+      'the name field'
+    )
+    assert.ok(remove.closest('.field-aside'), 'pinned to the right-hand end')
+    assert.equal(remove.getAttribute('aria-label'), 'Remove this equipment')
+  })
+
+  test('so does a building Remove', async () => {
+    click('[data-action="add-building"]')
+    const remove = doc.querySelector('[data-action="remove-building"]')
+    assert.ok(
+      remove.closest('.field-label')?.querySelector('label').textContent.includes('Building name')
+    )
+  })
+
+  test('the boxes hang from the foot of their cell, whatever the labels did', async () => {
+    // Salvage value and Useful life carry a `?` and a "use typical value" link;
+    // Initial cost and Interest rate carry neither, and on a phone the link
+    // wraps. jsdom has no layout, so this reads the rule that fixes it: the
+    // fields stretch to the grid row, and the input is pushed to the bottom.
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+    assert.match(css, /\n\.item-grid > \.field \{[^}]*flex-direction: column/)
+    assert.match(css, /\n\.item-grid > \.field > \.input-wrap \{[^}]*margin-top: auto/)
+  })
+})
+
 describe('a modal message cannot scroll out of sight', () => {
   beforeEach(async () => {
     await boot()

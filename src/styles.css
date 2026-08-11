@@ -371,6 +371,22 @@ main {
   line-height: 1.2;
 }
 
+/* A control about the whole field rather than about its value, pinned to the
+   right-hand end of the label row. Remove, on an equipment or building name.
+
+   `margin-left: auto` in a wrapping flex line still puts it at the end of
+   whichever line it ends up on, so a narrow column that pushes it under the
+   label keeps it right-aligned rather than stranding it mid-row.
+
+   It carries a 44px target, which makes this row 44px tall wherever one is
+   present. That is the cost of keeping the target full size and is paid on the
+   two name fields only. */
+.field-aside {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+}
+
 .field-label > label,
 .field > label {
   display: block;
@@ -1268,6 +1284,22 @@ input.invalid {
   flex-wrap: wrap;
 }
 
+/* A wrap this row is not allowed to get wrong.
+
+   Flex-wrap breaks where the content happens to run out, which on the seed line
+   left all three factors on one row and seeds-per-unit too narrow to show the
+   number in it. A full-width item of no height forces the break at a chosen
+   point instead: everything after it starts a new row.
+   See lineInputs() in ui/enterprise.js.
+
+   `height: 0` rather than `display: none`, which would take it out of the flex
+   layout and with it the break. It is aria-hidden and holds nothing, so it is
+   never read out and never a tab stop. */
+.line-break {
+  flex: 1 0 100%;
+  height: 0;
+}
+
 /* The box, and the two halves of its unit sitting inside it.
 
    `.in-box` is the flex child now, not the input — the input fills it. The
@@ -1523,14 +1555,13 @@ input.invalid {
   padding: 10px 12px;
 }
 
-.item-head {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-}
-
+/* Remove sits in the name field's LABEL row now (see `.field-aside`), so this is
+   a plain wrapper. It used to be a flex row holding the field and the button
+   side by side, which put Remove level with the name box: a full-height target
+   immediately right of the text input, which is a mis-tap that costs a filled-in
+   machine. Level with the label it is clear of the box and clearly about the
+   whole item rather than about the name. */
 .item-head .field {
-  flex: 1;
   margin-top: 0;
 }
 
@@ -1538,6 +1569,30 @@ input.invalid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0 10px;
+}
+
+/* Two boxes side by side, on the same baseline whatever is above them.
+
+   The label rows over an equipment item's four fields are not the same height:
+   Salvage value and Useful life carry a `?` and a "use typical value" link,
+   Initial cost and Interest rate carry neither, and on a phone the link wraps
+   onto a second line. Left to flow, the boxes in one row of this grid started
+   at four different heights and stopped reading as a row.
+
+   Each field already fills its cell -- grid items stretch by default -- so
+   pushing the input to the FOOT of the cell lands every box on the same
+   baseline, however tall the label above it turned out to be. Same idiom as
+   `.col-foot`'s `margin-top: auto` in the fixed-cost columns.
+
+   Scoped to `.item-grid`, because an enterprise card's fields are a single
+   column with nothing beside them to line up against. */
+.item-grid > .field {
+  display: flex;
+  flex-direction: column;
+}
+
+.item-grid > .field > .input-wrap {
+  margin-top: auto;
 }
 
 .item-out {

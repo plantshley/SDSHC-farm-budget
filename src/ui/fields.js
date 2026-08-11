@@ -23,6 +23,8 @@ import { esc } from './format.js'
  * @param {string} [o.typical] key into TYPICAL_VALUES for the link
  * @param {string} [o.category] passed to the typical picker to filter options
  * @param {string} [o.placeholder]
+ * @param {string} [o.aside]   markup pinned to the right of the label row, for a
+ *   control about the field itself. Not escaped; see labelRow().
  */
 export function moneyField(o) {
   return field({ ...o, inputmode: 'decimal', type: 'number' })
@@ -41,6 +43,11 @@ export function moneyField(o) {
  * reason it does on a variable-expense line: below the box it reads as a caption
  * belonging to the next field down, and it adds a row of height to every field
  * that has one. Beside the label it reads as an offer about this field.
+ *
+ * `o.aside` is raw markup pinned to the right-hand end of this row, for a
+ * control that belongs to the field but is not an offer about its value —
+ * Remove, on an equipment or building name. It is the caller's own HTML and is
+ * NOT escaped, so it takes a string built here and never a producer's text.
  */
 function labelRow(id, o) {
   return `
@@ -60,6 +67,7 @@ function labelRow(id, o) {
              >use typical value</button>`
           : ''
       }
+      ${o.aside ? `<span class="field-aside">${o.aside}</span>` : ''}
     </div>`
 }
 

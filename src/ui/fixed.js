@@ -201,9 +201,9 @@ function renderEquipment(item, i) {
           value: item.name,
           placeholder: 'Tractor, planter, combine…',
           list: 'equipment-names',
+          aside: `<button type="button" class="btn-remove" data-action="remove-equipment"
+            data-index="${i}" aria-label="Remove this equipment">Remove</button>`,
         })}
-        <button type="button" class="btn-remove" data-action="remove-equipment"
-          data-index="${i}" aria-label="Remove this equipment">Remove</button>
       </div>
       <div class="item-grid">
         ${moneyField({ label: 'Initial cost', path: `${p}.initialCost`, value: item.initialCost, prefix: '$', placeholder: '0' })}
@@ -246,9 +246,9 @@ function renderBuilding(item, i) {
           value: item.name,
           placeholder: 'Machine shed, grain bin…',
           list: 'building-names',
+          aside: `<button type="button" class="btn-remove" data-action="remove-building"
+            data-index="${i}" aria-label="Remove this building">Remove</button>`,
         })}
-        <button type="button" class="btn-remove" data-action="remove-building"
-          data-index="${i}" aria-label="Remove this building">Remove</button>
       </div>
       <div class="item-grid three">
         ${moneyField({ label: 'Initial cost', path: `${p}.initialCost`, value: item.initialCost, prefix: '$', placeholder: '0' })}

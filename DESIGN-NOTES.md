@@ -1696,3 +1696,79 @@ one.
 The next-session case is tested by carrying the store forward into a second
 `boot()`, because folders created in-session are left open by the act of
 creating them and the shut state only exists on a later visit.
+
+---
+
+## A phone-width row of boxes
+
+Three fixes from the same round of teammate feedback, all of them layout, all of
+them a figure that was on screen and not legible.
+
+### The seed row breaks where it is told to
+
+`seeds/ac` mode has three factors: `$/bag × seeds/acre ÷ seeds/bag`. The row was
+left to flex-wrap, on the reasoning that the browser knows the widths and would
+break somewhere sensible. It does know the widths, and somewhere sensible is not
+what it optimises for: it fits what it can on the first line, which at 360px was
+all three boxes with the last of them about 32px of usable interior.
+
+That is the box holding seeds-per-unit. A soybean unit is 140,000 seeds, so the
+box read **1400** and scrolled the rest out of sight, with no scrollbar, no
+ellipsis, and nothing to say there was more. Worse: it is the one box in the app
+the app itself fills in (see *Nothing auto-fills*), so the wrong-looking number
+was one the producer had not typed and had no reason to audit. A cut-off figure
+that is plausible is a worse failure than a blank one.
+
+`.line-break` is a flex item with `flex: 1 0 100%` and `height: 0`: it takes a
+whole line, so everything after it starts a new one, and it takes no vertical
+space of its own. `lineInputs()` emits it before the `÷`, which puts the divisor
+on the new row with the box it divides — otherwise the second row opens with a
+number and no sign to say what it is doing there.
+
+`display: none` would remove it from the flex layout and take the break with it,
+leaving both the bug and an element that appears to address it. That is why the
+stylesheet-source test asserts `height: 0` specifically.
+
+The break is unconditional rather than narrow-only. A wide screen lays the
+enterprises out as parallel columns, and a column is not much wider than a
+phone; the row was tight there too.
+
+### Two boxes side by side start at the same height
+
+An equipment item is four fields in a grid. Salvage value and Useful life carry
+a `?` and a *use typical value* link in their label rows; Initial cost and
+Interest rate carry neither. So the label above one box is a line taller than
+the label above the box next to it — two lines taller on a phone, where the link
+wraps under the label — and the two inputs sat at different heights with nothing
+visible to explain why. It read as two unrelated controls that happened to be
+adjacent.
+
+The fix is the one `.fixed-col` already uses. Grid items stretch to their row by
+default, so each field already fills the full height of its cell; making the
+field a flex column and pushing `.input-wrap` down with `margin-top: auto` lands
+every box on the same baseline whatever happened above it. No fixed heights, no
+media query, and it holds for the three-column building grid and the four-column
+equipment grid alike.
+
+Scoped to `.item-grid`. An enterprise card's fields are a single column with
+nothing beside them to line up against, and stretching them there would push
+boxes away from their own labels.
+
+### Remove belongs to the item, not to the name box
+
+`.item-head` was a flex row: the name field, then Remove. With `align-items:
+flex-end` that put a 44px underlined target immediately to the right of the text
+input, level with it, reading as though it belonged to it. It removes the whole
+machine, and a mis-tap costs everything typed into all four boxes below.
+
+It moves into the name field's label row, right-aligned. `field()` gains
+`o.aside`, markup pinned to the end of `.field-label`; it is the caller's own
+HTML and is not escaped, so it must never carry a producer's text. Level with
+the word *Equipment name* it is clear of every box and is plainly about the item
+rather than about one field of it.
+
+It keeps the full 44px, which makes that label row 44px tall and costs about
+22px per item. The alternatives were shrinking the target, which the app does
+not do anywhere else, or pulling the button up with a negative margin so it
+overhangs the input below — which buys the height back by putting an invisible
+Remove over the top corner of the name box. Neither is worth 22px.

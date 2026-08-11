@@ -21,7 +21,7 @@ like one family.
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 742 tests: the economic model, storage, data, and a DOM smoke test
+npm test           # 747 tests: the economic model, storage, data, and a DOM smoke test
 npm run build      # -> dist/
 ```
 
@@ -378,6 +378,11 @@ the input in `.in-box` with a `$` before and the unit after.
   are deliberate and both are asserted.
 - Dark mode sets `color-scheme: dark` on `input[type="number"]` so the browser's
   own spinners are drawn dark.
+- **`seeds/ac` mode breaks its row where it is told to**, not where flex-wrap
+  runs out. `.line-break` is a full-width flex item of no height, emitted before
+  the `÷`, so seeds-per-unit and its divisor get a row wide enough for six
+  digits and a `/bag` affix. `height: 0`, never `display: none`, which would
+  take it out of the layout and the break with it.
 
 ### A `$/unit` line needs both of its boxes, and says so twice
 
@@ -576,6 +581,14 @@ header, year and save-state rules, in [DESIGN-NOTES.md](DESIGN-NOTES.md).*
   way round, so a card added by mistake always leaves a shut one on screen.
 - **`.fixed-col` is a flex column with `.col-foot` pinned by `margin-top: auto`**,
   and `.col-body` exists only to stop the fields' margins collapsing.
+- **A field in `.item-grid` hangs its box from the foot of its cell**, by the
+  same `margin-top: auto`. Two of an equipment item's four labels carry a `?`
+  and a *use typical value* link and two carry neither, so left to flow the
+  boxes in one row started at different heights and stopped reading as a row.
+- **Remove lives in the name field's label row** (`o.aside` on `field()`,
+  `.field-aside`, right-aligned), not beside the input, where a full-height
+  target sat against the text box and a mis-tap cost a filled-in machine. It
+  keeps its 44px, which is what makes that row 44px tall.
 - **`--fold-h` on `.ent-grid` is the one number for the row of shut cards.**
 - **`.sub-title` needs `min-height: 29px`, not 22px** — `box-sizing: border-box`
   means it has to cover the padding and the 2px rule. Shipped once at 22px and
@@ -669,7 +682,7 @@ it.
 
 ## Tests
 
-742 tests across six files. `npm test` runs them, and so does the deploy
+747 tests across six files. `npm test` runs them, and so does the deploy
 workflow before it builds. *Detail in [DESIGN-NOTES.md](DESIGN-NOTES.md).*
 
 - `test/calc.test.js` — the model against real Excel output, plus the deliberate

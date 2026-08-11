@@ -393,8 +393,18 @@ function lineInputs(def, line, p, mode) {
   }
 
   if (mode === 'population') {
-    // Three factors on one row is tight on a phone; .line-inputs wraps, and the
-    // two operators travel with the boxes they sit between.
+    // Three factors do not fit one row, and the third is the one that suffers:
+    // a soybean unit is 140,000 seeds, and in a box narrow enough to be a third
+    // of a phone it renders as "1400" with the rest scrolled out of sight. A
+    // figure the APP filled in, cut off, reading as a plausible wrong number is
+    // the worst version of that -- nothing on screen says to click in and press
+    // End.
+    //
+    // So the break is declared rather than left to flex-wrap: seeds-per-unit and
+    // its divisor take a row of their own, where the box has the width to show
+    // six digits and its `/bag` affix. The operators still travel with the boxes
+    // they sit between, so the row below reads as a continuation of the row
+    // above rather than as a second sum.
     return `${box('costPerBag', {
       placeholder: '$/bag',
       ariaLabel: 'cost per bag or unit',
@@ -408,6 +418,7 @@ function lineInputs(def, line, p, mode) {
         step: STEP.population,
         post: '/ac',
       })}
+      <span class="line-break" aria-hidden="true"></span>
       <span class="times">÷</span>
       ${box('seedsPerBag', {
         placeholder: 'seeds/bag',
