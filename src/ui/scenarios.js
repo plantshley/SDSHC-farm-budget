@@ -124,6 +124,21 @@ export function renderScenarioList(currentId, filterQuery = '', expandedFolders 
            literal, and one would end it.) -->
       <header class="block-head saved-head">
         <h2 class="title">Saved budget scenarios / plans</h2>
+        <!-- Text links rather than buttons, and to the LEFT of the two "+ "
+             buttons: making a budget is what a producer comes to this page to
+             do, and a backup is housekeeping they do a few times a year. Weight
+             on the page follows that. On a phone they take a row of their own
+             BELOW the "+ " buttons, for the same reason.
+
+             Restore is the one destructive control in the app, so it is
+             deliberately not sitting inside the row of things that create.
+             Everything it does is behind a confirm dialog naming the counts on
+             both sides. -->
+        <span class="head-tools">
+          <button type="button" class="tip" data-action="backup-all">Export backup</button>
+          <button type="button" class="tip" data-action="restore-all">Restore backup</button>
+          ${infoButton('backupFile', 'a backup')}
+        </span>
         <!-- Sized to its own text rather than the full width .btn-add normally
              takes. Full width it read as the primary thing to do on a page whose
              actual subject is the list underneath it. -->
@@ -426,7 +441,11 @@ export function renderCompare(scenarios) {
              the table by hand. -->
         <button type="button" class="tip" data-action="export-compare-csv">Export CSV</button>
         <button type="button" class="tip" data-action="print">Print</button>
-        <button type="button" class="tip" data-action="back-to-scenarios">Back to saved budgets</button>
+        <!-- The one control here that LEAVES the page, so it is the one control
+             here that is shaped like a button. Export CSV and Print act on the
+             comparison in front of you and stay text links; a text link that
+             navigates reads as a third thing you could do to this table. -->
+        <button type="button" class="btn-back" data-action="back-to-scenarios">Back to Saved</button>
       </header>
 
       <p class="hint">

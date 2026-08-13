@@ -69,6 +69,17 @@ export const DEFINITIONS = {
     ],
   },
 
+  backupFile: {
+    title: 'What is a backup?',
+    body: [
+      'A .json file holding everything on the Saved tab at once: every saved budget, every folder, and which budget is in which folder. "Export backup" downloads it to your device.',
+      'It is different from a budget file, which holds one budget. Use a budget file to hand one plan to somebody else, and a backup to keep a copy of all of your work.',
+      'Your budgets live in this browser, so clearing your browsing data deletes them, and so does replacing the device. A backup is how you get them back.',
+      'Restore backup replaces everything on the Saved tab with what is in the file. Budgets saved on this device that are not in the file are deleted, and there is no undo. The calculator states how many budgets are arriving and how many are going before it does anything.',
+      'The file is dated, so backups taken on different days sit beside each other in your downloads folder rather than overwriting one another.',
+    ],
+  },
+
   enterpriseBudget: {
     title: 'Enterprise budget',
     body: [
@@ -217,8 +228,10 @@ export const DEFINITIONS = {
       'Everything you enter stays on this device, in this browser. It is not sent anywhere and it is not stored on any server.',
       'The South Dakota Soil Health Coalition cannot see your budgets. Nobody can, except someone using this device.',
       'Your saved budgets will not appear on your other phone or computer, and they are not shared with anyone.',
-      'To move a budget to another device, or to give one to somebody else, use "Save budget file" to download it and "Upload a budget file" on the Saved tab to read it back in. That file is the only thing that ever leaves this device, and only when you download it yourself.',
-      'Because the budgets live in this browser, clearing your browsing data deletes them. Save a file for anything you want to keep.',
+      'To move a budget to another device, or to give one to somebody else, use "Save budget file" to download it and "Upload a budget file" on the Saved tab to read it back in.',
+      'To keep a copy of everything at once, use "Export backup" on the Saved tab. It downloads every saved budget and every folder as one file, and "Restore backup" reads it back.',
+      'Those files are the only things that ever leave this device, and only when you download them yourself.',
+      'Because the budgets live in this browser, clearing your browsing data deletes them. Export a backup for anything you want to keep.',
     ],
   },
 }

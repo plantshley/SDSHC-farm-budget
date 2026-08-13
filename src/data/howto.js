@@ -61,8 +61,10 @@ export const HOW_TO_SECTIONS = [
       'Everything you enter stays on this device, in this browser. It is not sent anywhere and it is not stored on any server.',
       'The South Dakota Soil Health Coalition cannot see your budgets. Nobody can, except someone using this device.',
       'Your saved budgets will not appear on your other phone or computer, and they are not shared with anyone else at a workshop.',
-      'To move a budget to another device, or to give one to somebody else, use "Save budget file" to download it and "Upload a budget file" on the Saved tab to read it back in. That file is the only thing that ever leaves this device, and only when you download it yourself.',
-      'Because the budgets live in this browser, clearing your browsing data deletes them. Save a file for anything you want to keep.',
+      'To move a budget to another device, or to give one to somebody else, use "Save budget file" to download it and "Upload a budget file" on the Saved tab to read it back in.',
+      'To keep a copy of everything at once, use "Export backup" on the Saved tab. It downloads every saved budget and every folder as one file, and "Restore backup" reads it back. Restoring replaces everything on the Saved tab, so the calculator says how many budgets are arriving and how many are going before it does anything.',
+      'Those files are the only things that ever leave this device, and only when you download them yourself.',
+      'Because the budgets live in this browser, clearing your browsing data deletes them. Export a backup for anything you want to keep.',
     ],
   },
   {
@@ -92,6 +94,7 @@ export const HOW_TO_SECTIONS = [
       'Export CSV opens in Excel or Google Sheets with every line item.',
       'Print produces a clean copy for paper or PDF.',
       'Save budget file downloads a file. Upload a budget file, on the Saved tab, reads one back in. Use the pair to move a budget from your phone to your computer, or to share with others.',
+      'Export backup, on the Saved tab, downloads every saved budget and every folder as one file. Restore backup reads it back and replaces everything on the Saved tab.',
     ],
   },
 ]

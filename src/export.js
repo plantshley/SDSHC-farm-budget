@@ -4,7 +4,7 @@
  */
 
 import { calcScenario, VARIABLE_LINES, enterpriseLabel, num } from './calc.js'
-import { exportScenarioJSON } from './storage.js'
+import { exportScenarioJSON, exportBackupJSON } from './storage.js'
 // The comparison table's own row list, so the CSV cannot list a different set of
 // figures from the screen it was exported from. See the note beside it.
 import { COMPARE_ROWS } from './ui/scenarios.js'
@@ -248,6 +248,20 @@ export function downloadCompareCSV(scenarios) {
 
 export function downloadJSON(scenario) {
   download(safeFilename(scenario.name, 'json'), exportScenarioJSON(scenario), 'application/json')
+}
+
+/**
+ * The whole Saved tab in one file.
+ *
+ * Named for the day it was taken rather than for a budget, because it is not
+ * about any one of them, and a producer who backs up every few months ends up
+ * with a folder of files that sort into the order they were made. A fixed name
+ * would have each download land as "(1)", "(2)" beside the last, which is the
+ * same list with the dates thrown away.
+ */
+export function downloadBackup() {
+  const day = new Date().toISOString().slice(0, 10)
+  download(`sdshc-farm-budgets-${day}.json`, exportBackupJSON(), 'application/json')
 }
 
 /** Paper or PDF, via the browser's own print dialog. See @media print in styles.css. */

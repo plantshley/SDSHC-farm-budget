@@ -24,6 +24,8 @@ import {
   getLastOpened,
   storageAvailable,
   importScenarioJSON,
+  importBackupJSON,
+  replaceAll,
   renameScenario,
   reorderScenarios,
   listFolders,
@@ -44,7 +46,13 @@ import {
   BUILDING_CATALOG,
 } from './data/typical-values.js'
 import { HOW_TO_SECTIONS } from './data/howto.js'
-import { downloadCSV, downloadCompareCSV, downloadJSON, printResults } from './export.js'
+import {
+  downloadCSV,
+  downloadCompareCSV,
+  downloadJSON,
+  downloadBackup,
+  printResults,
+} from './export.js'
 import { enterpriseLabel, VARIABLE_LINES, COST_BASIS } from './calc.js'
 
 initPrefs()
@@ -2101,6 +2109,18 @@ function handleAction(action, btn) {
       importFromFile()
       break
 
+    case 'backup-all':
+      if (!listScenarios().length && !listFolders().length) {
+        alert('There is nothing saved on this device to back up yet.')
+        break
+      }
+      downloadBackup()
+      break
+
+    case 'restore-all':
+      restoreFromFile()
+      break
+
     case 'how-to':
       // Folded shut so the whole guide is one screen of headings you can pick
       // from, rather than several screens of scrolling to reach the last one.
@@ -2231,6 +2251,72 @@ function importFromFile() {
     collapsedEnterprises.clear()
     collapseDefaultsApplied = false
     scenarioIsNew = false
+    render()
+  })
+  input.click()
+}
+
+/** "1 budget", "3 budgets" — used in a dialog where the count is the point. */
+function pluralCount(n, word) {
+  return `${n} ${word}${n === 1 ? '' : 's'}`
+}
+
+/**
+ * Replace the whole Saved tab from a backup file.
+ *
+ * This is the one destructive action in the app, and the only one that can take
+ * away work the producer never opened. Three things follow from that:
+ *
+ * The dialog states BOTH counts — what is arriving and what is going — because
+ * "are you sure?" is a question nobody can answer without them, and the
+ * dangerous case is the one where the file holds two budgets and the device
+ * holds twenty. The file is parsed BEFORE the dialog is raised, so a file that
+ * turns out to be unreadable never gets as far as asking.
+ *
+ * The budget open on the Budget tab is left exactly as it is, including unsaved
+ * edits. It is not part of the saved list, so a restore has no business
+ * touching it; a producer mid-edit who restores a backup keeps what is in front
+ * of them and can save it afterwards, which puts it back in the list.
+ *
+ * The filter is cleared, for the same reason a save clears it: the list it was
+ * describing is gone, and a restored budget filtered out of sight reads as the
+ * restore having failed.
+ */
+function restoreFromFile() {
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = 'application/json,.json'
+  input.addEventListener('change', async () => {
+    const file = input.files?.[0]
+    if (!file) return
+    const result = importBackupJSON(await file.text())
+    if (!result.ok) {
+      alert(result.error)
+      return
+    }
+
+    const have = listScenarios().length
+    const arriving = `This backup holds ${pluralCount(
+      result.scenarios.length,
+      'budget'
+    )} in ${pluralCount(result.folders.length, 'folder')}.`
+    const losing = have
+      ? `Restoring it deletes the ${pluralCount(have, 'budget')} saved on this device now.`
+      : 'There is nothing saved on this device now, so nothing is lost.'
+    if (!confirm(`${arriving}\n\n${losing}\n\nThis cannot be undone. Restore anyway?`)) return
+
+    const wrote = replaceAll(result.scenarios, result.folders)
+    if (!wrote.ok) {
+      alert(
+        wrote.budgetsRestored
+          ? 'The budgets were restored, but this browser would not save the folders. Every budget is in the list, none is in a folder.'
+          : 'Nothing was changed — this browser is out of storage space.'
+      )
+    }
+
+    screen = 'scenarios'
+    scenarioFilter = ''
+    revealScenarioFolder(getScenario().id)
     render()
   })
   input.click()

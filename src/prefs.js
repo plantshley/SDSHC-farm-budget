@@ -121,8 +121,17 @@ function applyTheme(theme) {
   btn.setAttribute('title', dark ? 'Light mode' : 'Dark mode')
 }
 
+/**
+ * The choices that exist, named rather than inferred.
+ *
+ * An unrecognised one falls back to 'browser' — a stored preference from a
+ * future build, or a hand-edited key, must not leave the page with no --font at
+ * all. Same rule as perYearFactor() returning 1 for a basis it does not know.
+ */
+const FONTS = new Set(['browser', 'classic', 'mono'])
+
 function applyFont(choice) {
-  const font = choice === 'classic' ? 'classic' : 'browser'
+  const font = FONTS.has(choice) ? choice : 'browser'
   document.documentElement.setAttribute('data-font', font)
   for (const btn of document.querySelectorAll('[data-font-choice]')) {
     btn.setAttribute(

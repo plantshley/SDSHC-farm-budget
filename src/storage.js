@@ -548,6 +548,126 @@ export function exportScenarioJSON(scenario) {
   return JSON.stringify({ ...rest, schemaVersion: SCHEMA_VERSION }, null, 2)
 }
 
+/* ─────────────────────────── backup / restore ──────────────────────────── */
+
+/**
+ * A backup is the whole Saved tab in one file, and it is a DIFFERENT kind of
+ * thing from a budget file.
+ *
+ * A budget file is one budget, handed to another person or carried to another
+ * device, which is why exportScenarioJSON() strips `folderId`: a folder id means
+ * nothing on the machine it lands on, and one that happened to collide would
+ * file somebody else's budget into a folder they never chose.
+ *
+ * A backup restores a list onto itself. The folders travel WITH the budgets and
+ * every id is resolved against the folders in the same file, so membership is
+ * internally consistent and stripping it would lose the arrangement the producer
+ * built — which is most of what they would be backing up for.
+ *
+ * `kind` is checked on the way back in. Both files are .json and both came out
+ * of this app, so nothing about the extension distinguishes them, and restoring
+ * one budget over a list of twelve is the one mistake this file format has to
+ * make impossible.
+ */
+const BACKUP_KIND = 'sdshc-farm-budget-backup'
+
+export function exportBackupJSON() {
+  return JSON.stringify(
+    {
+      kind: BACKUP_KIND,
+      backupVersion: 1,
+      schemaVersion: SCHEMA_VERSION,
+      exportedAt: new Date().toISOString(),
+      folders: listFolders(),
+      scenarios: listScenarios(),
+    },
+    null,
+    2
+  )
+}
+
+/**
+ * Parse a backup file. Returns `{ok, scenarios, folders}` or `{ok:false,error}`,
+ * never throwing — this is a file the producer picked off their own device.
+ *
+ * A single-budget file gets its own message rather than the generic refusal.
+ * It is the near miss somebody will actually hit, and "that file is not a
+ * backup" leaves them with no idea that the control they wanted is two lines
+ * further down the same screen.
+ *
+ * An empty backup is refused. Restoring one would be a way to delete every
+ * budget on the device by answering a confirm dialog about a file that turned
+ * out to hold nothing, and there is no reason anybody would mean it.
+ */
+export function importBackupJSON(text) {
+  let parsed
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    return { ok: false, error: 'That file is not a backup of your saved budgets.' }
+  }
+  if (!parsed || typeof parsed !== 'object') {
+    return { ok: false, error: 'That file is not a backup of your saved budgets.' }
+  }
+  if (parsed.kind !== BACKUP_KIND) {
+    return {
+      ok: false,
+      error: Array.isArray(parsed.enterprises)
+        ? 'That file holds one budget, not a backup. Use "upload a budget file" to bring it in alongside what you already have.'
+        : 'That file is not a backup of your saved budgets.',
+    }
+  }
+  if (!Array.isArray(parsed.scenarios)) {
+    return { ok: false, error: 'That backup file is damaged and cannot be read.' }
+  }
+
+  // Same rule as listScenarios() and listFolders(): one unreadable record is
+  // skipped, never fatal to the rest of the file.
+  const scenarios = []
+  for (const record of parsed.scenarios) {
+    try {
+      if (record && typeof record === 'object' && record.id) scenarios.push(migrate(record))
+    } catch {
+      /* skip this one, keep the rest */
+    }
+  }
+
+  const folders = (Array.isArray(parsed.folders) ? parsed.folders : [])
+    .filter((f) => f && typeof f === 'object' && f.id)
+    .map((f) => ({ ...f, id: String(f.id), name: String(f.name ?? '') }))
+
+  if (!scenarios.length && !folders.length) {
+    return { ok: false, error: 'That backup file has no budgets in it.' }
+  }
+  return { ok: true, scenarios, folders }
+}
+
+/**
+ * Replace the whole Saved tab. The one destructive write in this module.
+ *
+ * The budgets go first, and that order is the safety property. If the budgets
+ * fail to write, nothing has changed at all and the caller can say so. If they
+ * succeed and the folders do not, the restored budgets are on screen carrying
+ * folder ids that resolve to nothing — and a budget naming a folder that does
+ * not exist lands in the ungrouped pile, which is exactly the case
+ * renderSections() is built to catch. Written the other way round, a folders
+ * failure would leave the producer's own folders holding the file's budgets.
+ *
+ * `lastKnownUpdatedAt` is cleared because every record in it now describes a
+ * budget this tab has not read. Left standing, a restored record older than the
+ * timestamp remembered for its id reads as "nobody has touched this since I last
+ * looked", and the next save overwrites it without asking.
+ */
+export function replaceAll(scenarios, folders) {
+  const wrote = writeRaw(JSON.stringify(scenarios))
+  if (!wrote.ok) return wrote
+  lastKnownUpdatedAt.clear()
+
+  const wroteFolders = writeFolders(folders)
+  if (!wroteFolders.ok) return { ok: false, error: wroteFolders.error, budgetsRestored: true }
+  return { ok: true }
+}
+
 /**
  * Parse a scenario file. Returns {ok, scenario} or {ok:false, error} — never
  * throws, because this input comes from a file the producer picked.
@@ -558,6 +678,16 @@ export function importScenarioJSON(text) {
     parsed = JSON.parse(text)
   } catch {
     return { ok: false, error: 'That file is not a saved budget.' }
+  }
+  // The near miss in the other direction: a backup handed to the single-budget
+  // control. Both are .json and both came out of this app, so it says which
+  // control the file belongs to rather than refusing it as unreadable.
+  if (parsed?.kind === BACKUP_KIND) {
+    return {
+      ok: false,
+      error:
+        'That file is a backup of a whole Saved tab, not one budget. Use "Restore backup" to bring it in.',
+    }
   }
   if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.enterprises)) {
     return { ok: false, error: 'That file is not a saved budget.' }

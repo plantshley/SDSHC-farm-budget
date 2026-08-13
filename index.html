@@ -8,7 +8,7 @@
       name="description"
       content="Build enterprise budgets, then save and compare scenarios — South Dakota Soil Health Coalition."
     />
-    <title>Farm Plan Budget — SDSHC</title>
+    <title>Farm Budget Scenario Tool — SDSHC</title>
     <link rel="icon" href="%BASE_URL%favicon.png" />
     <link rel="apple-touch-icon" href="%BASE_URL%sdshc-logo.png" />
     <!-- Linked here rather than imported from main.js so the entry module stays
@@ -27,11 +27,17 @@
         width="763"
         height="200"
       />
+      <!-- Wide screens only. On a phone the bar is already the logo, a font
+           control and a theme toggle wrapping onto two lines, and a title there
+           would push the first thing on the page further down to repeat what the
+           browser tab already says. -->
+      <span class="topbar-title">Farm Budget Scenario Tool</span>
       <div class="topbar-controls">
         <div class="segmented" role="group" aria-label="Font">
           <span class="segmented-label">Font</span>
           <button type="button" class="seg" data-font-choice="browser" aria-pressed="true">Browser</button>
           <button type="button" class="seg" data-font-choice="classic" aria-pressed="false">Classic</button>
+          <button type="button" class="seg" data-font-choice="mono" aria-pressed="false">Mono</button>
         </div>
         <button
           type="button"

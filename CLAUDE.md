@@ -21,7 +21,7 @@ like one family.
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 747 tests: the economic model, storage, data, and a DOM smoke test
+npm test           # 764 tests: the economic model, storage, data, and a DOM smoke test
 npm run build      # -> dist/
 ```
 
@@ -178,6 +178,34 @@ writing the whole working scenario over it would carry unsaved edits with it.
 when the stored record has moved on since this tab read it (`lastKnownUpdatedAt`);
 `main.js` asks the producer before overwriting, and `{force: true}` proceeds.
 
+### A backup is the whole tab; a budget file is one budget
+
+Two .json files, both written by this app, and the difference between them is the
+one thing this format has to make impossible to get wrong. *Reasoning in
+[DESIGN-NOTES.md](DESIGN-NOTES.md).*
+
+- **`exportBackupJSON()` KEEPS `folderId`, and carries the folders with it.** A
+  budget file is stripped because a folder id means nothing on the device it
+  lands on; a backup restores a list onto itself, so every id resolves against
+  the folders in the same file and stripping it would lose the arrangement.
+- **`kind: 'sdshc-farm-budget-backup'` is checked on the way in, both ways.**
+  Each control names the other one when handed the wrong file rather than
+  refusing it as unreadable — the extension distinguishes nothing.
+- **`replaceAll()` is the only destructive write in the app.** Budgets first,
+  then folders: a budgets failure changes nothing at all, and a folders failure
+  leaves every restored budget on screen in the ungrouped pile. The other order
+  would leave the producer's own folders holding the file's budgets. It clears
+  `lastKnownUpdatedAt`, or a restored record older than the timestamp remembered
+  for its id reads as untouched and the next save overwrites it unasked.
+- **An empty backup is refused**, or it is a way to delete every budget on the
+  device by answering a confirm dialog about a file that held nothing.
+- **The confirm dialog states BOTH counts**, arriving and going. "Are you sure?"
+  is unanswerable without them, and the dangerous case is two budgets replacing
+  twenty. The file is parsed before the dialog is raised.
+- **A restore does not touch the budget open on the Budget tab**, unsaved edits
+  included. It is not part of the saved list. It does clear the filter, same rule
+  a save follows.
+
 ### The Saved-tab filter, and the two things it is not allowed to do
 
 A filter box sits above the saved list from the **first saved budget onward**,
@@ -281,7 +309,8 @@ before changing anything here. The rules that must not be broken by accident:
   `main.js`, not in the scenario, not in `localStorage`.
 - `moveScenarioToFolder()` is modelled on `renameScenario()` and **does not bump
   `updatedAt`** — filing is not editing. `saveScenario()` lets the stored
-  `folderId` win. `folderId` is stripped on export and on import.
+  `folderId` win. `folderId` is stripped on a single-budget export and import,
+  and deliberately **kept** in a backup — see *A backup is the whole tab*.
 - Twelve glyphs and twelve swatches, counts equal, and **no red** — red means a
   loss on every row of this page. A colour needs four pieces or it renders with
   no colour at all and no error; the header comment in `ui/folders.js` names
@@ -601,6 +630,24 @@ header, year and save-state rules, in [DESIGN-NOTES.md](DESIGN-NOTES.md).*
 - **Green means a positive number, not an action.** `.btn-main` and `.kpi` take
   the logo's blue, leaving green for money-that-is-there and red for
   money-that-is-not.
+- **The top bar becomes a 3-track grid at ≥900px** so `.topbar-title` is centred
+  on the PAGE. The logo and the controls are nowhere near equal widths, so a flex
+  row put it well right of centre and moved it whenever the font control resized.
+  It is `display: none` below that, where the bar already wraps onto two lines.
+- **`.btn-back` takes `.btn-add-inline`'s box** — 8px corner, 36px tall, same
+  padding and type size. They are the app's two header-sized buttons and two
+  shapes would read as two kinds of control. **Change one, change the other.**
+  It is outlined rather than filled: it is the one control in the compare header
+  that LEAVES the page, which is why it is a button at all, but its neighbours
+  are text links and a filled pill among them would read as the main thing to do
+  to a comparison. It is named in the `@media print` hide list, which `.tip` used
+  to cover for it.
+- **The font toggle's choices are a named set** (`FONTS` in `prefs.js`) and an
+  unrecognised one falls back to `browser`, never to no `--font` at all. **`mono`
+  loads no webfont** — this is a PWA that has to work with no signal, so the
+  stack is fonts the device already has, JetBrains Mono first for anyone who has
+  it. A test walks every `[data-font-choice]` button and asserts the stylesheet
+  declares a stack for it.
 
 ### `render()` vs `updateOutputs()` — and why results must be `data-out`
 
@@ -682,7 +729,7 @@ it.
 
 ## Tests
 
-747 tests across six files. `npm test` runs them, and so does the deploy
+764 tests across six files. `npm test` runs them, and so does the deploy
 workflow before it builds. *Detail in [DESIGN-NOTES.md](DESIGN-NOTES.md).*
 
 - `test/calc.test.js` — the model against real Excel output, plus the deliberate

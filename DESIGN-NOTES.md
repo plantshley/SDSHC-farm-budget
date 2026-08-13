@@ -1772,3 +1772,142 @@ It keeps the full 44px, which makes that label row 44px tall and costs about
 not do anywhere else, or pulling the button up with a negative margin so it
 overhangs the input below — which buys the height back by putting an invisible
 Remove over the top corner of the name box. Neither is worth 22px.
+
+---
+
+## Backup and restore
+
+### Two .json files, and the one thing they must never be confused for
+
+A budget file holds one budget. A backup holds the entire Saved tab: every
+budget, every folder, and which budget is in which folder.
+
+`exportScenarioJSON()` strips `folderId` for a reason written down in
+storage.js: a folder id is a fact about one device's list, it means nothing on
+the machine the file is opened on, and an id that happened to collide with a
+real folder there would file somebody else's budget into it.
+
+`exportBackupJSON()` keeps it, and that is not an inconsistency. A backup is
+restored onto the same list it came from, and every id in it resolves against
+the folders in the same file. Strip it and the producer gets their budgets back
+in a flat pile, having lost most of what they were backing up.
+
+Both files end in `.json` and both came out of this app, so nothing about the
+extension distinguishes them. `kind: 'sdshc-farm-budget-backup'` is the marker,
+and it is checked in both directions: hand a backup to *upload a budget file*
+and it says to use Restore, hand a budget file to Restore and it says to use
+upload. The generic "that file is not a backup" leaves somebody staring at the
+wrong control with no idea the right one is two lines up the same screen.
+
+### The order of the two writes is the safety property
+
+`replaceAll()` writes the budgets first and the folders second.
+
+Budgets first: a quota failure there changes nothing at all, and the caller says
+so. If the budgets land and the folders do not, the restored budgets are on
+screen carrying folder ids that resolve to nothing, and `renderSections()`
+already builds the ungrouped pile as *everything no section claimed* precisely so
+that budget appears rather than belonging to a section nobody renders. Nothing is
+lost either way.
+
+Folders first would have the producer's existing folders holding the file's
+budgets, which is a state that looks deliberate and is not.
+
+`lastKnownUpdatedAt` is cleared. It maps an id to the `updatedAt` this tab last
+saw, and after a restore every entry in it describes a budget this tab has not
+read. A restored record whose timestamp is OLDER than the one remembered reads to
+`saveScenario()` as "nobody has touched this since I looked", so the conflict
+check passes and the next save overwrites the restored copy without asking. That
+is exactly the failure the map exists to prevent, arriving through the one door
+it does not watch.
+
+### What the dialog has to say, and what a restore must not touch
+
+"Are you sure?" is a question nobody can answer here. The dangerous case is a
+file holding two budgets replacing a device holding twenty, and the only way to
+see it coming is to be told both numbers. The dialog states what is arriving and
+what is going, and the file is parsed BEFORE it is raised, so an unreadable file
+never gets as far as asking.
+
+An empty backup is refused outright. Restoring one is a way to delete every
+budget on a device by answering a confirm dialog about a file that turned out to
+hold nothing, and nobody has ever meant to do that.
+
+The budget open on the Budget tab is left exactly as it is, unsaved edits
+included. It is not part of the saved list, so a restore has no business touching
+it — a producer mid-edit keeps what is in front of them, and saving afterwards
+puts it back in the list. The filter is cleared, for the reason a save clears it:
+the list it was describing is gone, and a restored budget filtered out of sight
+reads as the restore having failed.
+
+Placement follows the weight. Making a budget is what a producer comes to this
+page to do; a backup is housekeeping a few times a year. So the two are text
+links to the left of the "+" buttons, on their own centred row below them on a
+phone, and Restore is deliberately not sitting inside the row of controls that
+create things.
+
+---
+
+## Three pieces of chrome
+
+### The top bar's title is centred by grid, not by flex
+
+Centred has to mean centred on the page. The logo is up to 300px and the
+controls are a three-segment font pill plus a 38px toggle, so in a flex row the
+title sits wherever the leftovers put it — well right of centre, and moving every
+time the font control changes width.
+
+At ≥900px the bar becomes `1fr auto 1fr`. Equal outer tracks put the middle one
+in the middle of the page, in the layout rather than by absolute positioning, so
+the title still occupies space and cannot end up underneath the logo. Below
+900px it is `display: none`: the bar there is already the logo, a font control
+and a theme toggle wrapping onto two lines, and a title would push the first
+thing on the page further down to repeat what the browser tab already says.
+
+### Mono, and why no webfont
+
+The page is columns of figures. In a fixed-pitch face every digit is the same
+width, so a column of dollar amounts lines up on the decimal without the
+`font-variant-numeric: tabular-nums` the rest of the sheet has to ask for. That
+is worth offering to anyone who wants it.
+
+No font is fetched. This is a PWA built for a workshop with no signal, and a
+webfont is a font that is not there when it matters. The stack names JetBrains
+Mono first for the producer who already has it installed and falls through to
+what the device ships with, ending in the `monospace` generic.
+
+`applyFont()` hard-coded `choice === 'classic' ? 'classic' : 'browser'`, which
+silently swallowed a third choice. It is a named set now, and an unrecognised
+value falls back to `browser` — the same rule `perYearFactor()` follows for a
+basis it does not know, and for the same reason: a hand-edited or future
+preference must not leave the page with no `--font` at all. A test walks every
+`[data-font-choice]` button in the markup and asserts the stylesheet declares a
+stack for it, because jsdom loads no CSS and a button naming a value the sheet
+has never heard of would pass every DOM assertion.
+
+### Back to Saved is shaped like a button because it leaves the page
+
+Export CSV and Print act on the comparison in front of you. Back to Saved throws
+it away and navigates. As a text link reading *Back to saved budgets* it was the
+third item in a row of three and read as a third thing you might do to the table.
+
+Outlined rather than filled: it is not the primary action on this screen either,
+and filled in `--sky` it would be the loudest object on a page whose subject is a
+table of money, saying "press me" about the one control that discards the
+comparison.
+
+Its box is `.btn-add-inline`'s: the 8px corner, the 36px height, the same padding
+and type size as "+ New budget" and "+ New folder". It shipped first as a 34px
+pill with a 17px radius, which is a perfectly good button and the wrong one — the
+app now had two header-sized buttons in two different shapes, and a difference
+that carries no meaning reads as one that does. They move together from here.
+
+That leaves it below the app's usual 44px touch target, as the "+ " buttons
+already are. Its neighbours in that header are text links at about the same
+height, and a 44px pill among them reads as the main thing to do here. Going the
+other way trades a correct touch target for a header that misstates what the
+screen is for.
+
+Changing the class from `.tip` meant it stopped being covered by the print
+stylesheet's hide list, which is a navigation control printed onto a comparison.
+`.btn-back` is named there now, and a test reads the print block to keep it so.

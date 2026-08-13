@@ -52,6 +52,9 @@ const {
   deleteFolder,
   reorderFolders,
   moveScenarioToFolder,
+  exportBackupJSON,
+  importBackupJSON,
+  replaceAll,
 } = await import('../src/storage.js')
 const { SCHEMA_VERSION } = await import('../src/calc.js')
 
@@ -754,5 +757,149 @@ describe('folders', () => {
     const back = importScenarioJSON(JSON.stringify({ ...getScenarioById('a'), folderId: f.id }))
     assert.equal(back.ok, true)
     assert.equal(back.scenario.folderId, undefined)
+  })
+})
+
+/**
+ * Backup and restore.
+ *
+ * The single destructive operation in the app, on the one kind of data it holds
+ * that cannot be regenerated. Everything here is about the two failures that
+ * matter: a restore that loses budgets it should not have touched, and a backup
+ * that does not hold what somebody thought it held.
+ */
+describe('backup and restore', () => {
+  function folder(name, extra = {}) {
+    const result = saveFolder({ name, icon: 'sprout', color: 'green', ...extra })
+    assert.equal(result.ok, true, `saving ${name}`)
+    return result.folder
+  }
+
+  test('a backup holds every budget, every folder, and the filing between them', () => {
+    const f = folder('Corn trials')
+    saveScenario(makeScenario('a', 'North'))
+    saveScenario(makeScenario('b', 'South'))
+    moveScenarioToFolder('a', f.id)
+
+    const parsed = JSON.parse(exportBackupJSON())
+    assert.equal(parsed.scenarios.length, 2)
+    assert.equal(parsed.folders.length, 1)
+    assert.equal(
+      parsed.scenarios.find((s) => s.id === 'a').folderId,
+      f.id,
+      'membership travels, unlike in a single-budget file'
+    )
+    assert.equal(parsed.schemaVersion, SCHEMA_VERSION)
+  })
+
+  test('a round trip through an empty device puts the list back as it was', () => {
+    const trials = folder('Corn trials')
+    saveScenario(makeScenario('a', 'North'))
+    saveScenario(makeScenario('b', 'South'))
+    moveScenarioToFolder('a', trials.id)
+    const text = exportBackupJSON()
+
+    store.clear()
+    assert.equal(listScenarios().length, 0, 'the device starts empty')
+
+    const read = importBackupJSON(text)
+    assert.equal(read.ok, true)
+    assert.equal(replaceAll(read.scenarios, read.folders).ok, true)
+
+    assert.deepEqual(
+      listScenarios()
+        .map((s) => s.name)
+        .sort(),
+      ['North', 'South']
+    )
+    assert.equal(listFolders().length, 1)
+    assert.equal(getScenarioById('a').folderId, trials.id, 'still filed where it was')
+  })
+
+  test('restoring REPLACES — a budget not in the file is gone', () => {
+    // The whole reason the dialog in main.js states both counts. If this ever
+    // becomes a merge, that dialog is lying.
+    saveScenario(makeScenario('a', 'North'))
+    const text = exportBackupJSON()
+    saveScenario(makeScenario('b', 'Saved after the backup'))
+
+    const read = importBackupJSON(text)
+    assert.equal(replaceAll(read.scenarios, read.folders).ok, true)
+    assert.deepEqual(
+      listScenarios().map((s) => s.id),
+      ['a']
+    )
+  })
+
+  test('a full store abandons the restore with nothing changed', () => {
+    saveScenario(makeScenario('a', 'North'))
+    const read = importBackupJSON(exportBackupJSON())
+    store.failWrites = 'QuotaExceededError'
+
+    const result = replaceAll(read.scenarios, read.folders)
+    assert.equal(result.ok, false)
+    assert.equal(result.budgetsRestored, undefined, 'it did not get as far as the folders')
+
+    store.failWrites = null
+    assert.equal(listScenarios().length, 1, 'and the device still holds what it did')
+  })
+
+  test('one unreadable record in a backup does not cost the rest', () => {
+    const text = JSON.stringify({
+      kind: 'sdshc-farm-budget-backup',
+      scenarios: [makeScenario('a', 'North'), null, 'not an object', { name: 'no id' }],
+      folders: [{ id: 'f1', name: 'Trials' }, null, { name: 'no id' }],
+    })
+    const read = importBackupJSON(text)
+    assert.equal(read.ok, true)
+    assert.deepEqual(
+      read.scenarios.map((s) => s.id),
+      ['a']
+    )
+    assert.deepEqual(
+      read.folders.map((f) => f.id),
+      ['f1']
+    )
+  })
+
+  test('an old budget in a backup comes forward, and nothing is invented', () => {
+    const old = makeScenario('a', 'North') // schemaVersion 1
+    const read = importBackupJSON(
+      JSON.stringify({ kind: 'sdshc-farm-budget-backup', scenarios: [old], folders: [] })
+    )
+    assert.equal(read.scenarios[0].schemaVersion, SCHEMA_VERSION)
+    assert.equal(read.scenarios[0].scenarioYear, undefined, 'no year was guessed')
+  })
+
+  test('an empty backup is refused rather than used to wipe the device', () => {
+    const result = importBackupJSON(
+      JSON.stringify({ kind: 'sdshc-farm-budget-backup', scenarios: [], folders: [] })
+    )
+    assert.equal(result.ok, false)
+    assert.match(result.error, /no budgets/)
+  })
+
+  test('the two file types name each other rather than refusing as unreadable', () => {
+    // Both are .json and both came out of this app, so the extension says
+    // nothing. Each control has to point at the other one.
+    saveScenario(makeScenario('a', 'North'))
+    const oneBudget = exportScenarioJSON(getScenarioById('a'))
+    const wholeTab = exportBackupJSON()
+
+    const asBackup = importBackupJSON(oneBudget)
+    assert.equal(asBackup.ok, false)
+    assert.match(asBackup.error, /upload a budget file/)
+
+    const asBudget = importScenarioJSON(wholeTab)
+    assert.equal(asBudget.ok, false)
+    assert.match(asBudget.error, /Restore backup/)
+  })
+
+  test('a file from somewhere else is refused, not thrown on', () => {
+    for (const text of ['', 'not json at all', '[]', '{"kind":"something-else"}']) {
+      const result = importBackupJSON(text)
+      assert.equal(result.ok, false, `refused: ${text}`)
+      assert.equal(typeof result.error, 'string')
+    }
   })
 })

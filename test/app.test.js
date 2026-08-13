@@ -172,17 +172,55 @@ describe('the app boots', () => {
     assert.ok(doc.querySelector('[data-warnings]'), 'the holders stay')
   })
 
-  test('font control shows both options with Browser active', async () => {
-    const browser = doc.querySelector('[data-font-choice="browser"]')
-    const classic = doc.querySelector('[data-font-choice="classic"]')
+  test('font control shows every option with Browser active', async () => {
+    const seg = (name) => doc.querySelector(`[data-font-choice="${name}"]`)
+    const browser = seg('browser')
+    const classic = seg('classic')
+    const mono = seg('mono')
     assert.equal(browser.getAttribute('aria-pressed'), 'true')
     assert.equal(classic.getAttribute('aria-pressed'), 'false')
+    assert.ok(mono, 'a fixed-pitch choice exists for a page made of columns of figures')
+    assert.equal(mono.getAttribute('aria-pressed'), 'false')
     assert.equal(doc.documentElement.getAttribute('data-font'), 'browser')
 
     classic.dispatchEvent(new win.MouseEvent('click', { bubbles: true }))
     assert.equal(doc.documentElement.getAttribute('data-font'), 'classic')
     assert.equal(classic.getAttribute('aria-pressed'), 'true')
     assert.equal(browser.getAttribute('aria-pressed'), 'false')
+
+    // Exactly one is pressed at a time, on a three-way control the same way it
+    // was on a two-way one.
+    mono.dispatchEvent(new win.MouseEvent('click', { bubbles: true }))
+    assert.equal(doc.documentElement.getAttribute('data-font'), 'mono')
+    assert.equal(win.localStorage.getItem('sdshc-fb-font'), 'mono')
+    assert.deepEqual(
+      [...doc.querySelectorAll('[data-font-choice]')]
+        .filter((b) => b.getAttribute('aria-pressed') === 'true')
+        .map((b) => b.getAttribute('data-font-choice')),
+      ['mono']
+    )
+  })
+
+  test('every font choice actually declares a stack, and an unknown one falls back', async () => {
+    // jsdom loads no CSS, so a button naming a [data-font] value the stylesheet
+    // has never heard of would leave the page with whatever --font it had and
+    // pass every DOM assertion above.
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+    for (const btn of doc.querySelectorAll('[data-font-choice]')) {
+      const choice = btn.getAttribute('data-font-choice')
+      if (choice === 'browser') continue // the :root default, by definition
+      assert.match(
+        css,
+        new RegExp(`\\[data-font="${choice}"\\] \\{[^}]*--font:`),
+        `${choice} has a font stack`
+      )
+    }
+    assert.match(css, /\[data-font="mono"\] \{[^}]*monospace/, 'and mono ends in a generic')
+
+    // A preference written by some later build, or by hand, must not leave the
+    // page with no font at all. Same rule perYearFactor() follows for a basis.
+    await boot((ls) => ls.setItem('sdshc-fb-font', 'not-a-font'))
+    assert.equal(doc.documentElement.getAttribute('data-font'), 'browser')
   })
 
   test('dark mode toggles and persists', async () => {
@@ -3249,6 +3287,147 @@ describe('the offer to upload a budget file rides with the hint', () => {
       doc.querySelector('[data-action="import-scenario"]'),
       'but importing is the one useful thing here, so it stands alone'
     )
+  })
+})
+
+describe('the whole Saved tab can be taken away and put back', () => {
+  // The app boots holding one blank budget; every one after that has to be
+  // started, and "+ New budget" only exists on the Saved tab.
+  async function withBudgets(names) {
+    await boot()
+    names.forEach((name, i) => {
+      if (i > 0) {
+        click('[data-action="go-scenarios"]')
+        click('[data-action="new-scenario"]')
+      }
+      type('name', name)
+      click('[data-action="save-scenario"]')
+    })
+    click('[data-action="go-scenarios"]')
+  }
+
+  test('backup and restore sit left of the "+" buttons, not among them', async () => {
+    await withBudgets(['North quarter'])
+    const head = doc.querySelector('.saved-head')
+    const tools = head.querySelector('.head-tools')
+    assert.ok(tools, 'they have their own group')
+    assert.ok(tools.querySelector('[data-action="backup-all"]'))
+    assert.ok(tools.querySelector('[data-action="restore-all"]'))
+    assert.ok(tools.querySelector('.help-btn[data-info="backupFile"]'), 'and an explanation')
+
+    // Restore is the one control in the app that can delete work the producer
+    // never opened. It must not be sitting inside the row of things that make
+    // budgets, where a mis-tap costs the lot.
+    assert.equal(
+      head.querySelector('.head-btns [data-action="restore-all"]'),
+      null,
+      'not among the + buttons'
+    )
+    const kids = [...head.children]
+    assert.ok(
+      kids.indexOf(tools) < kids.indexOf(head.querySelector('.head-btns')),
+      'and before them in the source, which is what the tab key follows'
+    )
+  })
+
+  test('a backup carries every budget, every folder, and the filing between them', async () => {
+    await withBudgets(['North quarter', 'South eighty'])
+    click('[data-action="new-folder"]')
+    doc.querySelector('#fldName').value = 'Corn trials'
+    click('.fld-save')
+
+    const text = JSON.parse((await import('../src/storage.js')).exportBackupJSON())
+    assert.equal(text.scenarios.length, 2)
+    assert.equal(text.folders.length, 1)
+  })
+
+  test('restoring replaces the list and lands the producer back on it', async () => {
+    const { exportBackupJSON, importBackupJSON, replaceAll } = await import('../src/storage.js')
+
+    await withBudgets(['North quarter'])
+    const backup = exportBackupJSON()
+
+    // Two more budgets saved after the backup was taken. They are the ones a
+    // restore is supposed to remove, and the confirm dialog in main.js counts
+    // them out loud before it does.
+    await withBudgets(['North quarter', 'Later one', 'Later two'])
+    assert.equal(doc.querySelectorAll('.scn').length, 3)
+
+    const read = importBackupJSON(backup)
+    assert.equal(read.ok, true)
+    assert.equal(replaceAll(read.scenarios, read.folders).ok, true)
+    click('[data-action="go-scenarios"]')
+
+    const names = [...doc.querySelectorAll('.scn .scn-name-input')].map((el) => el.value)
+    assert.deepEqual(names, ['North quarter'])
+  })
+
+  test('the backup file and a single budget file each say which control they belong to', async () => {
+    // Both are .json out of this app, so the near miss is real in both
+    // directions and neither message may be the generic refusal.
+    const { exportBackupJSON, importScenarioJSON, importBackupJSON, exportScenarioJSON } =
+      await import('../src/storage.js')
+    await withBudgets(['North quarter'])
+
+    const asBudget = importScenarioJSON(exportBackupJSON())
+    assert.equal(asBudget.ok, false)
+    assert.match(asBudget.error, /Restore backup/)
+
+    const one = exportScenarioJSON({ id: 'x', name: 'One', enterprises: [], fixed: {} })
+    const asBackup = importBackupJSON(one)
+    assert.equal(asBackup.ok, false)
+    assert.match(asBackup.error, /upload a budget file/)
+  })
+})
+
+describe('the title, and the way back from a comparison', () => {
+  const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+
+  test('the top bar carries the tool name, centred on a wide screen only', async () => {
+    await boot()
+    const title = doc.querySelector('.topbar .topbar-title')
+    assert.ok(title, 'it is in the bar')
+    // The wording is not pinned here. What it says is a decision about the
+    // tool's name; that it says SOMETHING is the thing a test can keep true.
+    assert.ok(title.textContent.trim().length, 'and it carries a name')
+
+    // Centred on the PAGE, which a flex row cannot do here: the logo and the
+    // controls are nowhere near the same width. Three grid tracks with equal
+    // outer ones is what makes the middle one the middle of the page.
+    assert.match(css, /\n\.topbar-title \{[^}]*display: none/, 'hidden by default')
+    assert.match(css, /\n  \.topbar \{[^}]*grid-template-columns: 1fr auto 1fr/)
+    assert.match(css, /\n  \.topbar-title \{[^}]*display: block/)
+  })
+
+  test('Back to Saved is a button, and it goes back', async () => {
+    await boot()
+    type('name', 'North quarter')
+    click('[data-action="save-scenario"]')
+    click('[data-action="go-scenarios"]')
+    click('[data-action="new-scenario"]')
+    type('name', 'South eighty')
+    click('[data-action="save-scenario"]')
+    click('[data-action="go-scenarios"]')
+    for (const box of doc.querySelectorAll('[data-compare-id]')) {
+      box.checked = true
+      box.dispatchEvent(new win.Event('change', { bubbles: true }))
+    }
+    click('[data-action="compare-selected"]')
+
+    const back = doc.querySelector('[data-action="back-to-scenarios"]')
+    assert.equal(back.className, 'btn-back', 'shaped like a button, not a text link')
+    assert.equal(back.textContent.trim(), 'Back to Saved')
+
+    back.dispatchEvent(new win.MouseEvent('click', { bubbles: true }))
+    assert.ok(doc.querySelector('.saved-head'), 'and it lands on the saved list')
+  })
+
+  test('the button is chrome, so it does not print', async () => {
+    // It used to be a `.tip`, which the print block already hides. Changing the
+    // class without adding the new one would have put a navigation control on a
+    // printed comparison.
+    const print = css.slice(css.indexOf('@media print'))
+    assert.match(print, /\n  \.btn-back,/)
   })
 })
 
