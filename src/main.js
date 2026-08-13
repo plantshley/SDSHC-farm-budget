@@ -462,7 +462,7 @@ function footer() {
     <div class="footer">
       <button type="button" class="tip" data-action="how-to">How to use this calculator</button>
       ·
-      <button type="button" class="tip" data-action="export-csv">Export CSV</button>
+      <button type="button" class="tip" data-action="export-csv">Export budget CSV</button>
       ·
       <button type="button" class="tip" data-action="export-json">Save budget file</button>
       ·
@@ -944,38 +944,77 @@ function dropStaleOverheadValue(key, period) {
  * throw away every compare tick, so a search mid-selection would silently undo
  * the selection it was helping with.
  */
+/**
+ * A comma splits the box into terms, and a row matching ANY of them stays.
+ *
+ * OR, which makes the box a way to assemble a working set rather than to zero in
+ * on one budget. "corn, soybeans" is the two crops side by side; "north, home
+ * place" is those two fields whatever is planted on them. A producer who wants
+ * one budget already has the whole name to type, and typing more of it is how
+ * they get there.
+ *
+ * A comma is the separator rather than a space because the fields hold spaces:
+ * "north quarter" is one budget name, and splitting on whitespace would make it
+ * two terms and match every budget with "north" OR "quarter" in it. It is also
+ * how the placeholder above the box already reads, so the punctuation is doing
+ * what it looks like it does.
+ *
+ * Empty terms are dropped, so a trailing comma mid-typing changes nothing and a
+ * box holding only commas is not a filter at all. That matters more under OR
+ * than it would under AND: a term of `''` is a substring of every row, so one
+ * stray comma would silently show the entire list back.
+ */
+function filterTerms() {
+  return scenarioFilter
+    .toLowerCase()
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean)
+}
+
 function applyScenarioFilter() {
   const root = app.querySelector('[data-scn-sections]')
   if (!root) return
 
-  const query = scenarioFilter.trim().toLowerCase()
+  const terms = filterTerms()
+  const filtering = terms.length > 0
   const rows = [...root.querySelectorAll('.scn')]
   let shown = 0
 
   for (const row of rows) {
-    const match = !query || (row.getAttribute('data-scn-search') || '').includes(query)
+    const haystack = row.getAttribute('data-scn-search') || ''
+    // No terms means no filter, and `some()` over an empty list is false — so
+    // the "not filtering" case is stated rather than left to fall out of the
+    // predicate, which under OR would hide every row instead of showing them.
+    const match = !filtering || terms.some((t) => haystack.includes(t))
     row.hidden = !match
     if (match) shown += 1
   }
 
-  applySectionVisibility(root, Boolean(query))
+  applySectionVisibility(root, filtering)
 
   // The TEXT span, not the whole paragraph: the "upload a budget file" offer is
   // a control sitting at the end of the same line, and rewriting the paragraph
   // would delete it on the first keystroke into the filter box.
   const hint = app.querySelector('[data-scn-hint-text]')
-  if (hint) hint.textContent = scenarioHint(shown, rows.length, Boolean(query))
+  if (hint) hint.textContent = scenarioHint(shown, rows.length, filtering, terms.length)
 
   const empty = app.querySelector('[data-scn-empty]')
   if (empty) {
     empty.hidden = shown > 0
-    empty.textContent = `No saved budget matches "${scenarioFilter.trim()}". Try part of a budget name, an enterprise name, or a crop.`
+    // Under OR an empty list means every term failed, so it says so. Otherwise
+    // a producer whose second term was a typo reads the list as evidence that
+    // the first one found nothing either.
+    empty.textContent =
+      terms.length > 1
+        ? `No saved budget matches any of "${scenarioFilter.trim()}". Try part of a budget name, an enterprise name, or a crop.`
+        : `No saved budget matches "${scenarioFilter.trim()}". Try part of a budget name, an enterprise name, or a crop.`
   }
 
   const clear = app.querySelector('[data-action="clear-scn-filter"]')
-  if (clear) clear.hidden = !query
+  if (clear) clear.hidden = !scenarioFilter.trim()
 
-  setReorderEnabled(root, !query)
+  setReorderEnabled(root, !filtering)
   refreshCompareButton()
 }
 

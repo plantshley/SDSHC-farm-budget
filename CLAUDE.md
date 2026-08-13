@@ -21,7 +21,7 @@ like one family.
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 764 tests: the economic model, storage, data, and a DOM smoke test
+npm test           # 770 tests: the economic model, storage, data, and a DOM smoke test
 npm run build      # -> dist/
 ```
 
@@ -231,6 +231,21 @@ which falls back to "Enterprise 1". **Both years are searchable and are not
 interchangeable** — `scenarioYear` is the crop year the budget is FOR,
 `updatedAt` is when they were last at the keyboard — and the saved date
 contributes its **year and month name**, never the slashed form the row prints.
+
+**A comma splits the box into terms and a row matching ANY of them stays — OR,
+never AND.** The box assembles a working set: "corn, soybeans" is the two crops
+side by side, which cannot be asked any other way. Somebody after one budget
+already has its whole name to type. **The separator is a comma and not
+whitespace** because the fields hold spaces — "north quarter" split on
+whitespace matches every budget with *north* OR *quarter* in it. **Empty terms
+are dropped**, which matters more under OR than it would under AND: `''` is a
+substring of every row, so one stray comma would show the whole list back. **The
+"not filtering" case is stated explicitly**, because `some()` over no terms is
+false and would hide every row. **Clear follows what is IN the box**, or there is
+no way out of one full of commas. The empty state says *matches any of* once
+there is more than one term, so a typo in the second one does not read as the
+first having failed too. `scenarioHint()` offers the comma **only while one term
+is running**.
 
 Three consequences:
 
@@ -633,7 +648,20 @@ header, year and save-state rules, in [DESIGN-NOTES.md](DESIGN-NOTES.md).*
 - **The top bar becomes a 3-track grid at ≥900px** so `.topbar-title` is centred
   on the PAGE. The logo and the controls are nowhere near equal widths, so a flex
   row put it well right of centre and moved it whenever the font control resized.
-  It is `display: none` below that, where the bar already wraps onto two lines.
+  It is `display: none` below that.
+- **The top bar is ONE row at every width.** `flex-wrap: nowrap`, and
+  `.topbar-controls` at `flex: 0 0 auto` — a squeezed font pill wraps its own
+  segments and gets *taller*, which is the failure being avoided. `min-width: 0`
+  on `.toplogo` is what lets an `<img>` shrink at all (a replaced element's
+  automatic minimum size is its intrinsic width, so the row overflows without
+  it). The pill also tightens at ≤899px, which is what holds the row at 320px.
+- **Two logo files, one per width, the wrong one `display: none`** — the
+  horizontal lockup ≥900px, the **square mark** below, where the wordmark needs
+  about 170px the phone has not got. Same idiom as the two copies of the
+  seeds-per-unit offer: same `alt`, exactly one displayed, so exactly one is
+  announced. **The dark-mode `brightness(0) invert(1)` names `.toplogo-wide`
+  only** — on the lockup's dark ink it lifts the wordmark out, on the mark's four
+  coloured leaves it makes a white blob.
 - **`.btn-back` takes `.btn-add-inline`'s box** — 8px corner, 36px tall, same
   padding and type size. They are the app's two header-sized buttons and two
   shapes would read as two kinds of control. **Change one, change the other.**
@@ -729,7 +757,7 @@ it.
 
 ## Tests
 
-764 tests across six files. `npm test` runs them, and so does the deploy
+770 tests across six files. `npm test` runs them, and so does the deploy
 workflow before it builds. *Detail in [DESIGN-NOTES.md](DESIGN-NOTES.md).*
 
 - `test/calc.test.js` — the model against real Excel output, plus the deliberate

@@ -237,6 +237,19 @@ main {
 
 /* ---- topbar ------------------------------------------------------------ */
 
+/* One row at every width, and the LOGO is what gives way.
+
+   Wrapping put the font control and the theme toggle on a line of their own,
+   which costs the page about 50px above the first thing anybody came here to
+   read — on the screen with the least of it to spare. The alternative is a
+   smaller mark, and a mark that is smaller still reads as the mark; a control
+   bar sitting under it reads as a second header.
+
+   So: nowrap, the controls at their own size, and the logo shrinking into
+   whatever is left. It keeps its aspect ratio while it does (height: auto plus
+   the intrinsic size), so it scales rather than clipping. The narrow blocks
+   below tighten the pill first, so the logo only starts giving way once there
+   is genuinely nothing else to take. */
 .topbar {
   max-width: var(--maxw);
   margin: 0 auto;
@@ -245,12 +258,16 @@ main {
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 /* height:auto with an explicit aspect ratio: fixing only the height lets a
    flex parent squash the box while the image inside keeps its proportions,
    which is what was clipping the logo top and bottom on a phone. */
+/* `min-width: 0` is what lets it shrink at all. A replaced element's automatic
+   minimum size is its intrinsic width, so flex-shrink on an <img> does nothing
+   until that floor is lifted — the row overflowed instead, which is how this
+   came to be wrapping in the first place. */
 .toplogo {
   height: auto;
   width: auto;
@@ -258,14 +275,30 @@ main {
   max-width: min(60%, 300px);
   object-fit: contain;
   flex: 0 1 auto;
+  min-width: 0;
 }
 
-/* The mark is dark ink on transparent, so on a dark card it is nearly
-   invisible. Lifting it back out is better than shipping a second file. */
-[data-theme="dark"] .toplogo {
+/* Exactly one of the two is on screen at a time. The wide one is the default;
+   the square mark takes over below 900px, where the lockup's wordmark needs
+   about 170px it cannot have. */
+.toplogo-mark {
+  display: none;
+}
+
+/* The horizontal LOCKUP is dark ink on transparent, so on a dark card it is
+   nearly invisible, and lifting it back out beats shipping a second file.
+
+   Scoped to that one on purpose. The square mark is four coloured leaves, and
+   the same filter would flatten it to a solid white blob — the one file in the
+   app where "make it light" destroys the thing being made light. Its colours
+   carry on the dark background as they are. */
+[data-theme="dark"] .toplogo-wide {
   filter: brightness(0) invert(1) opacity(0.92);
 }
 
+/* flex: 0 0 auto — these do not shrink. A squeezed font pill wraps its own
+   segments and gets TALLER, which is the failure this row is trying to avoid,
+   and a squeezed theme toggle stops being a target. The logo absorbs it. */
 .topbar-controls {
   display: flex;
   align-items: center;
@@ -3243,15 +3276,42 @@ body.modal-open {
     padding: 0 12px 12px;
   }
 
-  /* The logo wraps onto its own full-width line rather than being squeezed
-     beside the controls, which is what was cropping it vertically. */
   .topbar {
     padding: 10px 0 4px;
+    gap: 8px;
   }
 
-  .toplogo {
-    max-height: 40px;
-    max-width: min(58%, 240px);
+  /* The words go and the mark stays. A 42px square is the same identity in a
+     quarter of the width, which is what makes the single row comfortable rather
+     than merely possible — and it does not shrink, because at 42px there is
+     nothing left to take. */
+  .toplogo-wide {
+    display: none;
+  }
+
+  .toplogo-mark {
+    display: block;
+    max-height: 42px;
+    max-width: 42px;
+    flex: 0 0 auto;
+  }
+
+  /* The pill still tightens. It is what keeps the row intact on a 320px screen,
+     which is the narrowest thing anybody will open this on. Font size and
+     padding only: the labels stay words, because "Br / Cl / Mo" is a control
+     nobody can read. */
+  .segmented {
+    padding: 3px;
+    gap: 4px;
+  }
+
+  .seg {
+    font-size: 12px;
+    padding: 5px 9px;
+  }
+
+  .topbar-controls {
+    gap: 8px;
   }
 
   .app-head {
@@ -3570,13 +3630,12 @@ body.modal-open {
 }
 
 @media (max-width: 420px) {
-  .toplogo {
-    max-width: 100%;
-    max-height: 36px;
-  }
-
+  /* Nothing else here now. The square mark took about 130px out of this row, so
+     the pill and the toggle keep their sizes all the way down — an earlier
+     revision shrank both and the theme toggle with them, which was buying space
+     the bar no longer needs. */
   .topbar {
-    justify-content: center;
+    gap: 8px;
   }
 }
 

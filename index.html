@@ -20,12 +20,24 @@
       <!-- %BASE_URL% is substituted by Vite with the deployed base path. A
            "./"-relative URL resolves against the current page instead, which is
            wrong the moment the app is opened on any path but the site root. -->
+      <!-- The same mark twice, one per width, the wrong one display: none — so
+           exactly one is ever announced. The horizontal lockup needs about 170px
+           to stay legible and the phone has not got it to spare; the square mark
+           is the same identity in 42px and gives the whole difference back to the
+           row. Same idiom as the two copies of the seeds-per-unit offer. -->
       <img
-        class="toplogo"
+        class="toplogo toplogo-wide"
         src="%BASE_URL%sdshc-logo-horizontal.png"
         alt="South Dakota Soil Health Coalition"
         width="763"
         height="200"
+      />
+      <img
+        class="toplogo toplogo-mark"
+        src="%BASE_URL%sdshc-logo.png"
+        alt="South Dakota Soil Health Coalition"
+        width="179"
+        height="181"
       />
       <!-- Wide screens only. On a phone the bar is already the logo, a font
            control and a theme toggle wrapping onto two lines, and a title there
@@ -52,6 +64,11 @@
 
     <main id="app"></main>
 
+    <!-- Author tool, hidden behind a secret gesture and linked to from no
+         screen. Loaded BEFORE main.js so any saved palette override is on
+         <html> before the first render, and kept out of main.js so the entry
+         module the smoke tests import stays exactly what it was. -->
+    <script type="module" src="/src/themelab.js"></script>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

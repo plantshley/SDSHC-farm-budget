@@ -54,11 +54,18 @@ export const BASELINE_NOTE_ID = 'baseline'
  * same paragraph but outside the part this rewrites — see `hint` below — so
  * that typing in the filter box cannot delete a control.
  */
-export function scenarioHint(shown, total, filtering) {
+export function scenarioHint(shown, total, filtering, terms = 1) {
   if (!filtering) {
     return 'Saved on this device only. Tap a name to rename it. Reorder the list with the ▲▼ arrows, or by dragging the handle, and organize your budgets into folders.'
   }
-  return `Showing ${shown} of ${total} budget${total === 1 ? '' : 's'}. Reordering is off while the list is filtered.`
+  // The offer is made only while ONE term is running, which is the moment it is
+  // worth making: the producer has filtered and can now see whether what came
+  // back is the set they wanted. Once they are using commas they have found it,
+  // and a standing instruction is one people stop seeing.
+  const more = terms > 1 ? '' : ' Separate terms with a comma to match any of them.'
+  return `Showing ${shown} of ${total} budget${
+    total === 1 ? '' : 's'
+  }. Reordering is off while the list is filtered.${more}`
 }
 
 export function renderScenarioList(currentId, filterQuery = '', expandedFolders = new Set()) {

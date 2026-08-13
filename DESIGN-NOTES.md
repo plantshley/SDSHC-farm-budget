@@ -1864,6 +1864,99 @@ the title still occupies space and cannot end up underneath the logo. Below
 and a theme toggle wrapping onto two lines, and a title would push the first
 thing on the page further down to repeat what the browser tab already says.
 
+### The bar is one row, and the logo is what gives way
+
+Adding a third font segment tipped the bar over its width on a phone, and it
+wrapped: the font control and the theme toggle dropped to a line of their own,
+costing about 50px above the first thing anybody came to read, on the screen with
+the least of it to spare. A control bar sitting under a logo also reads as a
+second header rather than as chrome.
+
+`flex-wrap: nowrap`, and then the question is what absorbs the shortfall.
+
+Not the controls. A squeezed font pill wraps its own segments and gets TALLER,
+which is the failure being avoided wearing a different hat, and a squeezed theme
+toggle stops being a target. They are `flex: 0 0 auto`.
+
+So the logo. It needs `min-width: 0` to shrink at all: a replaced element's
+automatic minimum size is its intrinsic width, so `flex-shrink` on an `<img>`
+does nothing until that floor is lifted, and the row overflows instead. With
+`height: auto` it scales rather than clipping, which is the same property the
+44px cap was added for.
+
+The pill also tightens at ≤899px, font size and padding only. The labels stay
+words: "Br / Cl / Mo" fits anything and reads as nothing.
+
+That got the row down to one line, at the cost of a mark squeezed to about 24px
+tall on a 360px screen. The real fix came next.
+
+### The words are what does not fit, so on a phone the words go
+
+The first version shrank the horizontal lockup until it fitted. It fitted, and
+it was a smear — the wordmark in it needs roughly 170px to be legible, and a
+360px phone has not got 170px to give a header.
+
+The mark on its own is the same identity in 42×42. It is already in the repo,
+shipped as the apple-touch icon. So the bar carries both files, one per width,
+the wrong one `display: none` — the idiom the seeds-per-unit offer already uses.
+Both carry the same `alt`, and `display: none` takes the hidden one out of the
+accessibility tree, so exactly one is ever announced. Both are precached by the
+service worker either way, so nothing is downloaded twice in practice.
+
+It takes about 130px out of the row, which is more than everything else here put
+together. The ≤420px tightening added in the previous pass came back out: the
+theme toggle keeps its 38px, the pill keeps its size, and the row is comfortable
+at 320px rather than merely intact.
+
+One trap. `[data-theme="dark"] .toplogo` carried `brightness(0) invert(1)`,
+because the lockup is dark ink on transparent and vanishes on a dark card. The
+mark is four coloured leaves, and the same filter flattens it to a solid white
+blob — it is the one file in the app where "make it light" destroys the thing
+being made light. The rule names `.toplogo-wide` now, and the mark keeps its own
+colours, which carry on the dark background unaided.
+
+### The filter takes several terms, and combines them with OR
+
+A comma splits the box; a row matching any term stays.
+
+OR makes the box a way to assemble a working set rather than a way to zero in on
+one budget. "corn, soybeans" is the two crops side by side and there is no other
+way to ask for it; "north, home place" is those two fields whatever is planted on
+them. Somebody who wants one particular budget already has its whole name to
+type, and typing more of it is how they get there — narrowing is the thing a
+single term already does well.
+
+The separator is a comma rather than whitespace because the fields hold spaces.
+"North quarter" is one budget name; split on whitespace it becomes two terms and
+returns every budget with *north* or *quarter* anywhere in it, which under OR is
+a much louder failure than it would have been under AND. The comma also matches
+how the placeholder above the box already reads, so the punctuation does what it
+looks like it does.
+
+Two consequences of OR that AND would not have had, both in the code:
+
+Empty terms have to be dropped, and it is not a tidiness point. `''` is a
+substring of every row, so a single stray comma taken as a term shows the entire
+list back while the box still reads as a filter. `corn,` mid-typing therefore
+changes nothing, and a box holding only commas is not a filter at all — it hides
+no rows and leaves reordering on. Clear, though, follows what is IN the box
+rather than what it resolved to: offering no way to empty a box full of commas is
+its own trap.
+
+And the "not filtering" case is stated rather than left to fall out of the
+predicate. `[].some()` is false, so with no terms the same expression that filters
+correctly would hide every row on the page.
+
+An empty list under OR means every term failed, so the empty state says *matches
+any of* once there is more than one. Without it, a producer whose second term was
+a typo reads the empty list as evidence that the first one found nothing either.
+
+Discovery is the hint line, and only while ONE term is running: the producer has
+filtered and can now see whether what came back is the set they wanted. Once they
+are using commas they have found it and the offer stops. A standing instruction
+is one people stop seeing, which is the same reasoning behind the baseline note's
+dismiss button.
+
 ### Mono, and why no webfont
 
 The page is columns of figures. In a fixed-pitch face every digit is the same

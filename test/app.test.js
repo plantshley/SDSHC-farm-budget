@@ -1414,6 +1414,90 @@ describe('filtering the saved list', () => {
     assert.ok(doc.querySelector('[data-scn-filter]'), 'and from then on it is always there')
   })
 
+  test('commas collect — a row matching any term stays', async () => {
+    await saveBudgets([
+      { name: 'North quarter', crop: 'Corn' },
+      { name: 'South quarter', crop: 'Soybeans' },
+      { name: 'Home place', crop: 'Spring wheat' },
+    ])
+
+    filterTo('corn')
+    assert.deepEqual(visible(), ['North quarter'], 'one term, as before')
+
+    // OR, not AND: the box assembles a working set. Two crops side by side is
+    // the question this answers, and it cannot be asked any other way.
+    filterTo('corn, soybeans')
+    assert.deepEqual(visible(), ['South quarter', 'North quarter'])
+
+    // Order is not part of it, and a term matching nothing costs nothing.
+    filterTo('soybeans, corn')
+    assert.deepEqual(visible(), ['South quarter', 'North quarter'])
+    filterTo('corn, zzzz')
+    assert.deepEqual(visible(), ['North quarter'], 'a dud term drops out quietly')
+
+    // Spaces around a term are not part of it, and a field holding a space is
+    // still ONE term — which is why the separator is a comma. Split on
+    // whitespace, this would match every budget with "north" or "quarter" in it.
+    filterTo('  north quarter ,home  ')
+    assert.deepEqual(visible(), ['Home place', 'North quarter'])
+  })
+
+  test('an empty term is not a term', async () => {
+    await saveBudgets([
+      { name: 'North quarter', crop: 'Corn' },
+      { name: 'Home place', crop: 'Soybeans' },
+    ])
+
+    // Under OR this matters more than it would under AND: '' is a substring of
+    // every row, so one stray comma taken as a term shows the whole list back
+    // while the box still reads as a filter.
+    filterTo('corn,')
+    assert.deepEqual(visible(), ['North quarter'])
+
+    // And a box holding only punctuation is not a filter at all — it hides
+    // nothing and leaves reordering on.
+    filterTo(',,,')
+    assert.deepEqual(visible(), ['Home place', 'North quarter'], 'nothing was filtered')
+    assert.match(
+      textOf('[data-scn-hint-text]'),
+      /Reorder the list/,
+      'and the list still says the arrows work'
+    )
+
+    // The Clear button follows what is IN the box, not what it resolved to.
+    // Offering no way to empty a box full of commas would be its own trap.
+    assert.equal(doc.querySelector('[data-action="clear-scn-filter"]').hidden, false)
+  })
+
+  test('an empty list says every term failed, not just the last one', async () => {
+    await saveBudgets([
+      { name: 'North quarter', crop: 'Corn' },
+      { name: 'Home place', crop: 'Soybeans' },
+    ])
+
+    filterTo('zzz, qqq')
+    assert.deepEqual(visible(), [])
+    const empty = doc.querySelector('[data-scn-empty]')
+    assert.equal(empty.hidden, false)
+    assert.match(empty.textContent, /matches any of/)
+
+    filterTo('zzz')
+    assert.doesNotMatch(empty.textContent, /any of/, 'one term makes no such claim')
+  })
+
+  test('the way to add a term is offered while one is running, and then stops', async () => {
+    await sixBudgets()
+
+    filterTo('corn')
+    assert.match(textOf('[data-scn-hint-text]'), /Separate terms with a comma to match any/)
+
+    // Once they are using commas they have found it, and a standing instruction
+    // is one people stop seeing.
+    filterTo('corn, oats')
+    assert.doesNotMatch(textOf('[data-scn-hint-text]'), /Separate terms/)
+    assert.match(textOf('[data-scn-hint-text]'), /Showing 3 of 6/)
+  })
+
   test('the scenario year and the year it was saved are two different filters', async () => {
     // A 2031 plan written today is not a 2026 budget, and a producer reaching
     // for either of those numbers should find it. Nothing derives one from the
@@ -3397,6 +3481,46 @@ describe('the title, and the way back from a comparison', () => {
     assert.match(css, /\n\.topbar-title \{[^}]*display: none/, 'hidden by default')
     assert.match(css, /\n  \.topbar \{[^}]*grid-template-columns: 1fr auto 1fr/)
     assert.match(css, /\n  \.topbar-title \{[^}]*display: block/)
+  })
+
+  test('the phone gets the square mark, and it keeps its colours in the dark', async () => {
+    await boot()
+    const wide = doc.querySelector('.toplogo-wide')
+    const mark = doc.querySelector('.toplogo-mark')
+    assert.ok(wide && mark, 'both are in the markup, one per width')
+    assert.match(wide.getAttribute('src'), /horizontal/)
+    assert.doesNotMatch(mark.getAttribute('src'), /horizontal/)
+
+    // Both carry the same alt text, and exactly one is ever displayed, so
+    // exactly one is ever announced. Same idiom as the two copies of the
+    // seeds-per-unit offer.
+    assert.equal(wide.getAttribute('alt'), mark.getAttribute('alt'))
+    assert.match(css, /\n\.toplogo-mark \{[^}]*display: none/)
+    assert.match(css, /\n  \.toplogo-wide \{[^}]*display: none/)
+
+    // The dark-mode filter is brightness(0) invert(1): on the lockup's dark ink
+    // it lifts the wordmark out, on four coloured leaves it makes a white blob.
+    // It must name the wide one and only the wide one.
+    assert.match(css, /\[data-theme="dark"\] \.toplogo-wide \{[^}]*filter:/)
+    assert.doesNotMatch(css, /\[data-theme="dark"\] \.toplogo \{/, 'not both of them')
+  })
+
+  test('the bar is one row at every width, and the logo is what gives way', async () => {
+    // Wrapped, the font control and the theme toggle took a line of their own
+    // and cost about 50px above the first thing on the page — on the screen with
+    // the least of it to spare.
+    assert.match(css, /\n\.topbar \{[^}]*flex-wrap: nowrap/)
+    assert.doesNotMatch(css, /\.topbar \{[^}]*flex-wrap: wrap/, 'and nothing puts it back')
+
+    // A replaced element's automatic minimum size is its intrinsic width, so
+    // flex-shrink on an <img> does nothing until this floor is lifted. Without
+    // it the row overflows instead of shrinking, which is the same bug wearing
+    // a different hat.
+    assert.match(css, /\n\.toplogo \{[^}]*min-width: 0/)
+
+    // The controls do not shrink: a squeezed pill wraps its own segments and
+    // gets taller, which is the failure being avoided.
+    assert.match(css, /\n\.topbar-controls \{[^}]*flex: 0 0 auto/)
   })
 
   test('Back to Saved is a button, and it goes back', async () => {
