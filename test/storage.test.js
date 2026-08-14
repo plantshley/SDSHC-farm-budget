@@ -903,3 +903,159 @@ describe('backup and restore', () => {
     }
   })
 })
+
+/**
+ * A .json file is a text file, and the producer picked it. It may have been hand
+ * edited, written by a different build, or repaired by somebody in a text editor
+ * after a bad transfer. None of that may cost a budget or take the tab down.
+ */
+describe('a backup file nobody in this app wrote', () => {
+  const asBackup = (scenarios, folders = []) =>
+    JSON.stringify({ kind: 'sdshc-farm-budget-backup', scenarios, folders })
+
+  test('an id that is not a string is made one', () => {
+    // Every action on the Saved tab compares against a `data-id` read off the
+    // DOM, which is always a string. A number matches nothing under ===, so the
+    // row rendered and was counted while Open, Delete, Duplicate, Move and the
+    // arrows all quietly did nothing to it.
+    const read = importBackupJSON(asBackup([{ ...makeScenario('x', 'North'), id: 12345 }]))
+    assert.equal(read.ok, true)
+    assert.equal(read.scenarios[0].id, '12345')
+
+    assert.equal(replaceAll(read.scenarios, read.folders).ok, true)
+    assert.ok(getScenarioById('12345'), 'the id the DOM will ask for is the id that is there')
+  })
+
+  test('a folderId that is not a string still files the budget', () => {
+    const read = importBackupJSON(
+      asBackup([{ ...makeScenario('a', 'North'), folderId: 7 }], [{ id: 7, name: 'Trials' }])
+    )
+    assert.equal(read.scenarios[0].folderId, '7')
+    assert.equal(read.folders[0].id, '7', 'folders were always coerced; budgets now match')
+  })
+
+  test('an id used twice keeps both budgets, and both can be opened', () => {
+    // Dropping the second would honour the file and lose somebody's work, which
+    // is the one thing this tab may not do. Leaving them both on one id is worse
+    // still: find() resolves the first every time, so the second row opens the
+    // first record and saving it overwrites the first budget.
+    const read = importBackupJSON(
+      asBackup([makeScenario('dup', 'First'), makeScenario('dup', 'Second')])
+    )
+    assert.equal(read.scenarios.length, 2, 'neither is dropped')
+    const ids = read.scenarios.map((s) => s.id)
+    assert.equal(new Set(ids).size, 2, 'and they no longer share an id')
+    assert.equal(ids[0], 'dup', 'the first keeps the id it arrived with')
+
+    assert.equal(replaceAll(read.scenarios, read.folders).ok, true)
+    assert.deepEqual(
+      listScenarios()
+        .map((s) => s.name)
+        .sort(),
+      ['First', 'Second']
+    )
+    for (const id of ids) assert.ok(getScenarioById(id), `${id} opens`)
+  })
+
+  test('a shape the app cannot use is repaired rather than skipped', () => {
+    // `??=` replaces null and undefined and nothing else, so a string here left
+    // the string standing and the next line assigned a property onto a
+    // primitive — a TypeError, from a module that promises never to throw.
+    const read = importBackupJSON(
+      asBackup([{ id: 'a', name: 'Odd', fixed: 'x', enterprises: 12345 }])
+    )
+    assert.equal(read.ok, true)
+    assert.equal(read.scenarios.length, 1, 'the budget survives, rather than being skipped')
+    assert.deepEqual(read.scenarios[0].enterprises, [])
+    assert.deepEqual(read.scenarios[0].fixed.equipment, [])
+    // It carries no schemaVersion, so it migrates from v0 and the v1 → v2 step
+    // stamps the labour basis onto the container this repair just supplied.
+    assert.equal(read.scenarios[0].fixed.labor.hoursBasis, 'year')
+  })
+
+  test('a version above every migration step still gets its containers', () => {
+    // Each step is gated on `version < N`, so a record claiming a version above
+    // all of them skips every one. The containers cannot be conditional on the
+    // version being a number we recognise.
+    const read = importBackupJSON(asBackup([{ id: 'a', name: 'From a later build', schemaVersion: 999999 }]))
+    assert.equal(read.ok, true)
+    assert.deepEqual(read.scenarios[0].enterprises, [])
+    assert.deepEqual(read.scenarios[0].fixed.annual, {})
+  })
+
+  test('a single-budget file with the same damage comes back usable', () => {
+    const result = importScenarioJSON(JSON.stringify({ enterprises: [], fixed: 'x' }))
+    assert.equal(result.ok, true)
+    assert.deepEqual(result.scenario.fixed.buildings, [])
+  })
+})
+
+/**
+ * The map behind this holds what THIS tab last saw. A restore does not change
+ * that, which is why it is no longer emptied — emptying it did not reset the
+ * check, it switched it off, because the check is guarded on having seen the
+ * record at all.
+ */
+describe('the save after a restore', () => {
+  test('a copy read before the restore is not written over it unasked', () => {
+    saveScenario(makeScenario('a', 'Mine'))
+    const mine = getScenarioById('a')
+
+    const older = { ...makeScenario('a', 'From the backup'), updatedAt: '2020-01-01T00:00:00.000Z' }
+    const read = importBackupJSON(
+      JSON.stringify({ kind: 'sdshc-farm-budget-backup', scenarios: [older], folders: [] })
+    )
+    assert.equal(replaceAll(read.scenarios, read.folders).ok, true)
+
+    // The restored record is OLDER than the copy in hand, which is the ordinary
+    // case: a backup is by definition from the past. Compared with `>` this read
+    // as nobody having touched it, and the save went straight through.
+    mine.name = 'Mine, edited'
+    const blocked = saveScenario(mine)
+    assert.equal(blocked.ok, false)
+    assert.equal(blocked.error, 'Conflict')
+    assert.equal(listScenarios()[0].name, 'From the backup', 'the restore is still there')
+
+    assert.equal(saveScenario(mine, { force: true }).ok, true, 'and the producer can still say yes')
+  })
+
+  test('an ordinary read, edit, and save is not interrupted', () => {
+    saveScenario(makeScenario('a', 'Corn'))
+    const mine = getScenarioById('a')
+    mine.name = 'Corn, edited'
+    assert.equal(saveScenario(mine).ok, true)
+    mine.name = 'Corn, edited again'
+    assert.equal(saveScenario(mine).ok, true, 'each write updates what this tab has seen')
+  })
+})
+
+describe('reporting instead of throwing', () => {
+  test('a budget that refers to itself is reported, not thrown on', () => {
+    // structuredClone SUPPORTS cycles, so saveScenario's own NotSerializable
+    // guard passed this record along and the throw landed one layer further in,
+    // at a JSON.stringify that used to sit outside every try in the file.
+    const scenario = makeScenario('a', 'Loop')
+    scenario.enterprises[0].self = scenario.enterprises[0]
+    const result = saveScenario(scenario)
+    assert.equal(result.ok, false)
+    assert.equal(result.error, 'NotSerializable')
+  })
+
+  test('and so is one arriving through a restore', () => {
+    const scenario = makeScenario('a', 'Loop')
+    scenario.self = scenario
+    const result = replaceAll([scenario], [])
+    assert.equal(result.ok, false)
+    assert.equal(result.error, 'NotSerializable')
+    assert.equal(listScenarios().length, 0, 'and nothing was written')
+  })
+
+  test('a folder that refers to itself leaves the budgets standing', () => {
+    const bad = { id: 'f1', name: 'Trials' }
+    bad.self = bad
+    const result = replaceAll([makeScenario('a', 'North')], [bad])
+    assert.equal(result.ok, false)
+    assert.equal(result.budgetsRestored, true)
+    assert.equal(listScenarios().length, 1, 'budgets first is what makes this survivable')
+  })
+})

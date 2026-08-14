@@ -51,9 +51,28 @@ function readKey(key) {
   }
 }
 
+/**
+ * Serialise and store, reporting rather than throwing.
+ *
+ * The stringify sits INSIDE the guard on purpose. It used to be done at each of
+ * the eight call sites, outside every try, so an object carrying a self
+ * reference threw "Converting circular structure to JSON" straight out of a
+ * module whose whole contract is that it never throws.
+ *
+ * saveScenario()'s own NotSerializable guard does not cover this and cannot:
+ * structuredClone() SUPPORTS cycles, so it accepts the record, and the throw
+ * then lands here, one layer past the check that was supposed to catch it. One
+ * try around the serialisation is the only place that holds for every writer.
+ */
 function writeKey(key, value) {
+  let text
   try {
-    localStorage.setItem(key, value)
+    text = JSON.stringify(value)
+  } catch {
+    return { ok: false, error: 'NotSerializable' }
+  }
+  try {
+    localStorage.setItem(key, text)
     return { ok: true }
   } catch (err) {
     // QuotaExceededError is the realistic failure: dozens of scenarios, or a
@@ -70,18 +89,49 @@ const writeRaw = (value) => writeKey(KEY, value)
  * Bring an older stored scenario up to the current shape.
  * Each version gets its own step; steps run in order and fall through.
  */
+const isBag = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
+
+/**
+ * The containers the steps below write into, made safe before any of them run.
+ *
+ * Two separate failures, one fix. `??=` replaces null and undefined and nothing
+ * else, so a hand-edited or corrupted file carrying `"fixed": "x"` left the
+ * string standing and the next line assigned a property onto a primitive, which
+ * is a TypeError in strict mode — thrown out of a module whose contract is that
+ * it never throws, and out through an async change handler where it surfaced as
+ * nothing happening at all.
+ *
+ * And this runs OUTSIDE the version steps on purpose. Every step is gated on
+ * `version < N`, so a record claiming a version above all of them skips the lot:
+ * a backup written by a future build, or one with a made-up number in it,
+ * reached the app with no `enterprises` array at all. These are the shape the
+ * rest of the app assumes rather than checks, so they cannot be conditional on
+ * the version being one we recognise.
+ *
+ * Replacing an unusable value is not the same as dropping work. A number where
+ * the enterprise list belongs is not data anybody can get back, and the record
+ * still carries its name, its year and its fixed costs — where the alternative,
+ * the caller's `catch`, loses the whole budget.
+ */
+function normalizeShape(scenario) {
+  if (!Array.isArray(scenario.enterprises)) scenario.enterprises = []
+  if (!isBag(scenario.fixed)) scenario.fixed = {}
+  const fixed = scenario.fixed
+  if (!Array.isArray(fixed.equipment)) fixed.equipment = []
+  if (!Array.isArray(fixed.buildings)) fixed.buildings = []
+  if (!isBag(fixed.annual)) fixed.annual = {}
+  if (!isBag(fixed.annualBasis)) fixed.annualBasis = {}
+  if (!isBag(fixed.labor)) fixed.labor = {}
+  return scenario
+}
+
 function migrate(scenario) {
   const version = Number(scenario?.schemaVersion) || 0
+  normalizeShape(scenario)
 
   // v0 → v1: pre-release scenarios had no schemaVersion at all.
   if (version < 1) {
     scenario.schemaVersion = 1
-    scenario.enterprises ??= []
-    scenario.fixed ??= {}
-    scenario.fixed.equipment ??= []
-    scenario.fixed.buildings ??= []
-    scenario.fixed.annual ??= {}
-    scenario.fixed.labor ??= {}
     // Without this, the list sorts on the string "undefined", which compares
     // above any ISO date — an ancient scenario would show up as the newest.
     scenario.createdAt ??= new Date(0).toISOString()
@@ -92,14 +142,12 @@ function migrate(scenario) {
   // overhead amounts gained a period basis; the list gained a manual order.
   if (Number(scenario.schemaVersion) < 2) {
     scenario.schemaVersion = 2
-    for (const ent of scenario.enterprises ?? []) {
+    for (const ent of scenario.enterprises) {
       // The crop was the label before v2. Leaving `name` blank keeps that
       // behaviour exactly — enterpriseLabel() falls back to the crop — so an
       // old budget looks identical until someone chooses to rename a column.
       if (ent && typeof ent === 'object') ent.name ??= ''
     }
-    scenario.fixed ??= {}
-    scenario.fixed.labor ??= {}
     const labor = scenario.fixed.labor
     // v1 stored an annual figure. Carry it across under the new key with the
     // basis that makes it mean the same number of hours it meant before.
@@ -107,7 +155,6 @@ function migrate(scenario) {
       labor.hours = labor.totalHoursPerYear
     }
     labor.hoursBasis ??= 'year'
-    scenario.fixed.annualBasis ??= {}
     for (const key of ['utilities', 'farmInsurance', 'duesFees', 'misc']) {
       scenario.fixed.annualBasis[key] ??= 'year'
     }
@@ -206,7 +253,7 @@ export function reorderScenarios(idsInOrder) {
   arranged.forEach((s, i) => {
     s.sortIndex = i
   })
-  return writeRaw(JSON.stringify(arranged))
+  return writeRaw(arranged)
 }
 
 /* ─────────────────────────── folders ───────────────────────────────────── */
@@ -268,7 +315,7 @@ function byFolderOrder(a, b) {
 }
 
 function writeFolders(list) {
-  return writeKey(KEY_FOLDERS, JSON.stringify(list))
+  return writeKey(KEY_FOLDERS, list)
 }
 
 let folderCounter = 0
@@ -276,6 +323,14 @@ let folderCounter = 0
 function makeFolderId() {
   folderCounter += 1
   return `fld-${Date.now().toString(36)}-${folderCounter}`
+}
+
+let restoredCounter = 0
+
+/** For a backup that names one id twice — see importBackupJSON(). */
+function makeRestoredId() {
+  restoredCounter += 1
+  return `scn-restored-${Date.now().toString(36)}-${restoredCounter}`
 }
 
 /**
@@ -334,7 +389,7 @@ export function deleteFolder(id) {
   const members = scenarios.filter((s) => s.folderId === id)
   if (members.length) {
     for (const s of members) delete s.folderId
-    const cleared = writeRaw(JSON.stringify(scenarios))
+    const cleared = writeRaw(scenarios)
     if (!cleared.ok) return cleared
   }
 
@@ -383,7 +438,7 @@ export function moveScenarioToFolder(id, folderId) {
   if (folderId) found.folderId = String(folderId)
   else delete found.folderId
 
-  return writeRaw(JSON.stringify(all))
+  return writeRaw(all)
 }
 
 /**
@@ -399,7 +454,7 @@ export function renameScenario(id, name) {
   if (!found) return { ok: false, error: 'NotFound' }
   found.name = String(name)
   found.updatedAt = new Date().toISOString()
-  const result = writeRaw(JSON.stringify(all))
+  const result = writeRaw(all)
   if (result.ok) lastKnownUpdatedAt.set(id, found.updatedAt)
   return result
 }
@@ -452,8 +507,14 @@ export function saveScenario(scenario, { force = false } = {}) {
   const existing = index >= 0 ? all[index] : null
   const seen = lastKnownUpdatedAt.get(scenario.id)
 
-  // Someone else wrote this record after we last read it.
-  if (!force && existing && seen && String(existing.updatedAt) > String(seen)) {
+  // The stored record is not the one we read. Compared for DIFFERENCE and not
+  // for later-than: what makes this copy stale is that the record moved, and a
+  // record can move backwards. Restoring a backup puts an older timestamp on an
+  // id this tab is holding a newer copy of, and under `>` that read as nobody
+  // having touched it — so the save went through and took the restored budget
+  // with it. Every writer here sets the map on success, so an ordinary
+  // read-edit-save still compares equal and is not interrupted.
+  if (!force && existing && seen && String(existing.updatedAt) !== String(seen)) {
     return { ok: false, error: 'Conflict', theirs: existing }
   }
 
@@ -491,7 +552,7 @@ export function saveScenario(scenario, { force = false } = {}) {
     all.push(record)
   }
 
-  const result = writeRaw(JSON.stringify(all))
+  const result = writeRaw(all)
   if (result.ok) {
     lastKnownUpdatedAt.set(record.id, record.updatedAt)
     setLastOpened(scenario.id)
@@ -501,7 +562,7 @@ export function saveScenario(scenario, { force = false } = {}) {
 
 export function deleteScenario(id) {
   const remaining = listScenarios().filter((s) => s.id !== id)
-  const result = writeRaw(JSON.stringify(remaining))
+  const result = writeRaw(remaining)
   if (result.ok) lastKnownUpdatedAt.delete(id)
   return result
 }
@@ -623,10 +684,31 @@ export function importBackupJSON(text) {
 
   // Same rule as listScenarios() and listFolders(): one unreadable record is
   // skipped, never fatal to the rest of the file.
+  //
+  // Ids are made strings here, which listFolders() has always done and this side
+  // never did. Every id in this app is a string, and every action on the Saved
+  // tab compares one against a `data-id` read off the DOM, which is always a
+  // string too. A number arriving from a hand-edited or third-party file matches
+  // nothing under `===`: the row renders and is counted, but Open, Delete,
+  // Duplicate, Move and the arrows all quietly do nothing, and there is no way
+  // to be rid of it short of clearing the browser's storage.
+  //
+  // A repeated id is re-issued rather than dropped. Both records are somebody's
+  // work, and `.find()` resolves the first every time — so left alone, the second
+  // row opens the first record and saving it overwrites the first budget with the
+  // second one's edits. Dropping it instead would honour the ids and lose a
+  // budget, which is the one thing this tab is not allowed to do.
   const scenarios = []
+  const takenIds = new Set()
   for (const record of parsed.scenarios) {
     try {
-      if (record && typeof record === 'object' && record.id) scenarios.push(migrate(record))
+      if (!record || typeof record !== 'object' || !record.id) continue
+      const scenario = migrate(record)
+      const id = String(scenario.id)
+      scenario.id = takenIds.has(id) ? makeRestoredId() : id
+      takenIds.add(scenario.id)
+      if (scenario.folderId != null) scenario.folderId = String(scenario.folderId)
+      scenarios.push(scenario)
     } catch {
       /* skip this one, keep the rest */
     }
@@ -653,15 +735,23 @@ export function importBackupJSON(text) {
  * renderSections() is built to catch. Written the other way round, a folders
  * failure would leave the producer's own folders holding the file's budgets.
  *
- * `lastKnownUpdatedAt` is cleared because every record in it now describes a
- * budget this tab has not read. Left standing, a restored record older than the
- * timestamp remembered for its id reads as "nobody has touched this since I last
- * looked", and the next save overwrites it without asking.
+ * `lastKnownUpdatedAt` is deliberately NOT cleared, and it used to be. The
+ * reasoning was that every record in it now describes a budget this tab has not
+ * read, so a restored record older than the remembered timestamp would read as
+ * untouched and the next save would overwrite it unasked. The conclusion was
+ * right and the fix was the wrong way round: saveScenario()'s check is guarded
+ * on `seen` being truthy, so emptying the map does not reset the comparison, it
+ * switches it off. The older-record case came out the same either way, and the
+ * newer-record case came out worse — a restore that brought in work AHEAD of
+ * what this tab was holding had its conflict prompt suppressed by the clear.
+ *
+ * What the map holds is what this tab last saw, which a restore does not change.
+ * Keeping it, and comparing for difference rather than for greater-than, is what
+ * makes the save after a restore ask.
  */
 export function replaceAll(scenarios, folders) {
-  const wrote = writeRaw(JSON.stringify(scenarios))
+  const wrote = writeRaw(scenarios)
   if (!wrote.ok) return wrote
-  lastKnownUpdatedAt.clear()
 
   const wroteFolders = writeFolders(folders)
   if (!wroteFolders.ok) return { ok: false, error: wroteFolders.error, budgetsRestored: true }
@@ -696,5 +786,15 @@ export function importScenarioJSON(text) {
   // app wrote carries none; a hand-edited one is not evidence of anything about
   // the folders on THIS device.
   delete parsed.folderId
-  return { ok: true, scenario: migrate(parsed) }
+  // The two sibling readers both wrap migrate() per record and this one did not,
+  // which is the whole difference between "that file is not a saved budget" and
+  // an unhandled rejection out of an async change handler, where the producer
+  // presses the control and nothing whatever happens. normalizeShape() now takes
+  // away the reachable throw; the catch stays because the promise this module
+  // makes is that it never throws, not that we thought of everything.
+  try {
+    return { ok: true, scenario: migrate(parsed) }
+  } catch {
+    return { ok: false, error: 'That file is not a saved budget.' }
+  }
 }

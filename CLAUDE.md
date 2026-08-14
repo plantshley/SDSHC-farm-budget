@@ -21,7 +21,7 @@ like one family.
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 805 tests: the economic model, storage, data, and a DOM smoke test
+npm test           # 816 tests: the economic model, storage, data, and a DOM smoke test
 npm run build      # -> dist/
 ```
 
@@ -160,8 +160,23 @@ against the exported constant rather than a literal.
 the absence of the new key is the correct state and backfilling it would be
 destructive.
 
+**`normalizeShape()` runs OUTSIDE the version gates, before every step.** Two
+failures, one fix. Every step is `if (version < N)`, so a record claiming a
+version **above** all of them skips the lot and reached the app with no
+`enterprises` array at all. And `??=` replaces only null and undefined, so a
+`"fixed": "x"` left the string standing and the next line assigned a property
+onto a primitive — a `TypeError` out of a module that promises not to throw.
+Replacing an unusable value is not dropping work: a number where the enterprise
+list belongs is not recoverable data, and the record keeps its name, year and
+fixed costs, where the caller's `catch` would lose the whole budget.
+
 **`storage.js` never throws** — every failure path returns `{ok: false, error}`,
-so a full or blocked store is reported rather than swallowed.
+so a full or blocked store is reported rather than swallowed. **The
+`JSON.stringify` lives inside `writeKey()`'s guard**, not at the eight call
+sites, or a self-referencing object throws past every one of them.
+`saveScenario()`'s `NotSerializable` check does not cover this and cannot:
+`structuredClone()` **supports cycles**, so it accepts the record and the throw
+lands one layer further in.
 
 **Three writes deliberately bypass `saveScenario()`**, all for one reason: the
 Saved tab acts on a row that may not be the budget open on the Budget tab, so
@@ -177,6 +192,12 @@ writing the whole working scenario over it would carry unsaved edits with it.
 `duplicateScenario()` deletes `sortIndex`. A save returns `{error: 'Conflict'}`
 when the stored record has moved on since this tab read it (`lastKnownUpdatedAt`);
 `main.js` asks the producer before overwriting, and `{force: true}` proceeds.
+
+**Moved on means DIFFERENT, not later.** The comparison is `!==` and was once
+`>`. A record can move backwards: a restore puts an older timestamp on an id this
+tab is holding a newer copy of, and under `>` that read as untouched, so the next
+save went through and took the restored budget with it. Every writer sets the map
+on success, so an ordinary read-edit-save still compares equal.
 
 ### A backup is the whole tab; a budget file is one budget
 
@@ -194,9 +215,24 @@ one thing this format has to make impossible to get wrong. *Reasoning in
 - **`replaceAll()` is the only destructive write in the app.** Budgets first,
   then folders: a budgets failure changes nothing at all, and a folders failure
   leaves every restored budget on screen in the ungrouped pile. The other order
-  would leave the producer's own folders holding the file's budgets. It clears
-  `lastKnownUpdatedAt`, or a restored record older than the timestamp remembered
-  for its id reads as untouched and the next save overwrites it unasked.
+  would leave the producer's own folders holding the file's budgets. **A total
+  failure returns before the caller navigates** — saying "nothing was changed"
+  and then switching tab reads as a restore that happened anyway.
+- **`replaceAll()` deliberately does NOT clear `lastKnownUpdatedAt`, and used
+  to.** The map holds what THIS tab last saw, which a restore does not change.
+  Emptying it did not reset the conflict check, it switched it off: the check is
+  guarded on `seen` being truthy. The older-record case came out the same either
+  way and the newer-record case came out worse, its prompt suppressed. The fix
+  was `>` → `!==` above, not the clear.
+- **A backup's scenario ids are coerced to strings, and a repeated one is
+  re-issued.** `listFolders()` always coerced; this side never did. Every action
+  on the Saved tab compares against a `data-id` read off the DOM, so a number
+  matches nothing under `===` — the row renders and is counted while Open,
+  Delete, Duplicate, Move and the arrows all quietly do nothing to it, with no
+  way to be rid of it short of clearing the browser's storage. A duplicate is
+  **re-issued rather than dropped**: `.find()` resolves the first every time, so
+  left alone the second row opens the first record and saving it overwrites the
+  first budget, and dropping it would honour the file and lose somebody's work.
 - **An empty backup is refused**, or it is a way to delete every budget on the
   device by answering a confirm dialog about a file that held nothing.
 - **The confirm dialog states BOTH counts**, arriving and going. "Are you sure?"
@@ -820,7 +856,7 @@ it.
 
 ## Tests
 
-805 tests across seven files. `npm test` runs them, and so does the deploy
+816 tests across seven files. `npm test` runs them, and so does the deploy
 workflow before it builds. *Detail in [DESIGN-NOTES.md](DESIGN-NOTES.md).*
 
 - `test/calc.test.js` — the model against real Excel output, plus the deliberate

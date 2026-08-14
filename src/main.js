@@ -2414,10 +2414,15 @@ function restoreFromFile() {
 
     const wrote = replaceAll(result.scenarios, result.folders)
     if (!wrote.ok) {
+      // A total failure changed nothing, so nothing below should run either.
+      // Saying "nothing was changed" and then switching tab and re-rendering
+      // reads as a restore having happened after being told it had not.
+      if (!wrote.budgetsRestored) {
+        alert('Nothing was changed — this browser is out of storage space.')
+        return
+      }
       alert(
-        wrote.budgetsRestored
-          ? 'The budgets were restored, but this browser would not save the folders. Every budget is in the list, none is in a folder.'
-          : 'Nothing was changed — this browser is out of storage space.'
+        'The budgets were restored, but this browser would not save the folders. Every budget is in the list, none is in a folder.'
       )
     }
 

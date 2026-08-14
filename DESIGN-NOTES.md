@@ -2219,3 +2219,144 @@ heading keeps the half pixel it already had over the paragraphs. These are the
 modal's existing relationships moved down, not a new hierarchy: the summaries are
 the same size as the prose in both faces, their WEIGHT being what makes a list of
 terms read as a list.
+
+---
+
+## What a review pass found in backup and restore
+
+The backup, the restore, and the Saved-tab filter were built across several
+rounds without an outside read, and then given one: an unbiased review of
+`storage.js` and the restore path, and an adversarial test pass against the same
+functions. Between them they raised eight things. Six were real, and the two most
+useful were both cases where the code's own comment was confidently wrong about
+what the code did.
+
+### A guarded write with the serialisation outside the guard
+
+`writeKey()` has always been a `try` around `localStorage.setItem`, which is the
+call that fails on a full store or in Safari private mode. Every one of its eight
+callers passed `JSON.stringify(...)` **into** it, so the serialisation happened
+outside the guard, and an object that cannot be serialised threw straight past it.
+
+`saveScenario()` looks like it covers this and does not. Its `NotSerializable`
+branch wraps `structuredClone()`, on the reasoning that anything structuredClone
+rejects JSON will reject too. The reverse is what matters: **structuredClone
+supports cycles and JSON does not.** A scenario holding a reference to itself
+passes the clone, reaches the stringify one layer further in, and throws
+`TypeError: Converting circular structure to JSON` out of a module whose entire
+contract is that it reports instead of throwing.
+
+Moving the stringify inside `writeKey()` fixes all eight callers at once and
+leaves one place where a serialisation failure becomes `{ok: false}`. That is the
+right shape anyway: `writeRaw(all)` says what it means, and the old form was
+eight opportunities to forget.
+
+Nothing reaches this through the file-upload path, because `JSON.parse` cannot
+produce a cycle, so a hostile file cannot trigger it. It is latent rather than
+live, which is exactly why it was worth fixing now: it costs three lines today
+and would cost an afternoon the first time a scenario object grows a
+back-reference.
+
+### The nullish assignment does not replace a value it disagrees with
+
+`migrate()` began by defaulting `scenario.fixed` with `??=` and then writing into
+it. For a missing `fixed` that is correct. For a `fixed` that is the string "x" —
+a hand-edited file, a bad transfer, somebody's text editor — the assignment does
+nothing, because a string is not nullish, and the next line assigns a property
+onto a primitive. In strict mode, which every ES module is, that is a `TypeError`.
+
+The single-budget import was the one of the three readers that did not wrap
+`migrate()` in a `try`. So the throw left `importScenarioJSON()`, left the async
+change handler in `main.js` as an unhandled rejection, and **the producer pressed
+*upload a budget file*, picked a file, and nothing whatever happened** — no error,
+no alert, no row.
+
+There were two fixes available and the interesting one is not the `try`. Guarding
+the containers at the top of `migrate()` removes the throw at its source, and it
+also closes a second hole nobody had connected to it: every migration step is
+gated on the version being below some number, so a record claiming version 999999
+skips all of them and arrives with no `enterprises` array at all. A backup from a
+future build, or one with a made-up number in it, was reaching the app without
+the shapes the rest of the app assumes rather than checks. `normalizeShape()`
+runs before the gates and outside them, so the containers do not depend on our
+recognising the version.
+
+Repairing a value is not the same as dropping work. A number where the enterprise
+list belongs is not data anybody can get back, and the record still carries its
+name, its year and its fixed costs, where the alternative — letting the caller's
+`catch` have it — loses the whole budget.
+
+### Clearing the map did not reset the check, it switched it off
+
+`replaceAll()` cleared `lastKnownUpdatedAt`, with a comment explaining that a
+restored record older than the timestamp remembered for its id would otherwise
+read as untouched and be overwritten by the next save unasked. The diagnosis was
+right. The fix was the wrong way round, and it took an outside read to see it,
+because the comment is persuasive and sits directly above the line.
+
+The conflict check in `saveScenario()` requires four things at once, and the
+third is that this tab has a remembered timestamp for the record at all. Emptying
+the map makes that value undefined for every id, which short-circuits the whole
+condition to false. So clearing does not reset the comparison, it disables it.
+Worked through:
+
+- **Restored record older than what this tab saw** (the ordinary case, since a
+  backup is by definition from the past): the greater-than was already false, so
+  the save went through either way. Clearing changed nothing at all.
+- **Restored record newer than what this tab saw**: without the clear, the
+  comparison is true and the producer is asked. With it, the remembered value is
+  gone and they are not. Clearing **suppressed a prompt that was already
+  working.**
+
+The line was a net negative in the only two cases it could apply to.
+
+The real fix is comparing for difference rather than for later-than. What makes a
+held copy stale is that the stored record **moved**, and a record can move
+backwards: a restore is precisely the operation that puts an older timestamp on
+an id this tab is holding a newer copy of. Comparing for difference catches both
+directions, and the map is then left alone, because what it holds is what this
+tab last saw and a restore does not change that. Every writer sets the map on
+success, so an ordinary read, edit and save still compares equal and is not
+interrupted; `moveScenarioToFolder()` and `reorderScenarios()` deliberately do
+not bump `updatedAt`, so they cannot raise a false one either.
+
+Forcing is still how the producer says yes, and `main.js` already asks.
+
+### An id is a string because the DOM says so
+
+Folders have always been coerced, and scenarios never were. Nothing in the app
+can produce a non-string id, so this only matters for a file somebody edited or a
+third party wrote, which is exactly the input a restore takes.
+
+The failure is quiet and permanent. Every action on the Saved tab reads a
+`data-id` off the DOM, which is always a string, and compares it strictly. A
+numeric id matches nothing: the row renders, is counted, occupies its place in
+the order, and Open, Delete, Duplicate, Move and both arrows all fall through
+their not-found guard. There is no way to be rid of it short of clearing the
+browser's storage.
+
+A repeated id is the same class of problem and gets the opposite treatment. Both
+records are somebody's work, so the second is **re-issued a fresh id rather than
+dropped**: a find resolves the first every time, so left alone the second row
+opens the first record and saving it overwrites the first budget with the second
+one's edits. Dropping it instead would honour what the file said and lose a
+budget, which is the one thing this tab is not allowed to do, and it is the same
+rule `deleteFolder()` and `reorderScenarios()` already follow.
+
+### Saying nothing changed, then acting as though it had
+
+When `replaceAll()` fails outright the store is untouched, and `restoreFromFile()`
+said so, and then switched to the Saved tab, cleared the filter and re-rendered
+anyway, because the navigation sat after the branch rather than inside it. The
+dialog and the screen disagreed about whether anything had happened, immediately
+after the one dialog in the app whose whole job is to be believed.
+
+### Reported and not taken
+
+- **No file-size guard before parsing.** Real, and a large file will block the
+  tab on the phones this app targets. A cap is not free: it would refuse a
+  legitimate backup from a producer with a lot of budgets, which is a worse
+  failure than a slow parse, and there is no size that is obviously right.
+- **No double-activation guard on the two file inputs.** A fast double tap can
+  open two flows. JavaScript is single-threaded and localStorage writes are
+  atomic, so the worst case is two confirm dialogs in a row, not corruption.

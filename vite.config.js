@@ -38,7 +38,7 @@ export default defineConfig({
         short_name: 'Farm Budget',
         description:
           'Build enterprise budgets, then save and compare scenarios — South Dakota Soil Health Coalition.',
-        theme_color: '#2E7D32',
+        theme_color: '#afbf42',
         background_color: '#f7f9f7',
         display: 'standalone',
         orientation: 'portrait-primary',
