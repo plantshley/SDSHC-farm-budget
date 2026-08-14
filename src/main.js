@@ -318,6 +318,7 @@ function render() {
   updateOutputs()
   updateStatus()
   sizeNameInputs()
+  sizeEntNames()
   // A no-op on every screen but the saved list. The filter survives a render,
   // so a list rebuilt underneath it has to be re-filtered to match the box.
   applyScenarioFilter()
@@ -430,14 +431,7 @@ function sizeNameInputs() {
  */
 function sizeNameInput(input, allowance, floor) {
   if (!input) return
-  let mirror = document.getElementById('nameMirror')
-  if (!mirror) {
-    mirror = document.createElement('span')
-    mirror.id = 'nameMirror'
-    mirror.className = 'name-mirror'
-    mirror.setAttribute('aria-hidden', 'true')
-    document.body.appendChild(mirror)
-  }
+  const mirror = nameMirror()
   mirror.textContent = input.value || input.placeholder || ''
 
   // Read through the input's own document rather than a bare global, so this
@@ -450,6 +444,80 @@ function sizeNameInput(input, allowance, floor) {
   mirror.style.font = style.font
   mirror.style.letterSpacing = style.letterSpacing
   input.style.width = `${Math.max(mirror.offsetWidth + allowance, floor)}px`
+}
+
+/** The off-screen span both measuring passes lay their text out in. */
+function nameMirror() {
+  let mirror = document.getElementById('nameMirror')
+  if (!mirror) {
+    mirror = document.createElement('span')
+    mirror.id = 'nameMirror'
+    mirror.className = 'name-mirror'
+    mirror.setAttribute('aria-hidden', 'true')
+    document.body.appendChild(mirror)
+  }
+  return mirror
+}
+
+/**
+ * How wide the name column on a shut enterprise card may get, in px.
+ *
+ * The ceiling is what stops one long name ("North quarter, no-till") taking the
+ * room the figures beside it need — past it every name truncates, and they all
+ * truncate at the same place, which is still the alignment this is here for.
+ * The floor keeps a card holding one blank enterprise from collapsing the column
+ * to nothing and putting the chevron against the acreage.
+ */
+const ENT_NAME_MAX = 120
+const ENT_NAME_MIN = 44
+
+/**
+ * Give every shut enterprise card the same name column, sized to the longest
+ * name on the page.
+ *
+ * The cards are separate boxes, so CSS cannot size a track across them — a
+ * shared column is either `subgrid` (which would mean restructuring a card that
+ * also has an open state) or a measurement. This is the measurement, and it uses
+ * the mirror span sizeNameInputs() already keeps for exactly this job.
+ *
+ * Only the SHUT cards are measured, because they are the only ones laid out this
+ * way. An open card is a full-width column of fields and its heading takes the
+ * whole row.
+ *
+ * No layout available means no write, and the `var()` fallback in the stylesheet
+ * stands. That is the smoke tests, where jsdom has no layout at all, and it is
+ * cosmetic in every case — never a reason to fail.
+ */
+function sizeEntNames() {
+  const grid = app.querySelector('.ent-grid')
+  if (!grid) return
+
+  const names = [...app.querySelectorAll('.ent.collapsed .ent-name')]
+  if (!names.length) {
+    grid.style.removeProperty('--ent-name-w')
+    return
+  }
+
+  const view = grid.ownerDocument?.defaultView
+  if (!view?.getComputedStyle) return
+
+  // Every name is styled alike, so the font is read once rather than per card.
+  const mirror = nameMirror()
+  const style = view.getComputedStyle(names[0])
+  mirror.style.font = style.font
+  mirror.style.letterSpacing = style.letterSpacing
+
+  let widest = 0
+  for (const el of names) {
+    mirror.textContent = el.textContent.trim()
+    widest = Math.max(widest, mirror.offsetWidth)
+  }
+
+  // One pixel of slack: a track measured to exactly its text can round down
+  // against the element's own layout and clip the last glyph into an ellipsis
+  // on the name the column was sized FOR.
+  const w = Math.min(Math.max(widest + 1, ENT_NAME_MIN), ENT_NAME_MAX)
+  grid.style.setProperty('--ent-name-w', `${w}px`)
 }
 
 function footer() {
@@ -2377,6 +2445,19 @@ document.addEventListener('fb:rerender', (e) => {
   if (!input) return
   input.classList.add('flash')
   input.focus()
+})
+
+/**
+ * A typeface swap changes every glyph advance on the page, so the two widths
+ * this file measures and writes as px are laid out again.
+ *
+ * Not a render: choosing a font changes no structure and touches no figure, and
+ * a render here would take the caret out of whatever box somebody was typing in.
+ * See announceFontChange() in prefs.js for why this is its own event.
+ */
+document.addEventListener('fb:fontchange', () => {
+  sizeNameInputs()
+  sizeEntNames()
 })
 
 /** Last line of defence against losing a budget by closing the tab. */

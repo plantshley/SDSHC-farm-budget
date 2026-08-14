@@ -130,9 +130,31 @@ function applyTheme(theme) {
  */
 const FONTS = new Set(['browser', 'classic', 'mono'])
 
+/**
+ * Announce a font change to anything that MEASURED text in the old one.
+ *
+ * Two widths in main.js are laid out in a mirror span and written as px — the
+ * budget-name boxes and the enterprise name column. Swapping the typeface
+ * changes every glyph advance underneath them, and neither is recomputed by
+ * anything else, because choosing a typeface does not re-render the app.
+ *
+ * Its own event and NOT `fb:rerender`, which notifies state as it goes and would
+ * mark the budget unsaved. Picking a font is not an edit to a farm.
+ *
+ * The constructor comes off `document.defaultView` rather than the global: an
+ * Event built from another realm's class is rejected by dispatchEvent, which is
+ * exactly the situation the smoke tests boot into.
+ */
+function announceFontChange() {
+  const view = document.defaultView
+  if (!view?.Event) return
+  document.dispatchEvent(new view.Event('fb:fontchange'))
+}
+
 function applyFont(choice) {
   const font = FONTS.has(choice) ? choice : 'browser'
   document.documentElement.setAttribute('data-font', font)
+  announceFontChange()
   for (const btn of document.querySelectorAll('[data-font-choice]')) {
     btn.setAttribute(
       'aria-pressed',

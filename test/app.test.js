@@ -201,6 +201,198 @@ describe('the app boots', () => {
     )
   })
 
+  test('mono quiets the prose and leaves the figures alone', async () => {
+    // A monospaced face runs wider at the same px size, so the hints and links
+    // stopped being quieter than the thing they are about. jsdom loads no CSS,
+    // so this reads the stylesheet.
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+    const block = css.slice(css.indexOf('---- mono: the prose'), css.indexOf('---- print --'))
+    assert.ok(block.length, 'the block exists')
+
+    for (const sel of ['.hint', '.tip', '.line-tip', '.unit-notice', '.footer', '.note-dismiss']) {
+      assert.ok(
+        block.includes(`[data-font="mono"] ${sel},`) ||
+          block.includes(`[data-font="mono"] ${sel} {`),
+        `${sel} comes down a step`
+      )
+    }
+
+    // The size itself is a judgement call and is left to whoever is looking at
+    // it. That the selector is COVERED is the thing worth keeping true.
+    assert.match(block, /\[data-font="mono"\] \.btn-remove \{[^}]*font-size:/)
+
+    // The modal body is the longest continuous prose in the app, and the place
+    // a fixed-pitch face costs the most: there is nothing beside it to be
+    // quieter than, so the whole panel reads as a wall.
+    for (const sel of ['\\.def p', '\\.def li', '\\.def-fold > summary']) {
+      assert.match(block, new RegExp(`\\[data-font="mono"\\] ${sel}[,\\s]`), `${sel} comes down`)
+    }
+
+    // Placeholders are expressed in `em`, whatever the factor is tuned to. The
+    // UNIT is the load-bearing part: an em resolves against the input it sits
+    // in, so one rule scales every box proportionally, while any px figure
+    // sensible for the 16px money boxes would make .line-input.narrow BIGGER.
+    assert.match(block, /\[data-font="mono"\] ::placeholder \{[^}]*font-size: [\d.]+em/)
+    assert.doesNotMatch(
+      block,
+      /\[data-font="mono"\] ::placeholder \{[^}]*font-size: [\d.]+px/,
+      'never px'
+    )
+
+    // The readouts and the KPI figures are not inputs and do not move at all.
+    for (const sel of ['.readout-value', '.kpi', '.scn-figure']) {
+      assert.doesNotMatch(block, new RegExp(`\\${sel}\\b`), `${sel} keeps its size`)
+    }
+
+    // It has to sit after everything it out-ranks, or a deeper selector in a
+    // media query below would quietly win.
+    assert.ok(
+      css.indexOf('---- mono: the prose') > css.lastIndexOf('@media (max-width: 420px)'),
+      'the block is last'
+    )
+  })
+
+  test('an enterprise card can never be wider than the screen it is on', async () => {
+    // `1fr` is `minmax(auto, 1fr)`, and that `auto` minimum is min-content — so
+    // one unbreakable string inside a card was allowed to push its own track
+    // past the viewport, and the page scrolled sideways with the card's right
+    // edge cut off. The overflow was always reachable; a fixed-pitch face, which
+    // runs 5-10% wider at the same px size, is what reached it.
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+    assert.match(css, /\n\.ent-grid \{[^}]*grid-template-columns: minmax\(0, 1fr\)/)
+    assert.match(css, /\n\.ent \{[^}]*min-width: 0/, 'and the item can shrink inside it')
+
+    // The folded figures inherit nowrap from .ent-sub, which is right for the
+    // acreage and wrong for a 33-character line. Narrow only: the wide shut card
+    // is a fixed tile whose width was chosen to hold that line on one row.
+    const at = css.search(/\n {2}\.ent-fig \{[^}]*white-space: normal/)
+    assert.notEqual(at, -1, 'the narrow override exists, indented inside a block')
+    assert.match(
+      css.slice(0, at).match(/@media[^{]*/g).pop(),
+      /max-width: 899px/,
+      'and the block it is in is the narrow one'
+    )
+    assert.match(css, /\n\.ent-fig \{[^}]*white-space: nowrap/, 'still nowrap by default')
+  })
+
+  test('every shut card shares one name column', async () => {
+    // A flex row gave the name whatever the figures beside it did not want, and
+    // the figures are different lengths on every card — "$0" against "$109,512"
+    // — so the name started at a different place on each one and three cards in
+    // a stack read as three layouts.
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+
+    // The wide shut card lays its head out on a grid too, so the rule wanted
+    // here is the one inside a max-width block, not simply the first.
+    const rx = /\n {2}\.ent\.collapsed \.ent-toggle \{[^}]*?grid-template-columns: ([^;]+);/g
+    const narrow = [...css.matchAll(rx)].filter(
+      (m) => /max-width/.test(css.slice(0, m.index).match(/@media[^{]*/g).pop())
+    )
+    assert.equal(narrow.length, 1, 'exactly one of them is narrow-only')
+
+    // The track is the measured width, with a fallback that stands wherever no
+    // measurement is available: a fresh boot, and here, where jsdom has no
+    // layout at all.
+    const track = narrow[0][1]
+    assert.match(track, /var\(--ent-name-w, [^)]+\)/, 'a measured track with a fallback')
+    assert.match(track, /minmax\(0, 1fr\)/, 'and the rest cannot push the card wide again')
+  })
+
+  test('the wide shut tile was measured against one face, so mono resizes it', async () => {
+    // 240px was chosen to hold "Enterprise gross margin: $123,456" on one line,
+    // and the tile clips rather than growing. In a fixed-pitch face that line
+    // runs past it and the amount is truncated to "$109," — a dollar figure that
+    // still looks like a dollar figure, which is the worst thing this card can
+    // show.
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+    const mono = css.slice(css.indexOf('---- mono: the prose'), css.indexOf('---- print --'))
+    const wide = mono.slice(mono.indexOf('@media (min-width: 900px)'))
+    assert.ok(wide.length, 'the override is wide-only — only there is it a fixed tile')
+
+    const width = Number(wide.match(/\[data-font="mono"\] \.ent\.collapsed \{[^}]*width: (\d+)px/)[1])
+    assert.ok(width > 240, `the tile widens past the 240px it was tuned to (${width}px)`)
+
+    // The width alone is a guess: a mono stack resolves to whatever the device
+    // has, and Consolas, Menlo and JetBrains Mono do not share an advance. So
+    // the line must be able to wrap, with the tile's fixed height raised to
+    // catch it — the failure has to be a wrapped line, never a clipped number.
+    assert.match(wide, /\[data-font="mono"\] \.ent-fig \{[^}]*white-space: normal/)
+
+    // The height it wraps INTO is not a whole line: measured at 288px, the wrap
+    // does not engage until the amount passes nine figures, so the headroom is
+    // a few pixels for descenders rather than a blank row on every shut tile.
+    // What must stay true is only that mono never gets LESS room than the face
+    // the tile was tuned for.
+    const monoH = Number(wide.match(/\[data-font="mono"\] \.ent-grid \{[^}]*--fold-h: (\d+)px/)[1])
+    const baseH = Number(css.match(/--fold-h: (\d+)px/)[1])
+    assert.ok(monoH >= baseH, `mono is never given less height (${baseH} vs ${monoH})`)
+  })
+
+  test('a font change re-measures what was laid out in the old one', async () => {
+    // Two widths in main.js are measured in a mirror span and written as px.
+    // Swapping the typeface changes every glyph advance under them, and nothing
+    // else recomputes them, because choosing a font does not re-render.
+    await boot()
+    const before = doc.querySelector('#saveState')?.textContent
+
+    let heard = 0
+    doc.addEventListener('fb:fontchange', () => (heard += 1))
+    click('[data-font-choice="mono"]')
+    assert.equal(heard, 1, 'the change is announced')
+
+    // Its own event, NOT fb:rerender — that one notifies state as it goes, and
+    // picking a typeface is not an edit to a farm.
+    assert.equal(
+      doc.querySelector('#saveState')?.textContent,
+      before,
+      'and it did not mark the budget unsaved'
+    )
+  })
+
+  test('mono never takes a text box under 16px where iOS would zoom it', async () => {
+    // The 16px on `input, select` is what stops iOS Safari magnifying the page
+    // when a field takes focus, and it does not zoom back out. The threshold is
+    // a cliff: 15px is as bad as 12px. So the reduction is scoped to pointers
+    // that hover, which is the media feature that names desktop.
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+    const block = css.slice(css.indexOf('---- mono: the prose'), css.indexOf('---- print --'))
+
+    const guarded = block.slice(block.indexOf('@media (hover: hover)'))
+    assert.ok(guarded.length, 'the reduction is behind a hover guard')
+    assert.match(guarded, /\[data-font="mono"\] input,\s*\n\s*\[data-font="mono"\] select \{/)
+
+    // Nothing outside that guard may set a bare input/select size at all.
+    const unguarded = block.slice(0, block.indexOf('@media (hover: hover)'))
+    assert.doesNotMatch(
+      unguarded,
+      /\[data-font="mono"\] input \{/,
+      'no unguarded rule on every input'
+    )
+
+    // The boxes named outside the guard were ALREADY under 16px, so they were
+    // never protected by the threshold and nothing about them changes.
+    const declared = (sel) => {
+      const m = unguarded.match(new RegExp(`\\${sel} \\{[^}]*font-size: ([\\d.]+)px`))
+      assert.ok(m, `${sel} is named outside the guard`)
+      return Number(m[1])
+    }
+    const wasAlreadySmall = {
+      '.scn-name-input': 15,
+      '.scenario-year': 14,
+      '.period-select': 13,
+      '.line-input.narrow': 12,
+    }
+    for (const [sel, before] of Object.entries(wasAlreadySmall)) {
+      assert.ok(before < 16, `${sel} was already below the threshold`)
+      assert.ok(declared(sel) < before, `${sel} comes down from ${before}px`)
+    }
+
+    // .scenario-name is the one unguarded box that STARTED above the threshold,
+    // at 19px. Whatever it is tuned to, it may not cross 16 — down there it
+    // would zoom the page on iOS with nothing in the rule to say why.
+    assert.ok(declared('.scenario-name') >= 16, 'the budget name stays at or above 16px')
+  })
+
   test('every font choice actually declares a stack, and an unknown one falls back', async () => {
     // jsdom loads no CSS, so a button naming a [data-font] value the stylesheet
     // has never heard of would leave the page with whatever --font it had and
@@ -2001,7 +2193,30 @@ describe('a card `?` is a list of terms, not a wall of prose', () => {
   test('a single definition is not folded, because there is nothing to choose', async () => {
     click('[data-info="landRent"]')
     assert.equal(doc.querySelectorAll('.modal-body details.def-fold').length, 0)
-    assert.ok(doc.querySelector('.modal-body .def h3'), 'the answer is simply shown')
+    assert.ok(doc.querySelector('.modal-body .def p'), 'the answer is simply shown')
+  })
+
+  test('and it does not print its own title under the title', async () => {
+    // A field's `?` passes no title of its own, so the term is already in
+    // .modal-head. Repeated as the first line of the body it read as a second
+    // heading for something else, and cost a phone a row of height above the
+    // sentence it was tapped to read.
+    click('[data-info="landRent"]')
+    const head = doc.querySelector('.modal-title').textContent.trim()
+    assert.ok(head.length, 'the head names the term')
+    assert.equal(doc.querySelector('.modal-body .def h3'), null, 'and the body does not repeat it')
+
+    // Not dropped unconditionally: a card's `?` passes a title of its own, and
+    // every definition under it still says which term it is.
+    click('.modal-close')
+    click('.fixed-block .block-head .help-btn')
+    const summaries = [...doc.querySelectorAll('.modal-body details.def-fold > summary')]
+    assert.ok(summaries.length >= 5, 'each one is still named')
+    assert.equal(
+      summaries.some((s) => s.textContent.trim() === doc.querySelector('.modal-title').textContent.trim()),
+      false,
+      'and none of them is just the modal title again'
+    )
   })
 
   test('a multi-section guide opens with every section shut', async () => {

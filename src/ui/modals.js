@@ -152,6 +152,10 @@ export function openInfo(keys, title) {
   // would mean tapping `?` and then tapping again to read the answer.
   const fold = entries.length > 1
 
+  // What the modal is called. A field's `?` passes no title, so a single
+  // definition names itself.
+  const heading = title || entries[0].title
+
   const html = entries
     .map((d) => {
       const paras = d.body.map((p) => `<p>${esc(p)}</p>`).join('')
@@ -160,14 +164,24 @@ export function openInfo(keys, title) {
              <summary>${esc(d.title)}</summary>
              <div class="def-fold-body">${paras}</div>
            </details>`
-        : `<section class="def">
-             <h3>${esc(d.title)}</h3>
+        : // The <h3> is dropped when it would only repeat the modal's own
+          // title, which is the ordinary case: a field's `?` opens one
+          // definition, passes no title of its own, and the term therefore ends
+          // up in .modal-head already. Printed again as the first line of the
+          // body it read as a second heading for something else, and cost a
+          // phone a row of height above the sentence somebody tapped to read.
+          //
+          // Not dropped unconditionally. A card's `?` passes a title of its own
+          // ("Fixed costs"), and if it ever names a single definition the two
+          // are different words and both are worth having.
+          `<section class="def">
+             ${heading === d.title ? '' : `<h3>${esc(d.title)}</h3>`}
              ${paras}
            </section>`
     })
     .join('')
 
-  openModal(title || entries[0].title, html)
+  openModal(heading, html)
 }
 
 /**

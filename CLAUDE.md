@@ -21,7 +21,7 @@ like one family.
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 770 tests: the economic model, storage, data, and a DOM smoke test
+npm test           # 805 tests: the economic model, storage, data, and a DOM smoke test
 npm run build      # -> dist/
 ```
 
@@ -531,6 +531,12 @@ definition is never folded.** Both controls live in the **label row**, never
 under the input, which would read as a caption for the next field down and add a
 row of height to every field that has one. All asserted in `test/app.test.js`.
 
+**A definition never prints its own title under the title.** A field's `?` passes
+no title of its own, so the term is already in `.modal-head`; the `<h3>` is
+rendered only when the modal is called something else, which is a card `?`
+passing its own heading. Repeated it read as a second heading for something new,
+and cost a phone a row above the sentence it was tapped to read.
+
 ### Where the data lives is stated, not only linked
 
 The app says in **three places** that nothing leaves the device: a sentence in
@@ -615,6 +621,26 @@ cards as accordions. This is a media query in `styles.css` and nothing else.
 **Never fork into separate mobile and desktop components.** *Full list, plus the
 header, year and save-state rules, in [DESIGN-NOTES.md](DESIGN-NOTES.md).*
 
+- **`.ent-grid` is `minmax(0, 1fr)`, never `1fr`.** A `1fr` track is
+  `minmax(auto, 1fr)` and that `auto` is **min-content**, so one unbreakable
+  string let a card push its own track past the viewport — the page scrolled
+  sideways with the card's right edge cut off. `.ent` takes `min-width: 0` for
+  the same reason a layer down. **Narrow-only, `.ent-fig` drops to
+  `white-space: normal`**, which engages only when the line does not fit; at
+  ≥900px the shut tile is a fixed 240px chosen to hold it on one row.
+- **On a phone every shut card shares one name column**, `--ent-name-w`, measured
+  in `sizeEntNames()` as the widest name on the page and clamped between
+  `ENT_NAME_MIN` and `ENT_NAME_MAX`. A flex row gave the name whatever the
+  figures beside it did not want, and those differ per card ("$0" against
+  "$109,512"), so three cards read as three layouts. CSS cannot size a track
+  across separate boxes without `subgrid`; this reuses the mirror span
+  `sizeNameInputs()` already keeps. **No layout available means no write** and
+  the `var()` fallback stands — which is jsdom, and is cosmetic everywhere.
+- **`--fold-h` and the shut tile's 240px were measured against the proportional
+  face**, so `[data-font="mono"]` widens the tile at ≥900px and lets `.ent-fig`
+  wrap. A mono stack resolves to whatever the device has and Consolas, Menlo and
+  JetBrains Mono do not share an advance, so **no width is right everywhere and
+  the failure has to be a wrapped line, never a clipped dollar amount.**
 - **A folded card is `align-self: flex-start`, never `stretch`**, or it grows to
   match the tallest open column beside it.
 - **A shut card carries its gross margin per acre and in total**
@@ -676,6 +702,28 @@ header, year and save-state rules, in [DESIGN-NOTES.md](DESIGN-NOTES.md).*
   stack is fonts the device already has, JetBrains Mono first for anyone who has
   it. A test walks every `[data-font-choice]` button and asserts the stylesheet
   declares a stack for it.
+- **`mono` also drops the small prose one step** — hints, tips, notices, the
+  footer, the modal notes, `.btn-remove`, the placeholders and the text boxes. A
+  monospaced face runs wider at the same px size, so they stopped being quieter
+  than what they are about. **Readouts and KPI figures do not move**: they are
+  what somebody chose the face for. Scoped by selector, never a scale on a
+  container. **The block sits LAST in the sheet on purpose** — two of its rules
+  exist to out-rank a deeper selector elsewhere (`.ent-add .hint`,
+  `.scn-btns .tip`), and a new `.something .hint { font-size }` added later would
+  beat a short selector in it.
+- **Placeholders scale in `em`, never px.** An `em` on `::placeholder` resolves
+  against the input it sits in, so one rule covers every box; a px figure would
+  have made `.line-input.narrow`'s 12px box *bigger*. The mobile
+  `.scn-filter-input::placeholder` is named explicitly, or `0.9em` of 16px puts
+  it back over the width that truncated it.
+- **The `input, select` reduction is behind `@media (hover: hover)`, and that is
+  not decoration.** The 16px there is what stops **iOS Safari zooming the page
+  when a field takes focus**, and it does not zoom back out. The threshold is a
+  cliff — 15px is as bad as 12px. iOS reports `hover: none` and keeps its 16px.
+  **Taking a phone's boxes below 16px is a decision to accept the zoom**, made by
+  deleting that wrapper, never by nudging the 16px. Boxes already under 16px
+  (`.scn-name-input`, `.scenario-year`, `.period-select`, `.line-input.narrow`)
+  were never protected by it and come down unguarded.
 
 ### `render()` vs `updateOutputs()` — and why results must be `data-out`
 
@@ -714,6 +762,21 @@ it names no box. One pill per warning, never one box around several.
 in `farmWarnings`. The flat `result.warnings` is unchanged and is still what the
 model's tests assert against. *Why, and the cost, in
 [DESIGN-NOTES.md](DESIGN-NOTES.md).*
+
+### Two widths are measured, so a font change has to be announced
+
+`sizeNameInputs()` and `sizeEntNames()` lay text out in an off-screen mirror span
+and write the result as **px**. Swapping the typeface changes every glyph advance
+underneath them and nothing else recomputes them, because choosing a font does
+not re-render the app.
+
+`applyFont()` in `prefs.js` therefore dispatches **`fb:fontchange`**, and
+`main.js` re-measures on it. **Its own event and NOT `fb:rerender`**, which
+`notify()`s as it goes and would mark the budget unsaved — picking a typeface is
+not an edit to a farm. It is also not a `render()`: no structure changes, and a
+render would take the caret out of whatever box somebody was typing in. The
+`Event` constructor comes off `document.defaultView`, never the global, for the
+reason `openTypical()` does the same.
 
 ### UI state is not scenario state
 
@@ -757,7 +820,7 @@ it.
 
 ## Tests
 
-770 tests across six files. `npm test` runs them, and so does the deploy
+805 tests across seven files. `npm test` runs them, and so does the deploy
 workflow before it builds. *Detail in [DESIGN-NOTES.md](DESIGN-NOTES.md).*
 
 - `test/calc.test.js` — the model against real Excel output, plus the deliberate
@@ -773,6 +836,10 @@ workflow before it builds. *Detail in [DESIGN-NOTES.md](DESIGN-NOTES.md).*
 - `test/typical-values.test.js` — the shape and provenance of every shipped
   figure, including the SDSU nutrient costs reconciled against a total whose
   right answer is already known.
+- `test/themelab.test.js` — the author-only palette editor: the light-to-dark
+  mirror's arithmetic against the shipped pairs **parsed out of `styles.css`**,
+  and the rules about what the shelf of saved themes must survive. Not a
+  producer feature; tested because neither part can be checked by eye.
 
 **The smoke test exists because a passing build proves the modules parse and
 nothing more.** It has already caught a TDZ crash on boot and a crash in the

@@ -1969,6 +1969,71 @@ webfont is a font that is not there when it matters. The stack names JetBrains
 Mono first for the producer who already has it installed and falls through to
 what the device ships with, ending in the `monospace` generic.
 
+A monospaced face sets every glyph on the same advance, so at a given px size it
+runs 5-10% wider and reads bigger than the proportional stack beside it. On the
+figures that is the whole point. On the prose it is not: the hints, the *use
+typical value* links, the notices and the footer are all deliberately quieter
+than the thing they are about, and in mono they stopped being quieter — a hint
+under a field read as loud as the field.
+
+So the small prose comes down one step in mono and nothing else moves. Field
+labels, readouts, headings and every figure keep their size, because the figures
+are what somebody chose this face for and shrinking them would undo the choice.
+
+Scoped by selector rather than by a scale factor on a container. `font-size` on
+an ancestor cascades into the inputs and the readouts, which is exactly what must
+not happen here.
+
+The block sits last in the stylesheet, and that placement is load-bearing. Two of
+its rules exist to out-rank a deeper selector further up (`.ent-add .hint` and
+`.scn-btns .tip`, the second inside a media query), and equal specificity is
+settled by source order. A `.something .hint { font-size }` added later would beat
+a bare `[data-font="mono"] .hint`; if a size stops taking effect in mono, that is
+why, and the fix is to match the depth of whatever is winning.
+
+#### The placeholders, in em
+
+A placeholder's `em` resolves against the input it sits in, so
+`[data-font="mono"] ::placeholder { font-size: 0.9em }` scales every box in the
+app proportionally from one rule. A px figure would have had to know that
+`.line-input.narrow` is 12px while the money boxes are 16px — and set at
+anything sensible for the money boxes it would have made the narrow ones BIGGER.
+
+One exception is named. `.scn-filter-input::placeholder` is 12px on a phone
+rather than 13px because at 13px its string truncated mid-word at 360px, which
+reads as the app being broken. `0.9em` of that box's 16px is 14.4px and would
+undo the fix, so the mono block names it at 11px inside the same width the
+original rule lives in.
+
+#### The 16px on `input, select` is a cliff, not a preference
+
+It carries a one-line comment: *16px stops iOS Safari zooming on focus*. What
+that means in practice is that a field under 16px causes iOS to magnify the whole
+page when it takes focus, and it does not zoom back out. A producer tapping a
+seed cost on a phone would be left in a magnified page scrolled sideways, having
+to pinch out before the next box — on the device most of them are using, in the
+app's busiest screen.
+
+It is a threshold, not a slope: 15px triggers it exactly as hard as 12px. So
+there is no version of "make the input text a bit smaller" that is safe on iOS.
+
+The reduction is therefore scoped to `@media (hover: hover)`. iOS Safari reports
+`hover: none`, so it keeps its 16px; desktop, where somebody is most likely to
+have chosen a fixed-pitch face deliberately and where no browser does this, gets
+15px. The media feature is already how this sheet names touch browsers.
+
+If a phone's figure boxes should read smaller too, that is a decision to accept
+the zoom, and it is made by deleting the media wrapper. It must not be made by
+nudging the 16px in the base rule, which does the same thing without saying so —
+and which is the shape the mistake will take, because the base rule is the
+obvious place to look.
+
+The boxes that were ALREADY under 16px come down unguarded: `.scn-name-input`
+15→14, `.scenario-year` 14→13, `.period-select` 13→12, `.line-input.narrow`
+12→11. They were never protected by the threshold, so nothing about how they
+behave changes. `.scenario-name` is 19px and lands on 17px, which still clears
+it.
+
 `applyFont()` hard-coded `choice === 'classic' ? 'classic' : 'browser'`, which
 silently swallowed a third choice. It is a named set now, and an unrecognised
 value falls back to `browser` — the same rule `perYearFactor()` follows for a
@@ -2004,3 +2069,153 @@ screen is for.
 Changing the class from `.tip` meant it stopped being covered by the print
 stylesheet's hide list, which is a navigation control printed onto a comparison.
 `.btn-back` is named there now, and a test reads the print block to keep it so.
+
+### A card was allowed to be wider than the screen
+
+Reported as a mono bug: on a phone the enterprise cards had their right edges cut
+off, folded and open alike, and the page scrolled sideways.
+
+Mono was not the bug. `.ent-grid` was `display: grid` with no explicit template,
+so its track was `1fr` — which is `minmax(auto, 1fr)`, and that `auto` minimum is
+**min-content**. A track sized that way is allowed to grow to whatever its widest
+unbreakable content demands, viewport or no viewport. Every card on that page has
+been able to push itself off the screen since the grid was written.
+
+Nothing quite did, in the proportional stack. The longest line a folded card
+carries is "Enterprise gross margin: $172,564", and at 360px it fitted with a few
+pixels in hand. A fixed-pitch face sets every glyph on the same advance and runs
+5-10% wider at the same px size, which was enough to spend those pixels. The
+overflow was always reachable; mono is what reached it.
+
+`minmax(0, 1fr)` caps the track at its container, so a card is never wider than
+the screen whatever it is asked to hold. `.ent` needs `min-width: 0` alongside
+it, because a grid ITEM's automatic minimum size is min-content too and without
+it the card refuses to shrink inside the track that now fits. Both are ignored at
+≥900px, where `.ent-grid` becomes a flex row.
+
+That fixes the page. It leaves the folded figures with less room than their line
+needs, so on narrow widths `.ent-fig` drops to `white-space: normal`. It inherits
+`nowrap` from `.ent-sub`, which is correct for the acreage sitting beside it and
+wrong for a 33-character line. `normal` engages only when the line does not fit,
+so at every width and font where it already fitted nothing moves at all; when it
+does engage, the amount takes a line of its own under its label, which still
+reads as that label's figure and beats a dollar amount clipped at the card edge.
+
+Narrow-only, deliberately. At ≥900px the shut card is a fixed 240px tile of fixed
+height, and its width was chosen to hold that longest line on one row — a wrapped
+line there would be clipped by `--fold-h` rather than shown, which is the trade
+that tile already makes.
+
+### One name column across cards that are separate boxes
+
+On a phone the shut cards' name and figures started at a different x on every
+card. The cause is not the names: `.ent-toggle` was a flex row, the figures block
+was content-sized and nowrap, and the name took whatever was left — so a card
+reading "$0" gave its name more room than one reading "$109,512", and three cards
+in a stack read as three layouts.
+
+CSS cannot size a track across separate grid containers. The options were
+`subgrid` — which would mean giving `.ent-grid` the card's internal columns and
+restructuring a card that also has a full open state, on a feature that is
+Baseline-2023 — or a measurement. This is the measurement, and it reuses the
+mirror span `sizeNameInputs()` has kept for exactly this job since the budget
+name box was first sized to its own text.
+
+`sizeEntNames()` measures every shut card's name, takes the widest, clamps it
+between `ENT_NAME_MIN` and `ENT_NAME_MAX`, and writes `--ent-name-w` on
+`.ent-grid`. The narrow stylesheet lays the shut head out as
+`auto var(--ent-name-w, 9ch) minmax(0, 1fr)`: chevron, name, everything else.
+
+The ceiling matters. Without it one long name takes the room the figures need;
+past it every name truncates, and they all truncate at the same place, which is
+still the alignment this exists for. The floor stops a card holding one blank
+enterprise collapsing the column and putting the chevron against the acreage.
+
+No layout available means no write, and the `var()` fallback in the stylesheet
+stands. That is a fresh boot before the first pass, and it is jsdom, which has no
+layout at all. Cosmetic in both cases, and never a reason to fail.
+
+### A measured px width goes stale when the typeface changes
+
+Two widths in `main.js` are laid out in a mirror span and written as px. Swapping
+the typeface changes every glyph advance under them, and nothing recomputed them,
+because choosing a font sets an attribute on `<html>` and does not re-render.
+
+The budget-name box had this bug before mono existed — Classic and Browser have
+different metrics — it was just small enough not to be noticed. A fixed-pitch
+face is not.
+
+`applyFont()` dispatches `fb:fontchange` and `main.js` re-measures on it.
+
+Its own event, deliberately. `fb:rerender` was sitting right there and is the
+wrong tool twice over: it calls `notify()`, whose subscriber sets `dirty = true`,
+so picking a typeface would arm the "are you sure you want to leave?" dialog over
+a budget nobody had edited; and it calls `render()`, which would take the caret
+out of whatever box somebody was typing in. Nothing about a font change is
+structural. The `Event` constructor is taken off `document.defaultView` rather
+than the global, because an Event built from another realm's class is rejected by
+`dispatchEvent` — which is exactly the situation the smoke tests boot into.
+
+### The shut tile's 240px was a measurement of one typeface
+
+240px was chosen so "Enterprise gross margin: $123,456" stays on one line, and
+the tile CLIPS rather than growing, which is what keeps a row of shut cards a row
+instead of one tall box. In mono the line runs past it and the amount is
+truncated to "$109," — a dollar figure that still looks like a dollar figure,
+which is the worst thing this card can show.
+
+The tile widens to 288px in mono, so the ordinary case reads exactly as it does
+in the other faces.
+
+That alone would be another guess, though, because a monospaced stack resolves to
+whatever the device has and Consolas, Menlo and JetBrains Mono do not share an
+advance. So `.ent-fig` is also allowed to wrap in mono: no width can be right
+everywhere, and the failure has to be a wrapped line rather than a clipped
+number.
+
+`--fold-h` goes up a few pixels rather than a whole line, and that is measured
+rather than cautious. At 288px the wrap was tested and does not engage until the
+amount passes nine figures. The few pixels are there so a wrapped line's
+descenders would not be shaved if it ever happened; a full line of headroom would
+have been empty space at the foot of every shut tile on the page, paid every day
+against a case nobody will meet.
+
+### The definition modal said the term twice
+
+Tap the `?` beside Land rent / acre and the panel opened with "Land rent" in the
+head, then "Land rent" again as the first line of the body, then the sentence you
+wanted.
+
+The two came from the same string. `openInfo(keys, title)` falls back to
+`entries[0].title` when no title is passed, and a field's `?` never passes one —
+`infoButton()` has only the key. So the modal named itself after the definition,
+and the body printed a heading for it as well.
+
+Read on a phone it is worse than redundant. A heading directly under a heading
+reads as the start of something new rather than as a repeat, so the eye looks for
+what changed before giving up and reading on; and it spends a row of the small
+panel above the sentence somebody tapped to see.
+
+The `<h3>` is now rendered only when the modal is called something OTHER than the
+definition. That is not a hypothetical branch kept for tidiness: a card's `?`
+passes its own heading — "Fixed costs" over seven terms — and if it ever names a
+single one, the panel title and the term are different words and both are worth
+having.
+
+Nothing changes for the folded case. Several definitions are `<details>` with the
+term in the `<summary>`, which is the control you pick from rather than a
+restatement of the panel's name.
+
+### Mono in the modal body
+
+The modal body is the longest continuous prose in the app: a definition runs to
+five paragraphs, the guide to several screens. It is where a fixed-pitch face
+costs the most, because there is nothing beside it to be quieter than — the whole
+panel is text, so at the proportional sizes it reads as a wall rather than as an
+answer.
+
+The paragraphs, the list items and the fold summaries come down together, and the
+heading keeps the half pixel it already had over the paragraphs. These are the
+modal's existing relationships moved down, not a new hierarchy: the summaries are
+the same size as the prose in both faces, their WEIGHT being what makes a list of
+terms read as a list.

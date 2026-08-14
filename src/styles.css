@@ -9,6 +9,15 @@
   --card: #ffffff;
   --text: #222222;
   --muted: #5a625a;
+  /* An empty box's own text. Its own token rather than --muted, because those
+     two say opposite things about the same box: --muted labels a figure that IS
+     there, and this one is the words standing in for one that is NOT. At
+     --muted's weight an empty box reads as filled in. Declared at all because
+     otherwise the browser draws it, which is a fixed grey no theme reaches --
+     it stayed put while every other colour on the page moved. Pitched at the
+     contrast the browser's own default carries on white (about 4.6:1), so the
+     app looks the same as it did and is now themeable. */
+  --placeholder: #6f776f;
   --green: #2e7d32;
   --green-dark: #256628;
   --border: #d7ddd7;
@@ -133,6 +142,7 @@
   --card: #1e2426;
   --text: #e7ecea;
   --muted: #9fb0aa;
+  --placeholder: #83908b;
   --green: #57b75c;
   --green-dark: #4aa44f;
   --border: #313a3d;
@@ -468,6 +478,19 @@ select {
   min-height: 44px;
 }
 
+/* One rule for every box on the page, and it has to be declared: with no author
+   colour the browser picks the placeholder grey itself, and that grey is the one
+   piece of text on the page no token can reach. `opacity: 1` because Firefox
+   dims a placeholder on top of whatever colour it is given, which would take
+   this one below the contrast it was chosen for.
+
+   Font size is set elsewhere and in `em` on purpose; see the mono block at the
+   foot of the file. Do not merge the two. */
+::placeholder {
+  color: var(--placeholder);
+  opacity: 1;
+}
+
 input.invalid {
   border-color: var(--cost);
   background: var(--cost-bg);
@@ -634,7 +657,7 @@ input.invalid {
   background: transparent;
   border: none;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
   cursor: pointer;
   text-decoration: underline;
   padding: 6px 10px;
@@ -1070,9 +1093,35 @@ input.invalid {
   margin-bottom: 16px;
 }
 
+/* `minmax(0, 1fr)`, not the `1fr` this had.
+   ------------------------------------------
+   A grid track written `1fr` is really `minmax(auto, 1fr)`, and that `auto`
+   minimum is MIN-CONTENT — so a card holding one unbreakable string is allowed
+   to push its own track wider than the screen, and the page scrolls sideways
+   with the card's right edge cut off at the viewport.
+
+   Nothing on a card is supposed to be able to do that, and in the proportional
+   stack nothing quite did: the longest folded line, "Enterprise gross margin:
+   $172,564", fitted a 360px phone with a few pixels to spare. A fixed-pitch face
+   sets every glyph on the same advance and runs 5-10% wider, which was enough to
+   tip it over. The overflow was always reachable; mono is what reached it.
+
+   `minmax(0, 1fr)` caps the track at the container instead, so the card is never
+   wider than the screen whatever it is asked to hold, and the content inside
+   reflows or clips as its own rules say. Ignored at >=900px, where .ent-grid
+   becomes a flex row.
+
+   `.ent` needs `min-width: 0` for the same reason one layer down: a grid ITEM's
+   automatic minimum size is also min-content, so without it the card refuses to
+   shrink inside the track that now fits. */
 .ent-grid {
   display: grid;
   gap: 14px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.ent {
+  min-width: 0;
 }
 
 .ent-head {
@@ -3086,7 +3135,7 @@ body.modal-open {
 
 .typ-option {
   display: grid;
-  grid-template-columns: 84px 1fr;
+  grid-template-columns: 95px 1fr;
   gap: 2px 12px;
   width: 100%;
   text-align: left;
@@ -3285,6 +3334,53 @@ body.modal-open {
      quarter of the width, which is what makes the single row comfortable rather
      than merely possible — and it does not shrink, because at 42px there is
      nothing left to take. */
+  /* One name column across every shut card on the page.
+     ----------------------------------------------------
+     A flex row let the name take whatever the figures beside it did not want,
+     and the figures are different lengths on every card — "$0" against
+     "$109,512" — so the name column started at a different place on each one,
+     and three cards in a stack read as three separate layouts.
+
+     A grid fixes the columns: chevron, name, everything else. The name track is
+     `--ent-name-w`, measured in main.js as the widest name actually on the page
+     and clamped there, so the cards agree with each other AND with the longest
+     name rather than with a number somebody guessed. The fallback in the `var()`
+     is what stands when no measurement is available — a fresh boot before the
+     first pass, and the smoke tests, which have no layout.
+
+     `minmax(0, 1fr)` on the third column and `min-width: 0` below, or the
+     figures' own min-content pushes the card wide again and undoes the rule
+     above this one. */
+  .ent.collapsed .ent-toggle {
+    display: grid;
+    grid-template-columns: auto var(--ent-name-w, 9ch) minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .ent.collapsed .ent-name,
+  .ent.collapsed .ent-sub {
+    min-width: 0;
+  }
+
+  /* The card is now capped at the screen, so the folded figures have to be able
+     to give. They inherit `nowrap` from .ent-sub, which is right for the acreage
+     beside them and wrong for a line that can be 33 characters long.
+
+     `normal` engages ONLY when the line does not fit, so at every width and font
+     where it already fitted, nothing moves. When it does engage the amount drops
+     to a line of its own under its label, which still reads as that label's
+     figure — and is a great deal better than a dollar amount clipped at the
+     card's edge.
+
+     Narrow-only. At >=900px the shut card is a fixed 240px tile of fixed height
+     and a wrapped line would be clipped by --fold-h rather than shown; up there
+     the width was chosen to hold the longest line, and that stays the deal. */
+  .ent-fig {
+    white-space: normal;
+  }
+
   .toplogo-wide {
     display: none;
   }
@@ -3636,6 +3732,202 @@ body.modal-open {
      the bar no longer needs. */
   .topbar {
     gap: 8px;
+  }
+}
+
+/* ---- mono: the prose comes down a step -----------------------------------
+
+   A monospaced face sets every glyph on the same advance, so at a given px size
+   it runs 5-10% wider and reads BIGGER than the proportional stack beside it.
+   That is the point of it on the figures, where a column of dollar amounts
+   lines up on the decimal. It is not the point of it on the prose: the hints,
+   the "use typical value" links, the notices and the footer are all deliberately
+   quieter than the thing they are about, and in mono they stopped being quieter.
+
+   So the small prose comes down one step and nothing else moves. Field labels,
+   readouts, headings and every figure keep their size — the figures are what
+   somebody chose this face FOR, and shrinking them would undo the choice.
+
+   Scoped by selector rather than by a scale factor on a container, because
+   `font-size` on an ancestor would take the inputs and the readouts with it.
+
+   THIS BLOCK SITS LAST ON PURPOSE. Two of these rules exist to out-rank a
+   deeper selector elsewhere in the sheet (`.ent-add .hint`, `.scn-btns .tip`),
+   and a new `.something .hint { font-size }` added later would beat a shorter
+   selector here. If a size stops taking effect in mono, that is why: match the
+   depth of whatever is winning.
+   -------------------------------------------------------------------------- */
+[data-font="mono"] .hint,
+[data-font="mono"] .ent-add .hint,
+[data-font="mono"] .unit-notice,
+[data-font="mono"] .modal-unit,
+[data-font="mono"] .modal-note,
+[data-font="mono"] .modal-warn {
+  font-size: 10px;
+}
+
+[data-font="mono"] .tip,
+[data-font="mono"] .footer,
+[data-font="mono"] .footer .tip,
+[data-font="mono"] .note-dismiss,
+[data-font="mono"] .year-label {
+  font-size: 11px;
+}
+
+[data-font="mono"] .line-tip,
+[data-font="mono"] .scn-btns .tip,
+[data-font="mono"] .field-note,
+[data-font="mono"] .sub-note,
+[data-font="mono"] .modal-source {
+  font-size: 10px;
+}
+
+/* `[data-scn-hint] .tip` is already `font-size: inherit`, so the upload offer
+   follows the hint paragraph it sits in and needs nothing here. Listed only so
+   the next person does not add it and wonder why it changed nothing. */
+
+/* The modal body is the longest continuous prose in the app — a definition runs
+   to five paragraphs and the guide runs to several screens. It is the place a
+   fixed-pitch face costs the most, because there is nothing beside it to be
+   quieter than: the whole panel is text, and at the proportional size it reads
+   as a wall.
+
+   The fold summaries come with it, at the same size as the prose — which is the
+   relationship they already have, their weight rather than their size being
+   what makes a list of terms read as a list. The heading keeps its half a pixel
+   over the paragraphs for the same reason: these are the sizes the modal
+   already had, moved down together, not a new hierarchy. */
+[data-font="mono"] .def p,
+[data-font="mono"] .def li,
+[data-font="mono"] .def-fold > summary,
+[data-font="mono"] .typ-fold > summary {
+  font-size: 13px;
+}
+
+[data-font="mono"] .def h3 {
+  font-size: 13.5px;
+}
+
+[data-font="mono"] .btn-remove {
+  font-size: 10px;
+  
+}
+
+/* PLACEHOLDERS come down; the input's own text is a separate question, below.
+
+   `em`, not a px figure, and that is the whole trick: a placeholder's `em`
+   resolves against the input it sits in, so one rule scales every box
+   proportionally without this block having to know that .line-input.narrow is
+   12px while the money boxes are 16px. A blanket px value would have made the
+   narrow ones BIGGER.
+
+   Shrinking a placeholder on its own is the established move here — see the
+   .scn-filter-input rule and the warning above it. iOS Safari's zoom-on-focus
+   is keyed to the INPUT's font-size and not the placeholder's, so this half is
+   free. */
+[data-font="mono"] ::placeholder {
+  font-size: 1em;
+}
+
+/* Inputs that were ALREADY under 16px come down a step with everything else.
+   They are below the zoom threshold either way, so nothing changes about how
+   they behave — only how loud they are. */
+[data-font="mono"] .scn-name-input {
+  font-size: 13px;
+}
+
+[data-font="mono"] .scenario-year {
+  font-size: 12px;
+}
+
+[data-font="mono"] .period-select {
+  font-size: 11px;
+}
+
+[data-font="mono"] .line-input.narrow {
+  font-size: 10px;
+}
+
+/* 19px, so it can lose two and still clear 16. */
+[data-font="mono"] .scenario-name {
+  font-size: 16px;
+}
+
+/* And the money boxes, which are the hard case.
+   ---------------------------------------------
+   `input, select` is 16px for one reason, written beside it: iOS Safari ZOOMS
+   THE PAGE when a field under 16px takes focus, and it does not zoom back out.
+   A producer tapping a seed cost on a phone would be left scrolled sideways in
+   a magnified page, having to pinch out before the next box. Any reduction
+   triggers it — 15px is as bad as 12px, the threshold is a cliff.
+
+   So the reduction is scoped to pointers that hover, which is desktop. iOS
+   Safari reports `hover: none` and keeps its 16px; the trap is a phone-browser
+   behaviour and this is the media feature that names phone browsers.
+
+   If a figure box should read smaller on a phone too, that is a decision to
+   accept the zoom, and it is made by deleting this media wrapper — not by
+   nudging the 16px, which does the same thing without saying so. */
+@media (hover: hover) {
+  [data-font="mono"] input,
+  [data-font="mono"] select {
+    font-size: 14px;
+  }
+}
+
+/* The shut tile was measured against the proportional face.
+   ----------------------------------------------------------
+   240px was chosen to hold "Enterprise gross margin: $123,456" on one line, and
+   the tile CLIPS rather than growing, which is what keeps a row of shut cards a
+   row rather than one tall box. In a fixed-pitch face that line runs past 240px
+   and gets clipped mid-amount: "$109,". A truncated dollar figure that still
+   looks like a dollar figure is the worst thing this card can show.
+
+   Two changes, and the second is the one that actually holds.
+
+   The tile widens, so in the ordinary case the line still fits on one row and
+   the card reads exactly as it does in the other faces.
+
+   And `.ent-fig` is allowed to wrap, with `--fold-h` raised by a line to catch
+   it. That is the belt: a monospaced stack resolves to whatever the device
+   happens to have, and Consolas, Menlo and JetBrains Mono do not share an
+   advance — so no single width can be right everywhere, and the failure has to
+   be a wrapped line rather than a clipped number.
+
+   --fold-h is raised by a few pixels rather than by a whole line, and that is a
+   measured decision rather than a cautious one: at 288px the wrap was tested
+   and does not engage until the amount passes nine figures. A farm that budgets
+   a $100,000,000 gross margin has a different problem. The few pixels are there
+   so the descenders on a wrapped line would not be shaved if it ever happened;
+   a full line of headroom would have been empty space at the foot of every shut
+   tile on the page, paid every day against a case nobody will meet.
+
+   Scoped to >=900px because this is the only width where a shut card is a fixed
+   tile at all. Below it the card is full width and already handles this. */
+@media (min-width: 900px) {
+  [data-font="mono"] .ent-grid {
+    --fold-h: 145px;
+  }
+
+  [data-font="mono"] .ent.collapsed {
+    flex: 0 0 288px;
+    min-width: 288px;
+    width: 288px;
+  }
+
+  [data-font="mono"] .ent-fig {
+    white-space: normal;
+  }
+}
+
+/* The filter placeholder is 12px on a phone rather than 13px because at 13px
+   its string was truncated mid-word at 360px. The `em` rule above resolves
+   against that box's 16px and would put it back over the width that truncated
+   it, undoing the fix, so this one is named and kept in the width it belongs
+   to. */
+@media (max-width: 899px) {
+  [data-font="mono"] .scn-filter-input::placeholder {
+    font-size: 10px;
   }
 }
 
