@@ -135,6 +135,83 @@ export function closeModal() {
   lastFocused = null
 }
 
+/* ──────────────────────────── the busy veil ────────────────────────────── */
+
+/**
+ * Wait until the browser has had a chance to paint.
+ *
+ * Two frames deep, not one: the first callback runs before the frame that
+ * follows the DOM change is composited, so resolving there hands control back
+ * with the veil still unpainted, and the synchronous work that follows blocks
+ * the very frame it was waiting for.
+ *
+ * The window comes off `document.defaultView`, never the global, the same rule
+ * openTypical() follows for its CustomEvent constructor. A document with no
+ * animation frames at all (jsdom) falls through to a timer, which yields the
+ * task and is all this needs to be correct there.
+ */
+function nextPaint() {
+  const win = document.defaultView
+  return new Promise((resolve) => {
+    if (typeof win?.requestAnimationFrame === 'function') {
+      win.requestAnimationFrame(() => win.requestAnimationFrame(() => resolve()))
+    } else {
+      setTimeout(resolve, 0)
+    }
+  })
+}
+
+/**
+ * Run something slow behind a veil, and take the veil away whatever happens.
+ *
+ * Restoring a backup is the one operation here that can hold the tab up for
+ * long enough to look broken: a file read, a parse, a whole-list write, and a
+ * render of every row, with no feedback between the producer answering a
+ * confirm dialog and the page changing under them.
+ *
+ * Two things make this honest rather than decorative.
+ *
+ * It YIELDS before running the work. `replaceAll()` and `render()` are
+ * synchronous, so appending a veil and calling them in the same task paints
+ * nothing at all: the browser gets its first chance to draw after the work has
+ * already finished. Without the yield this would be a veil that is only ever
+ * visible when it is not needed.
+ *
+ * And it FADES IN on a delay rather than appearing at once, which is what keeps
+ * it from being noise. A backup of five budgets restores in a few milliseconds,
+ * and a spinner that flashes for one frame reads as something having gone
+ * wrong. The opacity is authored at 0 with a delay in front of it, so work that
+ * finishes inside the delay removes a veil nobody saw.
+ *
+ * This is NOT the modal overlay, and must not become it. That one traps focus,
+ * remembers what opened it, and closes on Escape and on a click outside. None
+ * of those are right here: Escape would take the picture away without stopping
+ * the work, leaving a producer looking at a frozen page believing they had
+ * cancelled a restore that is still running.
+ */
+export async function withBusy(message, work) {
+  const el = document.createElement('div')
+  el.className = 'busy'
+  // Announced, because nothing else says the app is doing anything. `polite`,
+  // so it waits for the confirm dialog the producer has just answered.
+  el.setAttribute('role', 'status')
+  el.setAttribute('aria-live', 'polite')
+  el.innerHTML = `
+    <div class="busy-card">
+      <span class="busy-spinner" aria-hidden="true"></span>
+      <span class="busy-text"></span>
+    </div>`
+  el.querySelector('.busy-text').textContent = message
+  document.body.appendChild(el)
+
+  try {
+    await nextPaint()
+    return await work()
+  } finally {
+    el.remove()
+  }
+}
+
 /* ─────────────────────────── `?` — read only ───────────────────────────── */
 
 /** One or more definitions. Never writes anything. */

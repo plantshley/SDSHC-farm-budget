@@ -370,7 +370,18 @@ describe('the app boots', () => {
     )
 
     // The boxes named outside the guard were ALREADY under 16px, so they were
-    // never protected by the threshold and nothing about them changes.
+    // never protected by the threshold and nothing about them behaves
+    // differently in mono.
+    //
+    // What is asserted here is that, and ONLY that: each one stays under 16.
+    // The invariant is a CLIFF and not a direction — iOS zooms on a box below
+    // 16px and does not zoom back out, so what must never happen is a box
+    // crossing down through it. Whether a given box is louder or quieter in
+    // mono is a typography decision per box, and this test used to encode
+    // "smaller" as though it were the safety property. It is not, and saying so
+    // made a deliberate change to .line-input.narrow look like a regression:
+    // that box holds six digits somebody is checking against a bag tag, which
+    // is what the face is chosen for, so it goes UP.
     const declared = (sel) => {
       const m = unguarded.match(new RegExp(`\\${sel} \\{[^}]*font-size: ([\\d.]+)px`))
       assert.ok(m, `${sel} is named outside the guard`)
@@ -384,7 +395,7 @@ describe('the app boots', () => {
     }
     for (const [sel, before] of Object.entries(wasAlreadySmall)) {
       assert.ok(before < 16, `${sel} was already below the threshold`)
-      assert.ok(declared(sel) < before, `${sel} comes down from ${before}px`)
+      assert.ok(declared(sel) < 16, `${sel} stays under the zoom threshold it was already under`)
     }
 
     // .scenario-name is the one unguarded box that STARTED above the threshold,
@@ -2241,7 +2252,15 @@ describe('a saved budget is opened from the same row as the rest of its actions'
     const actions = [...doc.querySelectorAll('.scn-btns button')].map((b) =>
       b.getAttribute('data-action')
     )
-    assert.deepEqual(actions, ['open-scenario', 'duplicate-scenario', 'delete-scenario'])
+    // Export sits after Duplicate and before Delete. The order is the risk
+    // gradient: the thing you came for, the two that make a copy of something,
+    // then the one that destroys it, which stays last on the row.
+    assert.deepEqual(actions, [
+      'open-scenario',
+      'duplicate-scenario',
+      'export-scenario',
+      'delete-scenario',
+    ])
     assert.equal(doc.querySelector('.scn-btns button').textContent.trim(), 'Open Budget')
 
     // The summary beside it is text, not a hidden second way to open the row.
@@ -2250,6 +2269,228 @@ describe('a saved budget is opened from the same row as the rest of its actions'
     click('.scn-btns [data-action="open-scenario"]')
     assert.equal(doc.querySelector('#scenarioName').value, 'Kept budget')
     assert.equal(doc.querySelector('[data-path="enterprises.0.acres"]').value, '640')
+  })
+})
+
+describe('exporting one saved budget from its row', () => {
+  beforeEach(async () => {
+    await boot()
+    // Every download ends in a real anchor click, and jsdom has no navigation.
+    // Stubbed so the click is inert; what the files CONTAIN is asserted in
+    // test/calc.test.js and against export.js directly, not through a Blob
+    // that cannot be read back here.
+    win.URL.createObjectURL = () => 'blob:stub'
+    win.URL.revokeObjectURL = () => {}
+    win.print = () => {}
+  })
+
+  /** Save `name`, then leave the saved list on screen. */
+  function saveAs(name) {
+    const box = doc.querySelector('#scenarioName')
+    box.value = name
+    box.dispatchEvent(new win.Event('input', { bubbles: true }))
+    click('[data-action="save-scenario"]')
+  }
+
+  test('Export opens a menu of three, each naming the row it came from', async () => {
+    saveAs('Kept budget')
+    click('[data-action="go-scenarios"]')
+    const id = doc.querySelector('.scn').getAttribute('data-scn-id')
+
+    click('.scn-btns [data-action="export-scenario"]')
+    const items = [...doc.querySelectorAll('.save-as-item')]
+    assert.deepEqual(
+      items.map((b) => b.getAttribute('data-action')),
+      ['save-as-json', 'save-as-csv', 'save-as-print']
+    )
+    // The id travels on every button, because this menu can be opened for a
+    // row that is not the budget open on the Budget tab.
+    for (const b of items) assert.equal(b.getAttribute('data-id'), id)
+    assert.match(textOf('.modal-title'), /Kept budget/)
+  })
+
+  test('choosing a file builds one and shuts the menu', async () => {
+    saveAs('Kept budget')
+    click('[data-action="go-scenarios"]')
+    click('.scn-btns [data-action="export-scenario"]')
+
+    let built = 0
+    win.URL.createObjectURL = () => {
+      built += 1
+      return 'blob:stub'
+    }
+    click('[data-action="save-as-csv"]')
+    assert.equal(built, 1, 'a file was built for the row')
+    // Printing renders the page the sheet is taken from, and the modal is part
+    // of that page. A menu left open would print as a grey veil over the
+    // budget, so all three choices close it.
+    assert.equal(doc.querySelector('.overlay').classList.contains('open'), false)
+
+    // download() revokes its object URL on a 1s timer, which fires against
+    // whatever `URL` is global by then — a later test's window, or a closed
+    // one. Waiting it out here keeps the stub in place for it rather than
+    // letting it land as an unhandled rejection in whatever runs next.
+    await new Promise((resolve) => setTimeout(resolve, 1100))
+  })
+
+  test('printing a row leaves the open budget exactly as it was', async () => {
+    saveAs('First')
+    // "+ New budget" lives in the saved list's header, and starting one puts
+    // the producer back on the Budget tab.
+    click('[data-action="go-scenarios"]')
+    click('[data-action="new-scenario"]')
+    saveAs('Second')
+    // Unsaved, on purpose: this is the state a borrow-and-restore has to
+    // survive, and the one where getting it wrong costs somebody real work.
+    type('enterprises.0.acres', '640')
+    const before = doc.querySelector('#scenarioName').value
+    assert.equal(textOf('.save-state'), 'Unsaved changes')
+
+    click('[data-action="go-scenarios"]')
+    const first = [...doc.querySelectorAll('.scn')].find((r) =>
+      r.querySelector('.scn-name-input').value.startsWith('First')
+    )
+    assert.ok(first, 'the other budget is in the list')
+    first.querySelector('[data-action="export-scenario"]').dispatchEvent(
+      new win.MouseEvent('click', { bubbles: true })
+    )
+    click('[data-action="save-as-print"]')
+    // Fired by the browser when the sheet goes away. jsdom never prints, so
+    // the test plays the part; a browser with no such event has already run
+    // the restore synchronously and this is a no-op.
+    win.dispatchEvent(new win.Event('afterprint'))
+
+    // Back where the producer was, not on the budget that was borrowed.
+    assert.ok(doc.querySelector('.scn-list'), 'the saved list is back on screen')
+
+    click('[data-action="go-build"]')
+    assert.equal(doc.querySelector('#scenarioName').value, before, 'same budget')
+    assert.equal(doc.querySelector('[data-path="enterprises.0.acres"]').value, '640')
+    assert.equal(textOf('.save-state'), 'Unsaved changes', 'and still unsaved')
+  })
+
+  test('printing a row does not mark a clean budget dirty', async () => {
+    saveAs('First')
+    // "+ New budget" lives in the saved list's header, and starting one puts
+    // the producer back on the Budget tab.
+    click('[data-action="go-scenarios"]')
+    click('[data-action="new-scenario"]')
+    saveAs('Second')
+    const savedAt = doc.querySelector('#scenarioName').value
+    assert.equal(textOf('.save-state'), SAVED_LABEL)
+
+    click('[data-action="go-scenarios"]')
+    const first = [...doc.querySelectorAll('.scn')].find((r) =>
+      r.querySelector('.scn-name-input').value.startsWith('First')
+    )
+    first.querySelector('[data-action="export-scenario"]').dispatchEvent(
+      new win.MouseEvent('click', { bubbles: true })
+    )
+    click('[data-action="save-as-print"]')
+    win.dispatchEvent(new win.Event('afterprint'))
+
+    click('[data-action="go-build"]')
+    assert.equal(doc.querySelector('#scenarioName').value, savedAt)
+    // setScenario() calls notify(), which stamps the scenario and sets dirty
+    // through the subscriber. Both have to be put back, or pressing Print
+    // raises "are you sure you want to leave?" on the way out of a budget
+    // nobody edited.
+    assert.equal(textOf('.save-state'), SAVED_LABEL, 'Print is not an edit')
+  })
+})
+
+describe('the busy veil', () => {
+  beforeEach(async () => {
+    await boot()
+  })
+
+  test('it is on screen before the work runs, and gone after', async () => {
+    const { withBusy } = await import('../src/ui/modals.js')
+    let seen = null
+    const result = await withBusy('Restoring your budgets', () => {
+      // Synchronous, like replaceAll() and render(). If withBusy did not yield
+      // first, the veil would be appended and removed inside one task and the
+      // browser would never paint it.
+      seen = doc.querySelector('.busy')
+      return 'done'
+    })
+    assert.equal(result, 'done')
+    assert.ok(seen, 'the veil was up while the work ran')
+    assert.equal(textOf('.busy-text'), null, 'and is gone afterwards')
+    assert.equal(doc.querySelector('.busy'), null)
+  })
+
+  test('a failure still takes it away', async () => {
+    const { withBusy } = await import('../src/ui/modals.js')
+    await assert.rejects(
+      withBusy('Restoring your budgets', () => {
+        throw new Error('out of space')
+      }),
+      /out of space/
+    )
+    // Without the `finally` this leaves the app veiled with no way out.
+    assert.equal(doc.querySelector('.busy'), null)
+  })
+})
+
+/**
+ * The stylesheet with its line endings normalised.
+ *
+ * This repository is worked on from Windows, so styles.css is checked out with
+ * CRLF. A source assertion written as `\{\n  body \{` matches nothing there and
+ * passes for the wrong reason on a machine that has the file as LF, which is a
+ * test that only fails where nobody is looking.
+ */
+function sheet() {
+  return readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
+}
+
+describe('the topbar band', () => {
+  test('the band wraps the bar rather than being the bar', async () => {
+    // .topbar is capped at --maxw and centred, so a background on it stops at
+    // the content edge. The band has to be the full-window element outside it.
+    assert.match(HTML, /<div class="topband">\s*<div class="topbar">/)
+  })
+
+  test('the band cancels exactly the padding the page indents by', async () => {
+    const css = sheet()
+
+    // Wide: body is 16px, so the band is -16px. Overshoot and the page scrolls
+    // sideways; undershoot and the band stops short of one edge.
+    assert.match(css, /^\.topband \{[^}]*margin: 0 -16px/m)
+    assert.match(css, /^body \{[^}]*padding: 0 16px 16px/m)
+
+    // And the same pair inside the narrow block, where body drops to 12px.
+    const narrow = css.slice(css.indexOf('@media (max-width: 899px) {\n  body {'))
+    assert.ok(narrow, 'the narrow block still opens with body')
+    assert.match(narrow.slice(0, 900), /padding: 0 12px 12px/)
+    assert.match(narrow.slice(0, 900), /\.topband \{\s*margin: 0 -12px/)
+  })
+
+  test('both infinite animations are turned off by name for reduced motion', async () => {
+    const css = sheet()
+    // The blanket rule at the foot of the sheet cuts every animation to
+    // 0.01ms, which leaves an `infinite` one restarting thousands of times a
+    // second rather than stopping. Neither of these is covered by it.
+    const blocks = [...css.matchAll(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\n\}/g)]
+    for (const sel of ['.topband', '.busy-spinner']) {
+      assert.ok(
+        blocks.some((b) => b[0].includes(`${sel} {`) && b[0].includes('animation: none')),
+        `${sel} is stopped by name`
+      )
+    }
+  })
+
+  test('olive as text is a different token from olive as a fill', async () => {
+    const css = sheet()
+    // #afbf42 on the page background is 2.0:1 and fails AA at any size, so the
+    // Export link cannot simply take --olive. Both themes must declare the ink,
+    // and the light one must not be the fill value.
+    const dark = css.indexOf('[data-theme="dark"] {')
+    assert.ok(dark > 0, 'the dark theme block is still declared')
+    assert.match(css.slice(css.indexOf(':root {'), dark), /--olive-ink: #6b7a1f/)
+    assert.match(css.slice(dark), /--olive-ink: var\(--olive\)/)
+    assert.match(css, /\.tip\.olive \{\s*color: var\(--olive-ink\);/)
   })
 })
 

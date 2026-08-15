@@ -21,7 +21,7 @@ like one family.
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 816 tests: the economic model, storage, data, and a DOM smoke test
+npm test           # 826 tests: the economic model, storage, data, and a DOM smoke test
 npm run build      # -> dist/
 ```
 
@@ -241,6 +241,17 @@ one thing this format has to make impossible to get wrong. *Reasoning in
 - **A restore does not touch the budget open on the Budget tab**, unsaved edits
   included. It is not part of the saved list. It does clear the filter, same rule
   a save follows.
+- **A restore runs behind `withBusy()`, in TWO passes, and the veil yields
+  before the work.** `replaceAll()` and `render()` are synchronous, so appending
+  a veil and calling them in one task paints nothing: the browser's first chance
+  to draw comes after the work has already finished. The veil also **fades in on
+  a delay**, so a small backup removes something nobody saw rather than flashing
+  a spinner for one frame, which reads as an error. Two passes because the
+  confirm dialog sits between the read and the write, and **both `alert()`s are
+  raised with the veil already down** — a question asked over a picture of the
+  app still working is not answerable. It is **not** the modal overlay and must
+  not become one: Escape there would take the picture away without stopping the
+  restore. *See [DESIGN-NOTES.md](DESIGN-NOTES.md).*
 
 ### The Saved-tab filter, and the two things it is not allowed to do
 
@@ -554,6 +565,47 @@ for the formulas the recipient writes. Both halves are asserted.
 keeping a second copy. Differences get **their own column**, never a merged
 `value (+123)` cell.
 
+### A row's Export is not the footer's three with an id bolted on
+
+`Export` sits between Duplicate and Delete on every saved row and opens
+`openExportDialog()` — one menu of three, in `ui/scenarios.js`, wearing the same
+`.save-as` component as the grazing calculator. *Detail in
+[DESIGN-NOTES.md](DESIGN-NOTES.md).*
+
+- **The component is shared with the grazing calculator and the WORDING is
+  too** — the modal title, the three headings and the three sentences are that
+  tool's, with "calculation" swapped for "budget". So are the type sizes,
+  including `.save-as-body`'s mono step at **11.5px**, which is its figure and
+  not one chosen here. Somebody at a Soil Health School uses both tools in an
+  afternoon; two ways of saying the same three things reads as two different
+  features. **Change one, change the other.**
+
+- **`save-as-json` / `save-as-csv` / `save-as-print` read the STORED record**,
+  through `getScenarioById(data-id)`. The footer's `export-csv`, `export-json`
+  and `print` act on the working scenario and always will; a producer choosing
+  Export on a row has named which budget they mean, and it is routinely not the
+  one they are editing.
+- **The menu is shut before any of the three run.** Printing renders the page
+  the sheet is taken from and the modal is part of it, so an open menu prints as
+  a grey veil over the budget.
+- **Printing a row BORROWS the working scenario and puts it back**, because
+  `window.print()` prints the page and the page is the saved list. A **clone**
+  goes in, and `printSavedBudget()` in `main.js` restores three things, not one:
+  the scenario object, **its `updatedAt`**, and **`dirty`** — `setScenario()`
+  calls `notify()`, which stamps whatever it is handed and sets `dirty` through
+  the subscriber, so the restoring call would otherwise leave a budget nobody
+  touched claiming unsaved changes and raising `beforeunload` on the way out.
+  Fold state is deliberately **not** saved: `@media print` opens every collapsed
+  card, so it changes nothing on paper.
+- The swap back runs on **`afterprint`**, never off `print()` returning — on a
+  phone that can hand back before the sheet appears. A browser with no such
+  event gets the synchronous path, which is what it behaves like.
+- **`--olive-ink` is a separate token from `--olive` and must stay one.**
+  `--olive` is a fill, read against the ink placed on top of it; as text on the
+  page background it is 2.0:1 and fails AA at any size. The light theme darkens
+  it to `#6b7a1f` (4.7:1) and the dark theme, where `--olive` lightens, points
+  the ink straight at it. Asserted in `test/app.test.js`.
+
 ### `?` explains, `use typical value` acts — never merge them
 
 - Round `?` (`.help-btn`, `data-info`) → `openInfo()`. **Read-only.** Tapping it
@@ -717,6 +769,22 @@ header, year and save-state rules, in [DESIGN-NOTES.md](DESIGN-NOTES.md).*
   on `.toplogo` is what lets an `<img>` shrink at all (a replaced element's
   automatic minimum size is its intrinsic width, so the row overflows without
   it). The pill also tightens at ≤899px, which is what holds the row at 320px.
+- **`.topband` is a WRAPPER in `index.html`, not a background on `.topbar`.**
+  The bar is capped at `--maxw` and centred, so a background on it stops at the
+  content edge and leaves a strip of plain page either side. **Its negative side
+  margins must equal `body`'s padding** — `-16px`, and `-12px` under 900px —
+  which is the one pair here that is not free-standing: undershoot and the band
+  stops short of an edge, overshoot and the page scrolls sideways. The gradient
+  is derived from `--sky` and `--olive-bg` rather than written as hex, so one
+  set of values follows both themes, and the sky is mixed **into** the page
+  background rather than used at strength. It is **hidden in `@media print`**,
+  side margins included. Shared with the grazing calculator, where the same
+  rules and the same reasons apply.
+- **An `infinite` animation has to be stopped BY NAME for reduced motion.** The
+  blanket rule at the foot of the sheet cuts every animation to `0.01ms`, which
+  leaves an infinite one restarting thousands of times a second rather than
+  stopping. `.topband` and `.busy-spinner` each carry their own
+  `prefers-reduced-motion` override, and a test asserts both.
 - **Two logo files, one per width, the wrong one `display: none`** — the
   horizontal lockup ≥900px, the **square mark** below, where the wordmark needs
   about 170px the phone has not got. Same idiom as the two copies of the
@@ -739,14 +807,22 @@ header, year and save-state rules, in [DESIGN-NOTES.md](DESIGN-NOTES.md).*
   it. A test walks every `[data-font-choice]` button and asserts the stylesheet
   declares a stack for it.
 - **`mono` also drops the small prose one step** — hints, tips, notices, the
-  footer, the modal notes, `.btn-remove`, the placeholders and the text boxes. A
-  monospaced face runs wider at the same px size, so they stopped being quieter
-  than what they are about. **Readouts and KPI figures do not move**: they are
-  what somebody chose the face for. Scoped by selector, never a scale on a
-  container. **The block sits LAST in the sheet on purpose** — two of its rules
-  exist to out-rank a deeper selector elsewhere (`.ent-add .hint`,
+  footer, the modal notes, `.btn-remove`, the placeholders and most of the text
+  boxes. A monospaced face runs wider at the same px size, so they stopped being
+  quieter than what they are about. **Readouts and KPI figures do not move**:
+  they are what somebody chose the face for. Scoped by selector, never a scale
+  on a container. **The block sits LAST in the sheet on purpose** — two of its
+  rules exist to out-rank a deeper selector elsewhere (`.ent-add .hint`,
   `.scn-btns .tip`), and a new `.something .hint { font-size }` added later would
   beat a short selector in it.
+- **`.line-input.narrow` goes UP in mono, 12px → 13px**, alone among the boxes,
+  and is not a slip. It holds a seeds-per-unit or a population — six digits
+  somebody is checking against a bag tag, which is the reading the face is
+  chosen for, so it follows the readouts rather than the prose. **The 16px
+  threshold is a cliff, not a direction**: below it these boxes are equally
+  safe, and what must never happen is one crossing DOWN through it. The test
+  asserts that and nothing more; it used to assert "smaller", which is not the
+  safety property and made a deliberate change read as a regression.
 - **Placeholders scale in `em`, never px.** An `em` on `::placeholder` resolves
   against the input it sits in, so one rule covers every box; a px figure would
   have made `.line-input.narrow`'s 12px box *bigger*. The mobile
@@ -856,7 +932,7 @@ it.
 
 ## Tests
 
-816 tests across seven files. `npm test` runs them, and so does the deploy
+826 tests across seven files. `npm test` runs them, and so does the deploy
 workflow before it builds. *Detail in [DESIGN-NOTES.md](DESIGN-NOTES.md).*
 
 - `test/calc.test.js` — the model against real Excel output, plus the deliberate

@@ -2360,3 +2360,248 @@ after the one dialog in the app whose whole job is to be believed.
 - **No double-activation guard on the two file inputs.** A fast double tap can
   open two flows. JavaScript is single-threaded and localStorage writes are
   atomic, so the worst case is two confirm dialogs in a row, not corruption.
+
+---
+
+## Three ways out of a saved row, a veil, and a band
+
+Three requests off the back of the teammate round, all of them about the app
+having grown past the shape of its own chrome.
+
+### Export is a menu because the row has run out of buttons
+
+A saved row already carried Open Budget, Move, Duplicate and Delete. The three
+new ways out of the app would have made it seven, and Delete would have fallen
+off the end of a 320px screen. They are also three answers to one question,
+which is what a menu is for.
+
+It is the shared modal rather than a dropdown. A dropdown would have to be
+positioned inside a list that reflows at every width, can be scrolling under a
+held finger, and is re-rendered by a delete or a reorder from somewhere else on
+the page. The modal gets the focus trap, the Escape handling and the scroll lock
+for nothing, and the grazing calculator had already built exactly this component
+for exactly this reason, so the two tools now share `.save-as` down to its
+padding.
+
+Each choice says what the file is FOR rather than what it is. "JSON, CSV, PDF"
+names three formats, and somebody sending this year's budget to their lender is
+not choosing between formats. The order is the order they are reached for: the
+file that comes back into this app, the file that opens somewhere else, then
+paper.
+
+The wording is the grazing calculator's too, not only the markup: the modal
+title, the three headings and the three sentences, with "calculation" swapped
+for "budget" and nothing else moved. This was a second pass — the first draft
+rewrote all three in this app's own voice, which was a worse answer for a reason
+that is easy to miss when only one of the two tools is on screen. Somebody at a
+Soil Health School has both open in an afternoon. Two ways of saying the same
+three things reads as two different features, and the producer is then working
+out whether "Spreadsheet" here means what "Spreadsheet" meant there. The type
+sizes came with it, including `.save-as-body`'s mono step at 11.5px, which is
+that tool's figure rather than one picked here — a half-pixel apart is the kind
+of difference that reads as one of them being slightly wrong without saying
+which.
+
+One thing deliberately not carried over: the grazing calculator's print
+sentence reads *"where you can sent it to your printer"*. A typo is not a house
+style, and copying it to match would be matching the wrong thing.
+
+None of the three is filled. This is a menu, and a `--sky` fill on one of three
+would be the app choosing for the producer. The row that opened it has already
+spent its colour saying what kind of thing this is.
+
+### Why these are separate actions from the footer's three
+
+The footer's `export-csv`, `export-json` and `print` act on the working
+scenario, which is correct there: the producer is looking at it. On the Saved
+tab the record they have named is a row, and it is routinely not the budget open
+on the Budget tab. So the row's three read the **stored** record through
+`getScenarioById(data-id)`, and the id travels on every button in the menu.
+
+There is one consequence worth stating rather than discovering. If the row IS
+the open budget and it has unsaved edits, Export gives the SAVED version, not
+what is on screen. That is the right answer for a control that names a row in
+the saved list, and it is the same answer Duplicate has always given, but it is
+not the answer somebody would guess if they had not thought about it.
+
+### Printing a row means borrowing the page
+
+`window.print()` prints the page, and the page here is the saved list. There is
+no way to print a budget that is not on screen without putting it on screen, so
+`printSavedBudget()` swaps the working scenario for a clone of the row, renders,
+prints, and swaps back on `afterprint`.
+
+The clone matters: nothing that runs while the sheet is up can then write
+through into the saved list.
+
+Three things have to be restored, and only the first is obvious.
+
+The scenario itself, as the same object, so anything holding a reference to it
+is not left pointing at a copy.
+
+**Its `updatedAt`.** `setScenario()` calls `notify()`, which stamps whatever
+scenario it is handed. So the restoring call stamps the original too, and a
+budget nobody touched would come back from a print looking edited — and would
+then lose a conflict check against a stored record it now disagrees with.
+
+**And `dirty`**, for the same reason: `notify()` sets it through the subscriber.
+Without this, pressing Print on a row leaves a clean budget claiming unsaved
+changes and raises the browser's "are you sure you want to leave?" dialog in
+front of somebody who did nothing but ask for a printout.
+
+Fold state is deliberately NOT saved and restored. `@media print` already opens
+every collapsed card and the fixed block, so what is folded on screen changes
+nothing on paper, and putting back a `Set` of enterprise ids belonging to a
+different budget is a state swap with no reader.
+
+The swap back runs on `afterprint` rather than after `print()` returns, because
+on a phone `print()` can hand back before the sheet has appeared and the page
+would be pulled out from under it. A browser with no such event gets the
+synchronous version, which is what it behaves like.
+
+### Olive as text is not the same colour as olive as a fill
+
+The request was for the Export link to be olive. `--olive` is `#afbf42`, and on
+the page background that is **2.0:1** — it fails AA at any size and fails worst
+at the 12px the row buttons are set in. The token cannot do this job, and the
+mode pill's `--on-olive` is the opposite problem: ink to put ON olive.
+
+So `--olive-ink` is the same hue taken down in lightness until it clears 4.5:1,
+at `#6b7a1f` (4.7:1). Export still reads as the olive member of the row rather
+than as a second green beside Open. In dark mode `--olive` lightens to `#c3d456`
+and is already 8.6:1 on the dark background, so the ink points straight at it
+rather than carrying the darkened value over, where it would be 2.4:1.
+
+This is the same failure `--on-olive` exists to prevent, one step round: a
+colour that works as a fill is not thereby a colour that works as text, and the
+sheet now has a token for each direction.
+
+### A spinner that only appears when it is needed
+
+Restoring a backup is the one operation here that can hold the tab up for long
+enough to look broken: a file read, a parse, a whole-list write, and a render of
+every row, with nothing between the producer answering a confirm dialog and the
+page changing under them.
+
+Two things make `withBusy()` honest rather than decorative, and both are easy to
+get wrong in a way that ships.
+
+**It yields before running the work.** `replaceAll()` and `render()` are
+synchronous. Appending a veil and calling them in the same task paints nothing
+at all — the browser's first opportunity to draw comes after the work has
+already finished. Without the yield this would be a veil that is visible only
+when it is not needed. `nextPaint()` waits two animation frames, not one: the
+first callback runs before the frame following the DOM change is composited, so
+resolving there hands control back with the veil still unpainted.
+
+**And it fades in on a delay.** A backup of five budgets restores in a few
+milliseconds, and a spinner that flashes for one frame reads as an error rather
+than as progress. The opacity is authored at 0 with a 220ms delay in front of
+it, so work that finishes inside the delay removes a veil nobody saw. `forwards`
+on the animation is load-bearing: without it the veil would snap back to its
+authored opacity of 0 one frame after arriving.
+
+It is deliberately NOT the modal overlay. That one traps focus, remembers what
+opened it, and closes on Escape and on a click outside. None of those are right
+for a picture the producer cannot answer: Escape would take the veil away
+without stopping the work, leaving somebody looking at a frozen page believing
+they had cancelled a restore that is still running.
+
+The restore runs it in **two** passes rather than one, because the confirm
+dialog sits between the read and the write, and a spinner behind a question
+somebody is being asked to answer says the app is busy with something they have
+not agreed to yet. Both `alert()`s are raised with the veil already down for the
+same reason.
+
+One ordering did change. The partial-failure alert — budgets restored, folders
+not — used to be raised before the navigation and now comes after it. It
+describes the list the producer is now looking at, and reading it before the
+list arrives gives them nothing to check it against. The total-failure case is
+unchanged and still returns before anything navigates, which is the invariant
+that matters: saying "nothing was changed" and then switching tab reads as a
+restore that happened anyway.
+
+### The band is a wrapper, and its margins are half of a pair
+
+Ported from the grazing calculator so the two tools read as one family.
+
+It is a wrapper element in `index.html` rather than a background on `.topbar`,
+and that is not tidiness. `.topbar` is capped at `--maxw` and centred, so a
+background on it stops at the content edge and leaves a strip of plain page down
+either side of a wide screen, which reads as a mistake rather than as a header.
+The band has to be the full-window element with the centred bar inside it.
+
+Its negative side margins have to MATCH `body`'s padding — 16px, and 12px under
+900px. That pair is the one thing in the block that is not free-standing.
+Undershoot and the band stops an inch short of an edge; overshoot and the page
+scrolls sideways, which on a phone is the worst failure available. A test
+asserts both halves of both pairs, because the two numbers live in different
+places in the sheet and nothing else connects them.
+
+The gradient is derived from `--sky` and `--olive-bg` rather than written as
+hex, so one set of values follows both themes: `--olive-bg` is already a pale
+wash in the light theme and a dark one in the dark theme. The sky is mixed INTO
+the page background rather than used at strength, because full `--sky` is the
+loudest colour in the system and is spent on one button per screen. A band of it
+across the top would outrank the answer the page exists to give, and in dark
+mode the wordmark is inverted to white and would be sitting on bright cyan. A
+fifth of it reads as a tint in both.
+
+The animation moves the background POSITION across an oversized gradient. No
+layout, no paint of anything but this element, and nothing in the row above
+moves.
+
+**An `infinite` animation has to be turned off by name for reduced motion.** The
+blanket rule at the foot of the sheet cuts every animation to `0.01ms`, which
+for a finite one is effectively "off" and for an infinite one leaves it
+restarting a few thousand times a second. `.topband` and `.busy-spinner` each
+carry their own `prefers-reduced-motion` override, and the position each settles
+on is the one it is authored at.
+
+It is hidden in `@media print`, **side margins included**. Most browsers drop
+backgrounds on paper by default, but "most" is not a rule, and a producer who
+has turned background graphics on to keep the logo would otherwise get a wash of
+ink across the top of every sheet — with the header pulled off the left edge of
+a page that has no body padding for the negative margin to cancel.
+
+### A test that asserted the wrong half of its own rule
+
+`[data-font="mono"] .line-input.narrow` turned up at `13px` against `10px` in
+the last commit — larger than the 12px the box is in the proportional face, and
+the opposite direction to everything else in the mono block. It failed
+`mono never takes a text box under 16px where iOS would zoom it`, so it looked
+like a slip and was reverted. It was deliberate.
+
+The change is right and the test was wrong, in a way worth recording because the
+test reads as though it is about safety throughout.
+
+**The invariant is a cliff, not a direction.** iOS Safari magnifies the page
+when a field under 16px takes focus and does not magnify back, so what must
+never happen is a box crossing DOWN through 16px. Four boxes were already below
+it before mono touched them, which is exactly what the comment beside them says
+— *"they are below the zoom threshold either way, so nothing changes about how
+they behave"*. Under that reasoning 12px and 13px are the same fact. The
+assertion, though, was `declared(sel) < before`: it required each box to get
+SMALLER, which is a typography preference dressed as a threshold check. So a
+deliberate decision about one box failed a test whose stated subject it does not
+touch.
+
+And the decision is the mono block's own logic applied one level down.
+`.line-input.narrow` is not prose. It holds a seeds-per-unit or a planting
+population: six digits somebody is reading off a bag tag and checking against a
+screen, which is precisely what a monospaced face is chosen for. The block
+already exempts the readouts and the KPI figures for that reason — *"they are
+what somebody chose this face FOR, and shrinking them would undo the choice"* —
+and an input holding the same kind of figure belongs on that side of the line,
+not with the hints and the footer.
+
+The test now asserts `< 16` for those four and nothing else, with the reason in
+it. `.scenario-name` keeps its separate, stronger assertion: it is the one
+unguarded box that STARTED above the threshold, so for it the direction really
+does matter.
+
+The stylesheet-source tests added here normalise `\r\n` first. This repository
+is worked on from Windows and `styles.css` is checked out with CRLF, so an
+assertion written as `\{\n  body \{` matches nothing here and passes for the
+wrong reason on a machine that has the file as LF — a test that only fails where
+nobody is looking.

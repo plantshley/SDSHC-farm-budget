@@ -95,6 +95,7 @@ export const HOW_TO_SECTIONS = [
       'Print produces a clean copy for paper or PDF.',
       'Save budget file downloads a file. Upload a budget file, on the Saved tab, reads one back in. Use the pair to move a budget from your phone to your computer, or to share with others.',
       'Export backup, on the Saved tab, downloads every saved budget and every folder as one file. Restore backup reads it back and replaces everything on the Saved tab.',
+      'Export, on a row in the saved list, offers the same three for that budget without opening it. Use it when the budget you want to send is not the one you are working on.',
     ],
   },
 ]

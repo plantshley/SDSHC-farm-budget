@@ -129,6 +129,19 @@
   --olive-soft: rgba(175, 191, 66, 0.35);
   --on-olive: var(--brown);
 
+  /* Olive as TEXT, which --olive itself cannot be.
+
+     The two are opposite jobs and neither token can do the other's. --olive is
+     a fill: it is read against the dark ink placed on top of it, and at
+     #afbf42 on the page background it is 2.0:1, which fails AA at any size and
+     fails it worst at the 12px the row buttons are set in. This is the same
+     value taken down in lightness until it clears 4.5:1 (4.7:1 here) with the
+     hue left where it was, so Export still reads as the olive member of the
+     row rather than as a second green beside Open.
+     Dark mode needs no second value: --olive lightens there and is already
+     8.6:1 on --bg, so this follows it. */
+  --olive-ink: #6b7a1f;
+
   /* Typography is one swappable property — see [data-font] below. */
   --font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text",
     "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -173,6 +186,9 @@
      is sitting on is now dark. 8:1 over the dark wash. */
   --olive-soft: rgba(195, 212, 86, 0.18);
   --on-olive: var(--text);
+  /* The light theme's darkened olive would be 2.4:1 on this background, so the
+     ink flips to the lightened fill colour rather than being carried over. */
+  --olive-ink: var(--olive);
 
   /* WASHES ONLY, and that is the whole point: the twelve inks are deliberately
      NOT overridden here, so a folder is the same colour in either theme. See the
@@ -246,6 +262,67 @@ main {
 }
 
 /* ---- topbar ------------------------------------------------------------ */
+
+/* The band behind the logo row, shared with the grazing calculator so the two
+   tools read as one family.
+
+   It is a WRAPPER in index.html and not a background on .topbar, because
+   .topbar is width-capped at --maxw and centred: a background on it stops at
+   the content edge on a wide screen and leaves a strip of plain page either
+   side, which reads as a mistake rather than as a header. The band is the
+   full-window element and the bar goes on being the centred one inside it.
+
+   The negative side margins have to MATCH body's padding, which is 16px here
+   and 12px under 900px. That pair is the one thing in this block that is not
+   free-standing: change body's padding and these follow, or the band stops an
+   inch short of one edge. Overshoot instead and the page scrolls sideways.
+
+   The gradient is derived from --sky and --olive-bg rather than written as
+   hex, so it follows both themes with one set of values: --olive-bg is already
+   a pale wash in the light theme and a dark one in the dark theme, and the sky
+   is mixed INTO the page background rather than used at strength. Full --sky
+   is the loudest colour in the system and is spent on one button per screen; a
+   band of it across the top would outrank the answer the page exists to give,
+   and in dark mode the wordmark is inverted to white and would sit on a bright
+   cyan. A fifth of it reads as a tint in both.
+
+   The animation moves the background POSITION across an oversized gradient. No
+   layout, no paint of anything but this element, and nothing in the row above
+   moves. 40s and `alternate`, so it is a drift rather than a loop somebody can
+   catch cycling. */
+.topband {
+  margin: 0 -16px;
+  padding: 0 16px 4px;
+  border-bottom: 1px solid var(--border);
+  background-image: linear-gradient(
+    100deg,
+    color-mix(in oklab, var(--sky) 20%, var(--bg)),
+    var(--olive-bg) 32%,
+    color-mix(in oklab, var(--sky) 14%, var(--bg)) 62%,
+    var(--olive-bg)
+  );
+  background-size: 260% 100%;
+  background-position: 0% 0%;
+  animation: topband-drift 40s ease-in-out infinite alternate;
+}
+
+@keyframes topband-drift {
+  to {
+    background-position: 100% 0%;
+  }
+}
+
+/* The blanket reduced-motion rule at the foot of this sheet cuts every
+   animation to 0.01ms, but this one is `infinite`, so that would leave it
+   restarting a few thousand times a second rather than stopping. An infinite
+   animation has to be turned off by name, and the position it settles on is
+   the one the band is authored at. */
+@media (prefers-reduced-motion: reduce) {
+  .topband {
+    animation: none;
+    background-position: 0% 0%;
+  }
+}
 
 /* One row at every width, and the LOGO is what gives way.
 
@@ -542,6 +619,14 @@ input.invalid {
    green of the action that opens one. */
 .tip.alt {
   color: var(--sky);
+}
+
+/* Export takes the olive, which is the one brand colour on this row not
+   already spoken for: green opens a budget, blue is about a budget, red
+   destroys one, and a file leaving the app is none of those. See --olive-ink,
+   which is NOT --olive — that value is a fill and is unreadable as text. */
+.tip.olive {
+  color: var(--olive-ink);
 }
 
 .flash {
@@ -2980,6 +3065,132 @@ body.modal-open {
   margin: 8px 0 0;
 }
 
+/* ---- the export menu ---------------------------------------------------- */
+
+/* Three choices, one per row, each a full-width target.
+
+   None of them is filled, and that is deliberate: this is a menu, and a --sky
+   fill on one of three would be the app choosing for the producer. The row
+   that opened it already used its colour to say what kind of thing this is. */
+.save-as {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.save-as-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  padding: 11px 13px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.save-as-item:hover,
+.save-as-item:focus-visible {
+  border-color: var(--olive);
+  background: var(--olive-bg);
+}
+
+.save-as-title {
+  font-weight: bold;
+  color: var(--brand-ink);
+}
+
+/* What the file is FOR, not what it is. Somebody choosing here wants to send a
+   copy to their lender or put one on paper; the extension is not the decision
+   in front of them. */
+.save-as-body {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+/* ---- the busy veil ------------------------------------------------------ */
+
+/* Raised for a restore, which is the one operation here that can hold the tab
+   up for long enough to look broken. See withBusy() in ui/modals.js.
+
+   The delay in front of the fade is the whole design. A backup of five budgets
+   restores in a few milliseconds, and a spinner that flashes for one frame
+   reads as an error rather than as progress — so the veil is authored at
+   opacity 0 and only becomes visible if the work is still running 220ms later.
+   Work that finishes first removes something nobody saw.
+
+   `forwards` matters: without it the veil would snap back to its authored
+   opacity of 0 the moment the animation ended, one frame after arriving. */
+.busy {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--overlay);
+  opacity: 0;
+  animation: busy-in 0.18s ease 0.22s forwards;
+}
+
+@keyframes busy-in {
+  to {
+    opacity: 1;
+  }
+}
+
+.busy-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--card);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  font-size: 14px;
+  max-width: calc(100% - 32px);
+}
+
+.busy-spinner {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border);
+  border-top-color: var(--sky);
+  border-radius: 50%;
+  animation: busy-spin 0.7s linear infinite;
+}
+
+@keyframes busy-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* The blanket reduced-motion rule at the foot of this sheet cuts every
+   animation to 0.01ms, which is right for the fade and wrong for the spin:
+   that one is `infinite`, so it would be left restarting thousands of times a
+   second rather than stopping. An infinite animation has to be turned off by
+   name. The veil itself goes to full opacity at once, which is the honest
+   behaviour for somebody who has asked for no motion. Same pair of rules the
+   topband needs, for the same reason. */
+@media (prefers-reduced-motion: reduce) {
+  .busy {
+    animation: none;
+    opacity: 1;
+  }
+
+  .busy-spinner {
+    animation: none;
+  }
+}
+
 /* ---- the folder modals -------------------------------------------------- */
 
 .fld-options {
@@ -3323,6 +3534,14 @@ body.modal-open {
 @media (max-width: 899px) {
   body {
     padding: 0 12px 12px;
+  }
+
+  /* Paired with body's padding directly above. The band reaches the window
+     edge by cancelling exactly what the page indents by, so these two numbers
+     move together or the band stops short of one side. */
+  .topband {
+    margin: 0 -12px;
+    padding: 0 12px 4px;
   }
 
   .topbar {
@@ -3782,6 +4001,22 @@ body.modal-open {
   font-size: 10px;
 }
 
+/* The export menu's second line, which is prose about the choice above it and
+   comes down with the rest of the prose. `.save-as-title` does not: it is the
+   choice itself.
+
+   11.5px is the grazing calculator's figure for the same element, not a number
+   picked here. The two menus are one component and a producer who uses both
+   tools sees them side by side; a half-pixel apart is the kind of difference
+   that reads as one of them being slightly wrong without saying which. */
+[data-font="mono"] .save-as-body {
+  font-size: 11.5px;
+}
+
+[data-font="mono"] .busy-card {
+  font-size: 12px;
+}
+
 /* `[data-scn-hint] .tip` is already `font-size: inherit`, so the upload offer
    follows the hint paragraph it sits in and needs nothing here. Listed only so
    the next person does not add it and wonder why it changed nothing. */
@@ -3829,9 +4064,22 @@ body.modal-open {
   font-size: 1em;
 }
 
-/* Inputs that were ALREADY under 16px come down a step with everything else.
-   They are below the zoom threshold either way, so nothing changes about how
-   they behave — only how loud they are. */
+/* Inputs that were ALREADY under 16px. They are below the zoom threshold
+   either way, so nothing here changes how any of them BEHAVES — only how loud
+   it is, and each one is tuned rather than scaled.
+
+   Three come down a step with the rest of the small prose. `.line-input.narrow`
+   goes the other way, and that is the one that has to be argued for: it is
+   12px in the proportional face, and it holds a SEEDS-PER-UNIT or a POPULATION
+   — six digits somebody is checking against a bag tag. That is the reading a
+   monospaced face is chosen FOR, the same reason the readouts and the KPI
+   figures do not move, so it goes up to 13px rather than down to 10px. Mono
+   runs wider at a given size, so 13px here is a wider box than 13px above it;
+   the narrow track was measured with that in mind.
+
+   16px is the only number in this block that means anything. Below it these
+   boxes are all equally safe, above it they would all be safe; what must never
+   happen is a box crossing DOWN through it. See the money boxes below. */
 [data-font="mono"] .scn-name-input {
   font-size: 13px;
 }
@@ -3845,7 +4093,7 @@ body.modal-open {
 }
 
 [data-font="mono"] .line-input.narrow {
-  font-size: 10px;
+  font-size: 13px;
 }
 
 /* 19px, so it can lose two and still clear 16. */
@@ -4017,6 +4265,21 @@ body.modal-open {
     color: #000;
     padding: 0;
     font-size: 11pt;
+  }
+
+  /* The band is screen decoration and prints as a wash of ink across the top
+     of every sheet. Most browsers drop backgrounds on paper by default, but
+     "most" is not a rule and a producer who has turned background graphics on
+     to keep the logo would get the tint with it. The wrapper stays in the flow
+     — it is what the bar sits in — with everything that makes it a band gone,
+     including the side margins, which would otherwise pull the header off the
+     left edge of a page that has no body padding to cancel. */
+  .topband {
+    margin: 0;
+    padding: 0;
+    border-bottom: none;
+    background-image: none;
+    animation: none;
   }
 
   /* Keep the mark on the printed copy — this gets handed round a classroom. */

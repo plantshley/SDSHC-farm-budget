@@ -36,8 +36,14 @@ import { openMoveModal, openFolderEditor, folderCountText } from './ui/folders.j
 import { renderEnterprises, applyUnitLabels } from './ui/enterprise.js'
 import { renderFixed, OVERHEAD_LINES } from './ui/fixed.js'
 import { renderResults, renderWarningsInto } from './ui/results.js'
-import { renderScenarioList, renderCompare, scenarioHint, searchText } from './ui/scenarios.js'
-import { openInfo, openTypical, openGuide } from './ui/modals.js'
+import {
+  renderScenarioList,
+  renderCompare,
+  scenarioHint,
+  searchText,
+  openExportDialog,
+} from './ui/scenarios.js'
+import { openInfo, openTypical, openGuide, closeModal, withBusy } from './ui/modals.js'
 import { usd, usdCents, esc, signClass } from './ui/format.js'
 import {
   matchCategory,
@@ -2238,6 +2244,35 @@ function handleAction(action, btn) {
       downloadCSV(scenario)
       break
 
+    /* The same three files, for a row in the saved list rather than for the
+       budget open on the Budget tab. They are separate actions and not the
+       three above with an id bolted on, because these read the STORED record:
+       a producer picking Export on a row has named which budget they mean, and
+       it is routinely not the one they are in the middle of editing. */
+    case 'export-scenario': {
+      const found = getScenarioById(btn.getAttribute('data-id'))
+      if (!found) return
+      openExportDialog(found)
+      break
+    }
+
+    case 'save-as-json':
+    case 'save-as-csv':
+    case 'save-as-print': {
+      const found = getScenarioById(btn.getAttribute('data-id'))
+      if (!found) return
+      // Shut first. Printing renders the page the sheet is taken from, and the
+      // modal is part of that page: left open it prints as a grey veil over
+      // the budget. The two downloads close it for consistency, and because a
+      // menu that stays up after its one choice has been made reads as the tap
+      // not having landed.
+      closeModal()
+      if (action === 'save-as-json') downloadJSON(found)
+      else if (action === 'save-as-csv') downloadCSV(found)
+      else printSavedBudget(found)
+      break
+    }
+
     case 'export-compare-csv':
       downloadCompareCSV(compareIds.map((id) => getScenarioById(id)).filter(Boolean))
       break
@@ -2249,6 +2284,69 @@ function handleAction(action, btn) {
     case 'print':
       printResults()
       break
+  }
+}
+
+/**
+ * Print a budget that is not the one open on the Budget tab.
+ *
+ * `window.print()` prints the page, and the page here is the saved list. So
+ * printing a row means putting that budget on screen first, which means
+ * borrowing the working scenario and putting it back afterwards, unsaved edits
+ * and all: a producer printing last year's budget out of the list has not
+ * asked to lose what is in front of them.
+ *
+ * A CLONE goes in, never the stored record, so nothing that runs while the
+ * sheet is up can write through into the saved list.
+ *
+ * THREE things have to come back, and only the first is obvious.
+ *
+ *   The scenario, as the same object, so anything holding a reference to it is
+ *   not left pointing at a copy.
+ *
+ *   Its `updatedAt`. setScenario() calls notify(), which stamps whatever
+ *   scenario it is handed — so the restoring call re-stamps it too, and a
+ *   budget nobody touched would come back from a print looking edited.
+ *
+ *   And `dirty`, for the same reason: notify() sets it through the subscriber,
+ *   so a clean budget would come back claiming unsaved changes and would put
+ *   the browser's "are you sure you want to leave?" dialog in front of somebody
+ *   who had done nothing but press Print.
+ *
+ * Fold state is deliberately left alone. `@media print` opens every collapsed
+ * card and the fixed block, so what is folded on screen changes nothing on
+ * paper, and restoring a Set of enterprise ids that belong to a different
+ * budget is a state swap with no reader.
+ *
+ * The swap back runs on `afterprint`. Reading it off print() returning instead
+ * is wrong on a phone, where print() can hand back before the sheet has
+ * appeared and the page would be pulled out from under it. A browser with no
+ * such event gets the synchronous version, which is what it behaves like.
+ */
+function printSavedBudget(found) {
+  const before = { scenario: getScenario(), screen, dirty }
+  const updatedAt = before.scenario?.updatedAt
+
+  setScenario(structuredClone(found))
+  screen = 'build'
+  render()
+
+  const restore = () => {
+    setScenario(before.scenario)
+    if (before.scenario) before.scenario.updatedAt = updatedAt
+    screen = before.screen
+    dirty = before.dirty
+    render()
+    updateStatus()
+  }
+
+  const win = document.defaultView
+  if (win && 'onafterprint' in win) {
+    win.addEventListener('afterprint', restore, { once: true })
+    printResults()
+  } else {
+    printResults()
+    restore()
   }
 }
 
@@ -2396,7 +2494,12 @@ function restoreFromFile() {
   input.addEventListener('change', async () => {
     const file = input.files?.[0]
     if (!file) return
-    const result = importBackupJSON(await file.text())
+    // Two veils, not one, because the confirm dialog sits between them and a
+    // spinner behind a question the producer is being asked to answer says the
+    // app is busy with something they have not agreed to yet.
+    const result = await withBusy('Reading the backup file', async () =>
+      importBackupJSON(await file.text())
+    )
     if (!result.ok) {
       alert(result.error)
       return
@@ -2412,24 +2515,35 @@ function restoreFromFile() {
       : 'There is nothing saved on this device now, so nothing is lost.'
     if (!confirm(`${arriving}\n\n${losing}\n\nThis cannot be undone. Restore anyway?`)) return
 
-    const wrote = replaceAll(result.scenarios, result.folders)
-    if (!wrote.ok) {
+    // The write and the render are under ONE veil, because on a long list the
+    // render is the slower of the two and a veil that comes away before the
+    // page has been rebuilt hands back a blank moment that reads as a failure.
+    const wrote = await withBusy('Restoring your budgets', () => {
+      const res = replaceAll(result.scenarios, result.folders)
       // A total failure changed nothing, so nothing below should run either.
       // Saying "nothing was changed" and then switching tab and re-rendering
       // reads as a restore having happened after being told it had not.
-      if (!wrote.budgetsRestored) {
-        alert('Nothing was changed — this browser is out of storage space.')
-        return
-      }
+      if (!res.ok && !res.budgetsRestored) return res
+
+      screen = 'scenarios'
+      scenarioFilter = ''
+      revealScenarioFolder(getScenario().id)
+      render()
+      return res
+    })
+
+    // Both alerts are raised with the veil already down, so neither is a
+    // question asked over a picture of the app still working. The partial
+    // failure is reported AFTER the render on purpose: it describes the list
+    // the producer is now looking at, and reading it before the list arrives
+    // gives them nothing to check it against.
+    if (!wrote.ok) {
       alert(
-        'The budgets were restored, but this browser would not save the folders. Every budget is in the list, none is in a folder.'
+        wrote.budgetsRestored
+          ? 'The budgets were restored, but this browser would not save the folders. Every budget is in the list, none is in a folder.'
+          : 'Nothing was changed — this browser is out of storage space.'
       )
     }
-
-    screen = 'scenarios'
-    scenarioFilter = ''
-    revealScenarioFolder(getScenario().id)
-    render()
   })
   input.click()
 }

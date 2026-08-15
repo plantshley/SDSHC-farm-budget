@@ -12,6 +12,7 @@ import { calcScenario } from '../calc.js'
 import { listScenarios, listFolders } from '../storage.js'
 import { infoButton } from './fields.js'
 import { renderFolderSection } from './folders.js'
+import { openModal } from './modals.js'
 import { isDismissed } from '../prefs.js'
 
 /**
@@ -344,9 +345,76 @@ function renderScenarioRow(s, currentId, index, total, hasFolders) {
             : ''
         }
         <button type="button" class="tip alt" data-action="duplicate-scenario" data-id="${esc(s.id)}">Duplicate</button>
+        <!-- One button for three ways out of the app, because they are three
+             answers to one question and that is what a menu is for. Four more
+             buttons on a row that already carries five would also push Delete
+             off the end of a phone. -->
+        <button type="button" class="tip olive" data-action="export-scenario" data-id="${esc(s.id)}">Export</button>
         <button type="button" class="tip danger" data-action="delete-scenario" data-id="${esc(s.id)}">Delete</button>
       </div>
     </div>`
+}
+
+/**
+ * The three ways one saved budget leaves the app.
+ *
+ * The shared modal rather than a dropdown, which gets the focus trap, the
+ * Escape handling, and the scroll lock for nothing, and does not have to be
+ * positioned inside a list that reflows at every width and can be scrolling
+ * under a held finger.
+ *
+ * Each choice says what the file is FOR, not what it is. "JSON, CSV, PDF"
+ * names three formats, and a producer wanting to send this year's budget to
+ * their lender is not choosing between formats. The order is the order they
+ * are reached for: the file that comes back into this app, the file that opens
+ * somewhere else, then paper.
+ *
+ * The title, the three headings and the three sentences are the grazing
+ * calculator's, with "calculation" swapped for "budget" and nothing else moved.
+ * The two menus are one component and somebody at a Soil Health School uses
+ * both tools in an afternoon; two ways of saying the same three things reads as
+ * two different features. That extends to the type sizes — see .save-as-body,
+ * including its mono step, which is that tool's figure rather than one chosen
+ * here.
+ *
+ * No listeners are wired here. Every button carries a `data-action` and a
+ * `data-id`, and the delegated handler in main.js is on `document`, which the
+ * overlay is part of. The id travels on the button because this menu can be
+ * opened for a row that is NOT the budget open on the Budget tab, which is the
+ * whole reason these actions are separate from the footer's three.
+ */
+export function openExportDialog(scenario) {
+  openModal(
+    `Save "${scenario.name || 'Untitled'}" as`,
+    `<div class="save-as">
+      ${exportItem(
+        scenario.id,
+        'save-as-json',
+        'Budget file',
+        'The budget itself, to move to another device or give to somebody else. Bring it back to the saved list with "Upload a budget file".'
+      )}
+      ${exportItem(
+        scenario.id,
+        'save-as-csv',
+        'Spreadsheet',
+        'Every figure entered and every figure worked out, as a CSV. Opens in Excel.'
+      )}
+      ${exportItem(
+        scenario.id,
+        'save-as-print',
+        'Print or PDF',
+        'Opens this budget where you can send it to your printer or save it as a PDF.'
+      )}
+    </div>`
+  )
+}
+
+function exportItem(id, action, title, body) {
+  return `
+    <button type="button" class="save-as-item" data-action="${esc(action)}" data-id="${esc(id)}">
+      <span class="save-as-title">${esc(title)}</span>
+      <span class="save-as-body">${esc(body)}</span>
+    </button>`
 }
 
 /**
