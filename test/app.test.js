@@ -2263,6 +2263,25 @@ describe('a saved budget is opened from the same row as the rest of its actions'
     ])
     assert.equal(doc.querySelector('.scn-btns button').textContent.trim(), 'Open Budget')
 
+    // Below 900px it reads "Open". One button with a hidden word inside it, not
+    // two buttons — a display:none span leaves the accessible name as well as
+    // the page, so a phone hears "Open" and finds no duplicate control. jsdom
+    // loads no CSS and cannot see the media query, so the mechanism is asserted
+    // at the source: the span must be INSIDE the button, and hidden narrow-only.
+    const open = doc.querySelector('.scn-btns [data-action="open-scenario"]')
+    const word = open.querySelector('.scn-open-word')
+    assert.ok(word, 'the wide-only word is a span in the button')
+    assert.equal(word.textContent, ' Budget')
+    assert.equal(doc.querySelectorAll('[data-action="open-scenario"]').length, 1, 'one control')
+
+    // And it is hidden ONLY in the narrow block. It is the fuller label that is
+    // wanted at 900px and up, so an unscoped rule would silently make "Open"
+    // the only form there is.
+    const css = sheet()
+    const cut = css.indexOf('@media (max-width: 899px) {\n  body {')
+    assert.match(css.slice(cut), /\.scn-open-word \{\s*display: none;/)
+    assert.doesNotMatch(css.slice(0, cut), /\.scn-open-word/)
+
     // The summary beside it is text, not a hidden second way to open the row.
     assert.equal(doc.querySelector('.scn-meta').tagName, 'SPAN')
 

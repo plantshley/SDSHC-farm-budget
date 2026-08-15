@@ -338,7 +338,12 @@ function renderScenarioRow(s, currentId, index, total, hasFolders) {
         </span>
       </div>
       <div class="scn-btns">
-        <button type="button" class="tip" data-action="open-scenario" data-id="${esc(s.id)}">Open Budget</button>
+        <!-- "Budget" is dropped below 900px, where four text links share a row
+             with a phone's width. One element with a hidden word inside it, not
+             two copies of the button: a display:none span is not announced, so
+             the accessible name comes down to "Open" with it, and there is no
+             second control for a screen reader to walk past. -->
+        <button type="button" class="tip" data-action="open-scenario" data-id="${esc(s.id)}">Open<span class="scn-open-word"> Budget</span></button>
         ${
           hasFolders
             ? `<button type="button" class="tip scn-move-btn" data-action="move-scenario" data-id="${esc(s.id)}">Move</button>`

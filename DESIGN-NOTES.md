@@ -2410,6 +2410,29 @@ None of the three is filled. This is a menu, and a `--sky` fill on one of three
 would be the app choosing for the producer. The row that opened it has already
 spent its colour saying what kind of thing this is.
 
+### "Open Budget" is "Open" on a phone
+
+The same pressure showing up in the label rather than in the layout. Below 900px
+four text links share a row with a phone's width; Open Budget was the widest of
+them and the only one saying a word the row had already said, since every button
+there is about a budget and the name of this one is on the same line in bold.
+
+It is one button with a hidden span inside it, **not** the two-copies idiom the
+logos and the seeds-per-unit offer use. That idiom exists for cases where the
+two widths need genuinely different ELEMENTS — a different image file, a
+different position in the flow — and it pays for that with a duplicate in the
+document that has to be held to exactly one displayed copy or a screen reader
+announces both. Here the difference is one word, and `display: none` on a span
+takes it out of the accessible name as well as off the page. So a phone hears
+"Open", a desktop hears "Open Budget", and there is only ever one control.
+
+The rule is narrow-only on purpose. At 900px and up the row has the width and
+the fuller label is the better one; an unscoped rule would quietly make "Open"
+the only form there is, which is the sort of change nobody notices until a
+desktop screenshot goes into a handout. jsdom loads no CSS and cannot catch it,
+so both halves are asserted against the stylesheet source — the word is hidden
+inside the narrow block, and `.scn-open-word` appears nowhere above it.
+
 ### Why these are separate actions from the footer's three
 
 The footer's `export-csv`, `export-json` and `print` act on the working

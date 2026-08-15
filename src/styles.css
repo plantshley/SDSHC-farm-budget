@@ -3842,6 +3842,18 @@ body.modal-open {
     padding: 6px 0;
   }
 
+  /* "Open Budget" becomes "Open". It is the widest of the four and the only one
+     saying a word the row has already said — every one of these buttons is
+     about a budget, and the name of this one is on the same row in bold.
+
+     `display: none` rather than a second button, so the word leaves the
+     ACCESSIBLE NAME with it: a screen reader on a phone hears "Open" and there
+     is no hidden duplicate control to walk past. Narrow-only, because at 900px
+     and up the row has the width and the fuller label is the better one. */
+  .scn-open-word {
+    display: none;
+  }
+
   .scn-open-flag {
     font-size: 11px;
   }

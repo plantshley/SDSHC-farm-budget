@@ -421,6 +421,16 @@ both left-hand columns spanning both rows, which is what centres the handle and
 the tick on the whole row. The folder heading is one `nowrap` row with a 2px rule
 in the folder's own ink.
 
+**"Open Budget" is "Open" below 900px**, where four text links share a row with a
+phone's width. It is **one button with a `.scn-open-word` span inside it**, never
+two buttons: `display: none` takes the word out of the **accessible name** as
+well as off the page, so a phone hears "Open" and finds no duplicate control to
+walk past — which is why this is not the two-copy idiom the logos and the
+seeds-per-unit offer use. The rule is **narrow-only**; at 900px and up the fuller
+label is the better one, and an unscoped rule would make "Open" the only form
+there is. Both halves are asserted against the stylesheet source, since jsdom
+loads no CSS.
+
 ### Reordering is implemented twice, and has to be
 
 HTML5 drag-and-drop does not exist on touch, so `main.js` carries a
