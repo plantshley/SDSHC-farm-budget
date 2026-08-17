@@ -754,6 +754,15 @@ input.invalid {
   color: var(--cost);
 }
 
+/* The same quiet box, for an action that destroys nothing. Worn ALONGSIDE
+   .btn-remove rather than instead of it, so the padding, the 44px target and
+   the mono step all keep coming from one place and it stays hidden in print
+   with the rest. The hover is the only difference and it has to be: --cost
+   means a loss on every other row of this app. */
+.btn-quiet:hover {
+  color: var(--olive-ink);
+}
+
 .tip.danger {
   color: var(--cost);
 }
@@ -781,6 +790,23 @@ input.invalid {
   color: var(--muted);
   margin: 4px 0 10px;
   line-height: 1.45;
+}
+
+/* A `?` sitting on a hint sentence rather than on a heading. The 22px circle is
+   sized against a 15px `.sub-title`; on 13px prose it reads as a button parked
+   mid-sentence. 18px holds the same circle-to-type ratio at the hint's size.
+   That is the whole target — a button is its own box, and the taller line box
+   around it catches nothing — so this is the smallest a `?` gets in the app.
+   Do not take it lower.
+
+   `vertical-align: middle` because a button is inline-block and would otherwise
+   sit on the text baseline with its lower half hanging below the sentence. */
+.hint .help-btn {
+  width: 18px;
+  height: 18px;
+  font-size: 11px;
+  vertical-align: middle;
+  margin-left: 2px;
 }
 
 /* The min-height is what keeps two of these level side by side. A `?` is 22px

@@ -135,10 +135,15 @@ export function renderFixed(scenario, collapsed = false, notice = null) {
       <h3 class="sub-title">
         Equipment
         ${infoButton('equipmentVsBuilding', 'equipment')}
-        ${infoButton('depreciationVsInterest', 'depreciation and interest')}
       </h3>
+      <!-- The depreciation-and-interest help button sits on the sentence it
+           explains, not up in the heading beside the equipment/building one.
+           Two question marks in a row read as one control with a stutter, and
+           neither says which is which. The .hint .help-btn rule brings it down
+           to the sentence's own size. -->
       <p class="hint">
         Enter each machine once. Depreciation and interest are both calculated.
+        ${infoButton('depreciationVsInterest', 'depreciation and interest')}
       </p>
       <div class="item-list">
         ${(f.equipment ?? []).map((item, i) => renderEquipment(item, i)).join('')}

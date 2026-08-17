@@ -2383,15 +2383,15 @@ for nothing, and the grazing calculator had already built exactly this component
 for exactly this reason, so the two tools now share `.save-as` down to its
 padding.
 
-Each choice says what the file is FOR rather than what it is. "JSON, CSV, PDF"
-names three formats, and somebody sending this year's budget to their lender is
-not choosing between formats. The order is the order they are reached for: the
-file that comes back into this app, the file that opens somewhere else, then
-paper.
+Each choice says what the file is FOR rather than what it is. "JSON, CSV, PDF,
+PNG" names four formats, and somebody sending this year's budget to their lender
+is not choosing between formats. The order is the order they are reached for:
+the file that comes back into this app, the file that opens somewhere else, then
+paper, then the picture.
 
 The wording is the grazing calculator's too, not only the markup: the modal
-title, the three headings and the three sentences, with "calculation" swapped
-for "budget" and nothing else moved. This was a second pass — the first draft
+title, the headings and the sentences, with "calculation" swapped for "budget"
+and nothing else moved. This was a second pass — the first draft
 rewrote all three in this app's own voice, which was a worse answer for a reason
 that is easy to miss when only one of the two tools is on screen. Somebody at a
 Soil Health School has both open in an afternoon. Two ways of saying the same
@@ -2406,9 +2406,83 @@ One thing deliberately not carried over: the grazing calculator's print
 sentence reads *"where you can sent it to your printer"*. A typo is not a house
 style, and copying it to match would be matching the wrong thing.
 
-None of the three is filled. This is a menu, and a `--sky` fill on one of three
-would be the app choosing for the producer. The row that opened it has already
-spent its colour saying what kind of thing this is.
+None of them is filled. This is a menu, and a `--sky` fill on one of four would
+be the app choosing for the producer. The row that opened it has already spent
+its colour saying what kind of thing this is.
+
+### Image is last here and first in the grazing calculator
+
+The obvious thing would have been to match the other tool's order as closely as
+the wording, and it is wrong for a reason worth writing down, because the next
+person to look at the two menus side by side will see an inconsistency and
+"fix" it.
+
+A grazing calculation *is* its answers. Somebody asks for grazing days and gets
+grazing days; a picture of the answer is a picture of the whole calculation,
+and it is what gets sent to a neighbour or put in a text message, so it sits at
+the top of that menu.
+
+A budget is not its Results section. The picture holds four KPIs and four
+tables; the budget behind it holds every enterprise, every expense line and
+every machine, and each of the other three choices carries all of that. The
+image is the one somebody reaches for after the others, when what they want is
+a summary rather than the work. Last is where that belongs.
+
+The order is asserted in `test/app.test.js` as an ordered list rather than a
+set, so this decision fails loudly if somebody quietly re-sorts the menu.
+
+### The PNG is drawn, and the height is measured first
+
+`downloadPNG()` paints onto a canvas rather than capturing the page. The
+grazing calculator's version made the same call for the same reasons, and one
+more applies here: this app's Results section is a two-column grid on a desktop
+and a single stack on a phone, so "a screenshot of the results" is a different
+picture depending on the window somebody happened to have open. Drawing it
+means the file is the same file every time.
+
+The image runs the tables **down the page** rather than reproducing the desktop
+grid. A 1080px canvas split into two columns leaves each table about 500px
+wide, which is 14px figures on a phone screen — the layout the responsive rules
+exist to avoid, rebuilt by hand in a file that cannot reflow.
+
+Two things about a canvas that a DOM does not make you think about:
+
+- **It has no overflow.** A budget with nine enterprises has to make the file
+  taller. So `imageModel()` builds every row first and `imageHeight()` adds the
+  content up, and only then is the canvas sized. Anything too wide for its
+  column goes through `fitText()`, which ellipsises — the alternative is a name
+  cut off mid-word with nothing to show it was cut.
+- **It has no theme.** The palette is hard-coded to the light tokens. Reading
+  them off the page with `getComputedStyle` was the first instinct and would
+  have handed every dark-theme producer a PNG of white text on a white card.
+  The image leaves the app; the reader's theme is not ours to guess.
+
+Colour still follows the sign, because that rule is about the number rather
+than about the page it is on.
+
+The whole-farm warning is drawn; the per-enterprise and fixed-cost ones are
+not. They name a box, and the box is not in the picture — "Enter a cost for
+seed" over a summary with no seed line on it is an instruction pointing at
+nothing. *Enter acres for at least one enterprise* is different: it is the
+reason every figure above it is $0, so it travels with them.
+
+### Save results as image, in the Results header
+
+The menu is on the Saved tab, and a producer who has just finished typing a
+budget is not on the Saved tab. The header button is the same export reached
+from where the results are.
+
+It acts on the **working** budget, unsaved edits included, which is the
+opposite of the menu's `save-as-png` and is right for the same reason the
+menu's is right: this button is sitting on the figures it is a picture of.
+Routing it through the stored record would hand back a picture of the last
+save while different numbers were on screen above it.
+
+It wears `.btn-remove` **and** `.btn-quiet` rather than a class of its own. The
+box — the padding, the 44px target, the mono step, the `@media print` hide — is
+`.btn-remove`'s and stays in one place; `.btn-quiet` overrides the hover colour
+and nothing else. That override is not decoration: `.btn-remove:hover` goes to
+`--cost`, and red means a loss on every other row of this page.
 
 ### "Open Budget" is "Open" on a phone
 

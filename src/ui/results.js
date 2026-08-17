@@ -44,9 +44,26 @@ export function renderResults(r) {
            [data-warnings] placeholder, because it appears and disappears as
            acres are typed and updateOutputs() is all that runs on a keystroke.
            data-warnings-for says whose list to draw. -->
+      <!-- Save results as image sits at the right-hand end of this row and
+           needs no auto margin to get there: .block-head .title is flex: 1 and
+           eats the free space, the same way the Saved tab's header tools do.
+
+           It wears .btn-remove's quiet box because it is the same kind of
+           thing, a small action hanging off a card's heading rather than one
+           of the screen's main moves, and .btn-quiet changes the hover and
+           nothing else. Red on hover would be wrong here: --cost means a loss
+           on every other row of this page, and this button saves a picture.
+
+           It acts on the WORKING budget, like the footer's three and unlike
+           the Saved tab's save-as-png, which reads a stored record. This
+           button sits on the results it is a picture of, so there is no id to
+           carry and nothing to look up. -->
       <header class="block-head">
         <h2 class="title">Results</h2>
         <div data-warnings data-warnings-for="farm"></div>
+        <button type="button" class="btn-remove btn-quiet" data-action="export-png">
+          Save results as image
+        </button>
       </header>
 
       <div class="kpi-row">

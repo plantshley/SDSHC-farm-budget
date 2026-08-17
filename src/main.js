@@ -56,6 +56,7 @@ import {
   downloadCSV,
   downloadCompareCSV,
   downloadJSON,
+  downloadPNG,
   downloadBackup,
   printResults,
 } from './export.js'
@@ -2244,11 +2245,19 @@ function handleAction(action, btn) {
       downloadCSV(scenario)
       break
 
-    /* The same three files, for a row in the saved list rather than for the
-       budget open on the Budget tab. They are separate actions and not the
-       three above with an id bolted on, because these read the STORED record:
-       a producer picking Export on a row has named which budget they mean, and
-       it is routinely not the one they are in the middle of editing. */
+    // The Results header's own button. Like the footer's three it acts on the
+    // working budget, unsaved edits included: it is a picture of the figures
+    // on screen, and reading the stored record would hand back a picture of
+    // the last save instead.
+    case 'export-png':
+      downloadPNG(scenario)
+      break
+
+    /* The same files, for a row in the saved list rather than for the budget
+       open on the Budget tab. They are separate actions and not the ones above
+       with an id bolted on, because these read the STORED record: a producer
+       picking Export on a row has named which budget they mean, and it is
+       routinely not the one they are in the middle of editing. */
     case 'export-scenario': {
       const found = getScenarioById(btn.getAttribute('data-id'))
       if (!found) return
@@ -2258,17 +2267,22 @@ function handleAction(action, btn) {
 
     case 'save-as-json':
     case 'save-as-csv':
+    case 'save-as-png':
     case 'save-as-print': {
       const found = getScenarioById(btn.getAttribute('data-id'))
       if (!found) return
       // Shut first. Printing renders the page the sheet is taken from, and the
       // modal is part of that page: left open it prints as a grey veil over
-      // the budget. The two downloads close it for consistency, and because a
-      // menu that stays up after its one choice has been made reads as the tap
-      // not having landed.
+      // the budget. The downloads close it for consistency, and because a menu
+      // that stays up after its one choice has been made reads as the tap not
+      // having landed.
       closeModal()
       if (action === 'save-as-json') downloadJSON(found)
       else if (action === 'save-as-csv') downloadCSV(found)
+      // The image is drawn from the stored record like the other two, and
+      // never borrows the page the way Print has to — a canvas is not the
+      // document, so there is nothing to swap out and put back.
+      else if (action === 'save-as-png') downloadPNG(found)
       else printSavedBudget(found)
       break
     }

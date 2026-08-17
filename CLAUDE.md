@@ -21,7 +21,7 @@ like one family.
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 826 tests: the economic model, storage, data, and a DOM smoke test
+npm test           # 828 tests: the economic model, storage, data, and a DOM smoke test
 npm run build      # -> dist/
 ```
 
@@ -575,29 +575,66 @@ for the formulas the recipient writes. Both halves are asserted.
 keeping a second copy. Differences get **their own column**, never a merged
 `value (+123)` cell.
 
-### A row's Export is not the footer's three with an id bolted on
+### A row's Export is not the footer's own actions with an id bolted on
 
 `Export` sits between Duplicate and Delete on every saved row and opens
-`openExportDialog()` — one menu of three, in `ui/scenarios.js`, wearing the same
+`openExportDialog()` — one menu of four, in `ui/scenarios.js`, wearing the same
 `.save-as` component as the grazing calculator. *Detail in
 [DESIGN-NOTES.md](DESIGN-NOTES.md).*
 
 - **The component is shared with the grazing calculator and the WORDING is
-  too** — the modal title, the three headings and the three sentences are that
-  tool's, with "calculation" swapped for "budget". So are the type sizes,
-  including `.save-as-body`'s mono step at **11.5px**, which is its figure and
-  not one chosen here. Somebody at a Soil Health School uses both tools in an
-  afternoon; two ways of saying the same three things reads as two different
-  features. **Change one, change the other.**
-
-- **`save-as-json` / `save-as-csv` / `save-as-print` read the STORED record**,
-  through `getScenarioById(data-id)`. The footer's `export-csv`, `export-json`
-  and `print` act on the working scenario and always will; a producer choosing
+  too** — the modal title, the headings and the sentences are that tool's, with
+  "calculation" swapped for "budget". So are the type sizes, including
+  `.save-as-body`'s mono step at **11.5px**, which is its figure and not one
+  chosen here. Somebody at a Soil Health School uses both tools in an afternoon;
+  two ways of saying the same things reads as two different features. **Change
+  one, change the other.** One sentence is not a word-for-word lift and says so
+  in the code: that tool offers *the calculation answers*, and this one has
+  results rather than answers.
+- **Image is LAST here and FIRST there, on purpose.** In the grazing calculator
+  a calculation *is* a handful of answers, so a picture of them is the whole
+  thing. A budget is not: the picture is the Results section, and every other
+  choice in this menu carries the enterprises and the fixed costs behind it.
+  Asserted as an ordered list in `test/app.test.js`, not as a set.
+- **`save-as-json` / `save-as-csv` / `save-as-png` / `save-as-print` read the
+  STORED record**, through `getScenarioById(data-id)`. The footer's
+  `export-csv`, `export-json` and `print` act on the working scenario and always
+  will, and so does the Results header's `export-png`; a producer choosing
   Export on a row has named which budget they mean, and it is routinely not the
   one they are editing.
-- **The menu is shut before any of the three run.** Printing renders the page
+- **The menu is shut before any of the four run.** Printing renders the page
   the sheet is taken from and the modal is part of it, so an open menu prints as
   a grey veil over the budget.
+
+### The PNG is drawn, not screenshotted
+
+`downloadPNG()` in `export.js` paints the Results section onto a canvas: the
+four KPIs, the two whole-farm tables, the enterprise breakdown, the fixed-cost
+breakdown. No html2canvas — the section has a known shape, and a PWA that has
+to work with no signal is not precaching a library and a webfont to photograph
+a page that reflows at every width.
+
+- **The palette is hard-coded light and must stay that way.** The image leaves
+  the app for a text message or a printout, where the reader's theme is not ours
+  to guess, and reading the tokens off the page would hand a dark-theme producer
+  a white-on-white PNG. Colour still follows the **sign**, same rule as the
+  screen.
+- **The height is measured from the content before anything is drawn**
+  (`imageModel()` then `imageHeight()`). A canvas has no overflow: a budget with
+  nine enterprises has to make the picture taller, not run off the bottom of it.
+  `fitText()` ellipsises anything that will not fit its column.
+- **Figures are recomputed through `calcScenario()`**, never read from a stored
+  `results`. Same rule the screen and the CSV follow.
+- **The whole-farm warning travels with the figures**; the per-card ones name a
+  box that is not in the picture and are deliberately left behind.
+- **On screen the last two tables are a second column; in the image they run on
+  down the page.** Two columns of 14px figures at 1080px wide is the layout that
+  fails first on a phone.
+- **`Save results as image` in the Results header wears `.btn-remove` plus
+  `.btn-quiet`.** The box comes from `.btn-remove` alone — padding, the 44px
+  target, the mono step, and the `@media print` hide — so `.btn-quiet` carries
+  the hover colour and nothing else. It must not become a second box: red on
+  hover means a loss on every other row of this page.
 - **Printing a row BORROWS the working scenario and puts it back**, because
   `window.print()` prints the page and the page is the saved list. A **clone**
   goes in, and `printSavedBudget()` in `main.js` restores three things, not one:
@@ -942,7 +979,7 @@ it.
 
 ## Tests
 
-826 tests across seven files. `npm test` runs them, and so does the deploy
+828 tests across seven files. `npm test` runs them, and so does the deploy
 workflow before it builds. *Detail in [DESIGN-NOTES.md](DESIGN-NOTES.md).*
 
 - `test/calc.test.js` — the model against real Excel output, plus the deliberate

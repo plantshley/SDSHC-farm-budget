@@ -368,19 +368,29 @@ function renderScenarioRow(s, currentId, index, total, hasFolders) {
  * positioned inside a list that reflows at every width and can be scrolling
  * under a held finger.
  *
- * Each choice says what the file is FOR, not what it is. "JSON, CSV, PDF"
- * names three formats, and a producer wanting to send this year's budget to
+ * Each choice says what the file is FOR, not what it is. "JSON, CSV, PDF, PNG"
+ * names four formats, and a producer wanting to send this year's budget to
  * their lender is not choosing between formats. The order is the order they
  * are reached for: the file that comes back into this app, the file that opens
- * somewhere else, then paper.
+ * somewhere else, then paper, then the picture.
  *
- * The title, the three headings and the three sentences are the grazing
- * calculator's, with "calculation" swapped for "budget" and nothing else moved.
- * The two menus are one component and somebody at a Soil Health School uses
- * both tools in an afternoon; two ways of saying the same three things reads as
- * two different features. That extends to the type sizes — see .save-as-body,
- * including its mono step, which is that tool's figure rather than one chosen
- * here.
+ * IMAGE IS LAST, and that is this app's order rather than the grazing
+ * calculator's, where it is first. There the image is the ordinary way a
+ * calculation leaves — it is a handful of answers, and a photograph of them is
+ * the whole thing. A budget is not: the picture is the Results section, and
+ * every other choice here carries the enterprises and the fixed costs it was
+ * built from. It is the one somebody reaches for last, so it sits last.
+ *
+ * The title and the wording are the grazing calculator's, with "calculation"
+ * swapped for "budget" and nothing else moved. The two menus are one component
+ * and somebody at a Soil Health School uses both tools in an afternoon; two
+ * ways of saying the same things reads as two different features. That extends
+ * to the type sizes — see .save-as-body, including its mono step, which is that
+ * tool's figure rather than one chosen here.
+ *
+ * The image sentence is the one place the swap is not a straight word-for-word
+ * lift: that tool offers "the calculation answers", and this one has results
+ * rather than answers. Everything else in the sentence is unchanged.
  *
  * No listeners are wired here. Every button carries a `data-action` and a
  * `data-id`, and the delegated handler in main.js is on `document`, which the
@@ -409,6 +419,12 @@ export function openExportDialog(scenario) {
         'save-as-print',
         'Print or PDF',
         'Opens this budget where you can send it to your printer or save it as a PDF.'
+      )}
+      ${exportItem(
+        scenario.id,
+        'save-as-png',
+        'Image',
+        'A picture of the budget results and the figures behind them.'
       )}
     </div>`
   )

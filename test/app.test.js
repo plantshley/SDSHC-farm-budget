@@ -2303,6 +2303,41 @@ describe('exporting one saved budget from its row', () => {
     win.print = () => {}
   })
 
+  /**
+   * jsdom draws nothing: getContext('2d') returns null unless the optional
+   * native `canvas` package is installed, and pulling one in to assert that a
+   * picture was made is the wrong trade for this suite. This records what was
+   * drawn instead, which is the half that can be wrong — whether the figures
+   * came from the right budget.
+   */
+  function stubCanvas() {
+    const drawn = []
+    const ctx = {
+      fillStyle: '',
+      strokeStyle: '',
+      font: '',
+      textAlign: 'left',
+      lineWidth: 1,
+      scale() {},
+      fillRect() {},
+      beginPath() {},
+      moveTo() {},
+      lineTo() {},
+      arcTo() {},
+      closePath() {},
+      stroke() {},
+      fill() {},
+      fillText: (text) => drawn.push(String(text)),
+      // Every glyph 8px wide. fitText() needs a measure that grows with the
+      // string and nothing more; a real one would need real font metrics.
+      measureText: (text) => ({ width: String(text).length * 8 }),
+    }
+    win.HTMLCanvasElement.prototype.getContext = () => ctx
+    win.HTMLCanvasElement.prototype.toBlob = (cb) =>
+      cb(new win.Blob(['png'], { type: 'image/png' }))
+    return drawn
+  }
+
   /** Save `name`, then leave the saved list on screen. */
   function saveAs(name) {
     const box = doc.querySelector('#scenarioName')
@@ -2311,16 +2346,20 @@ describe('exporting one saved budget from its row', () => {
     click('[data-action="save-scenario"]')
   }
 
-  test('Export opens a menu of three, each naming the row it came from', async () => {
+  test('Export opens a menu of four, each naming the row it came from', async () => {
     saveAs('Kept budget')
     click('[data-action="go-scenarios"]')
     const id = doc.querySelector('.scn').getAttribute('data-scn-id')
 
     click('.scn-btns [data-action="export-scenario"]')
     const items = [...doc.querySelectorAll('.save-as-item')]
+    // The order is asserted, not just the membership. Image is LAST here and
+    // first in the grazing calculator, which is deliberate and explained on
+    // openExportDialog() — the picture is a budget's Results section, not the
+    // whole of it, so it is the one reached for last.
     assert.deepEqual(
       items.map((b) => b.getAttribute('data-action')),
-      ['save-as-json', 'save-as-csv', 'save-as-print']
+      ['save-as-json', 'save-as-csv', 'save-as-print', 'save-as-png']
     )
     // The id travels on every button, because this menu can be opened for a
     // row that is not the budget open on the Budget tab.
@@ -2349,6 +2388,57 @@ describe('exporting one saved budget from its row', () => {
     // whatever `URL` is global by then — a later test's window, or a closed
     // one. Waiting it out here keeps the stub in place for it rather than
     // letting it land as an unhandled rejection in whatever runs next.
+    await new Promise((resolve) => setTimeout(resolve, 1100))
+  })
+
+  test('Image draws the row it was opened for, and shuts the menu', async () => {
+    saveAs('Kept budget')
+    click('[data-action="go-scenarios"]')
+    click('.scn-btns [data-action="export-scenario"]')
+
+    const drawn = stubCanvas()
+    let built = 0
+    win.URL.createObjectURL = () => {
+      built += 1
+      return 'blob:stub'
+    }
+
+    click('[data-action="save-as-png"]')
+    assert.equal(built, 1, 'a picture was built for the row')
+    assert.equal(doc.querySelector('.overlay').classList.contains('open'), false)
+
+    // The picture carries the Results section, so every heading on that screen
+    // has to be on it. A section quietly dropped would otherwise only show up
+    // in somebody's inbox.
+    for (const heading of ['Whole farm', 'Per acre', 'By enterprise', 'Fixed cost breakdown']) {
+      assert.ok(drawn.includes(heading), `the image carries "${heading}"`)
+    }
+    assert.ok(drawn.includes('SDSHC Farm Plan Budget'), 'and says which tool made it')
+    assert.ok(
+      drawn.some((t) => t.includes('Kept budget')),
+      'and which budget it is of'
+    )
+
+    await new Promise((resolve) => setTimeout(resolve, 1100))
+  })
+
+  test('the Results header pictures the budget on screen, unsaved edits included', async () => {
+    const drawn = stubCanvas()
+    let built = 0
+    win.URL.createObjectURL = () => {
+      built += 1
+      return 'blob:stub'
+    }
+
+    // Never saved. This button is on the results it is a picture of, so it
+    // reads the working budget — going through the stored record would hand
+    // back a picture of the last save with none of this in it.
+    type('enterprises.0.acres', '640')
+    click('.results [data-action="export-png"]')
+
+    assert.equal(built, 1, 'a picture was built')
+    assert.ok(drawn.includes('640'), 'holding the acres typed a moment ago')
+
     await new Promise((resolve) => setTimeout(resolve, 1100))
   })
 
