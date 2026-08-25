@@ -24,7 +24,7 @@ export const DEFINITIONS = {
   enterpriseName: {
     title: 'Enterprise name',
     body: [
-      'A label for this column. It changes no numbers.',
+      'A label for this column; use something informative.',
       'Leave it blank and the crop name is used instead.',
     ],
   },
@@ -34,7 +34,7 @@ export const DEFINITIONS = {
     body: [
       'The whole enterprise in dollars: gross margin per acre × acres.',
       'Example: $232/acre × 500 acres = $116,000.',
-      'Gross margin per acre says how each acre performed. Enterprise gross margin says how much the enterprise contributed to the farm. A strong margin on 40 acres contributes less than a thin one on 900.',
+      'Gross margin per acre says how each acre performed. Enterprise gross margin says how much the enterprise contributed to the farm.',
       'This is the money available to cover fixed costs. Add up every enterprise, subtract total fixed costs, and the result is farm profit.',
     ],
   },
@@ -53,7 +53,7 @@ export const DEFINITIONS = {
       'Overhead is the cost of running the business: utilities, insurance, dues, subscriptions, and anything else that does not belong to one crop.',
       'Most of these bills arrive monthly, so each line lets you choose the period your figure covers. A $180 power bill entered as "$ / month" becomes $2,160 a year.',
       'Every line is converted to a yearly figure before it is spread across your acres.',
-      'Real estate and property taxes on ground you own belong on the Miscellaneous line. There is no separate row for them, and land rent covers rented acres only.',
+      'Real estate and property taxes on ground you own should be entered on the Miscellaneous line. Land rent covers rented acres only.',
       'Each line offers a typical value taken from South Dakota farm records. Those figures are published per acre, so choosing one multiplies it by the acres you have entered and fills in a yearly total.',
     ],
   },
@@ -62,8 +62,8 @@ export const DEFINITIONS = {
     title: 'What is a budget file?',
     body: [
       'A .json file this calculator produces. Choose "Save budget file" at the bottom of the page and it downloads to your device.',
-      'It holds one complete budget: every enterprise, every expense, and the shared fixed costs.',
-      'It exists because budgets are saved in this browser only. To move a budget from your phone to your laptop, save the file on the phone, transfer it, and upload it here with "Upload a budget file".',
+      'It holds one complete budget scenario: every enterprise, every expense, and the shared fixed costs.',
+      'Budgets are saved in this browser only, so to move a budget between devices, save the file on one, transfer it, and upload it here with "Upload a budget file".',
       'Only files this calculator produced will open. A spreadsheet or a PDF is refused.',
       'Uploading a file never replaces a saved budget. It always comes in as a new one. If the name is already in use, "(opened from file)" is added to it.',
     ],
@@ -73,7 +73,7 @@ export const DEFINITIONS = {
     title: 'What is a backup?',
     body: [
       'A .json file holding everything on the Saved tab at once: every saved budget, every folder, and which budget is in which folder. "Export backup" downloads it to your device.',
-      'It is different from a budget file, which holds one budget. Use a budget file to hand one plan to somebody else, and a backup to keep a copy of all of your work.',
+      'It is different from a budget file, which holds one budget scenario.',
       'Your budgets live in this browser, so clearing your browsing data deletes them, and so does replacing the device. A backup is how you get them back.',
       'Restore backup replaces everything on the Saved tab with what is in the file. Budgets saved on this device that are not in the file are deleted, and there is no undo. The calculator states how many budgets are arriving and how many are going before it does anything.',
       'The file is dated, so backups taken on different days sit beside each other in your downloads folder rather than overwriting one another.',
@@ -103,7 +103,7 @@ export const DEFINITIONS = {
     body: [
       'Costs that change with how much you grow, and that you would not have if you did not plant the crop: seed, fertilizer, chemicals, fuel, crop insurance, hauling, drying.',
       'Also called direct or operating costs.',
-      'These are the costs that change most from one year to the next, which is what makes them worth comparing between scenarios.',
+      'These are the costs that change most from one year to the next.',
     ],
   },
 
@@ -121,7 +121,7 @@ export const DEFINITIONS = {
     title: 'Total gross margin',
     body: [
       'Every enterprise gross margin added together. The whole farm contribution toward fixed costs.',
-      'If total gross margin is larger than total fixed costs, the farm makes a profit. If it is smaller, it does not, however well any single field performed.',
+      'If total gross margin is larger than total fixed costs, the farm makes a profit. If it is smaller, it does not.',
     ],
   },
 
@@ -146,7 +146,7 @@ export const DEFINITIONS = {
   usefulLife: {
     title: 'Useful life',
     body: [
-      'How many years you expect to use the item before replacing it. Not how long it would physically last.',
+      'How many years you expect to use the item before replacing it (not how long it would physically last).',
       'It spreads the cost of a machine across the years that machine earns money, instead of charging the whole purchase to the year you bought it.',
     ],
   },
@@ -155,9 +155,9 @@ export const DEFINITIONS = {
     title: 'Depreciation and interest: why both',
     body: [
       'They are two different costs, and a machine has both.',
-      'DEPRECIATION is wear-out. The machine loses value every year you use it. No money leaves your account, but the lost value is a real cost. It is (purchase price − salvage value) ÷ useful life.',
-      'INTEREST is the cost of the money tied up in the machine. If you borrowed, it is what you pay the lender. If you paid cash, it is what that money could have earned elsewhere, which is still a real cost.',
-      'Example: a $285,000 tractor with $95,000 salvage over 12 years depreciates $15,833 a year. At 7% on its average value it also costs $13,300 a year in interest. Counting only one of the two understates what the tractor costs.',
+      'DEPRECIATION is wear-out. The machine loses value every year you use it. No money leaves your account, but the lost value is still a cost. It is (purchase price − salvage value) ÷ useful life.',
+      'INTEREST is the cost of the money tied up in the machine. If you borrowed, it is what you pay the lender. If you paid cash, it is what that money could have earned elsewhere, which is still a cost.',
+      'Example: a $285,000 tractor with $95,000 salvage over 12 years depreciates $15,833 a year. At 7% on its average value it also costs $13,300 a year in interest. Counting only one understates what the tractor costs.',
       'Interest is charged on the average value over the machine life, (purchase price + salvage value) ÷ 2, because less money is tied up in it as it depreciates.',
     ],
   },
@@ -165,8 +165,8 @@ export const DEFINITIONS = {
   equipmentVsBuilding: {
     title: 'Equipment or building?',
     body: [
-      'EQUIPMENT is machinery you operate: tractors, combines, planters, drills, tillage tools, grain carts, augers, skid loaders, sprayers, trucks.',
-      'BUILDINGS are permanent structures: machine sheds, grain bins, shops, barns, fencing, permanent water systems.',
+      'EQUIPMENT is machinery you operate: tractors, combines, planters, drills, tillage tools, grain carts, augers, skid loaders, sprayers, trucks, etc.',
+      'BUILDINGS are permanent structures: machine sheds, grain bins, shops, barns, fencing, permanent water systems, etc.',
       'The test for an unclear item: would it sell separately at an auction? If so, enter it as equipment.',
       'Include only items used for the enterprises in this budget, and enter the share that belongs to this operation.',
     ],
@@ -185,9 +185,9 @@ export const DEFINITIONS = {
     title: 'Interest on preharvest costs',
     body: [
       'Seed, fertilizer, and chemicals are paid for preharvest. Interest is the cost of carrying those expenses in between, either on an operating loan or on your own money.',
-      'It is calculated here: preharvest costs × interest rate × months ÷ 12.',
+      'It is calculated here as: preharvest costs × interest rate × months ÷ 12.',
       'Hauling, drying, and marketing are excluded. They happen at or after harvest, so they are not carried through the season.',
-      'Change the rate and months to match your operating note, or switch the line to entering the figure yourself.',
+      'Change the rate and months to match your operating notes, or switch the line to entering the figure yourself.',
     ],
   },
 
@@ -196,7 +196,6 @@ export const DEFINITIONS = {
     body: [
       'Hired labor for the whole operation: the hourly wage, and the total hours across the year (number of employees × hours each).',
       'The hours are divided across your total acres to give a cost per acre.',
-      'Unpaid operator labor is a real cost and many producers charge for their own time here. If you did not do the work, you would pay someone else to.',
     ],
   },
 
@@ -225,11 +224,10 @@ export const DEFINITIONS = {
   privacy: {
     title: 'Where your budgets live',
     body: [
-      'Everything you enter stays on this device, in this browser. It is not sent anywhere and it is not stored on any server.',
-      'The South Dakota Soil Health Coalition cannot see your budgets. Nobody can, except someone using this device.',
-      'Your saved budgets will not appear on your other phone or computer, and they are not shared with anyone.',
+      'Everything you enter stays on this device, in this browser. It is not sent anywherem, is not stored on any server, and will not appear on your other devices.',
+      'The South Dakota Soil Health Coalition cannot see your budgets.',
       'To move a budget to another device, or to give one to somebody else, use "Save budget file" to download it and "Upload a budget file" on the Saved tab to read it back in.',
-      'To keep a copy of everything at once, use "Export backup" on the Saved tab. It downloads every saved budget and every folder as one file, and "Restore backup" reads it back.',
+      'To keep a copy of everything at once, use "Export backup" on the Saved tab. It downloads every saved budget and every folder as one file, and "Restore backup" reads it back. Restoring replaces everything on the Saved tab, so the calculator says how many budgets are arriving and how many are going before it does anything.',
       'Those files are the only things that ever leave this device, and only when you download them yourself.',
       'Because the budgets live in this browser, clearing your browsing data deletes them. Export a backup for anything you want to keep.',
     ],

@@ -438,7 +438,7 @@ export const TYPICAL_VALUES = {
     unit: '$/lb of K2O',
     appliesTo: 'unit',
     source: SDSU_2026,
-    note: 'The pounds per acre are your soil test, not ours, so the cost per pound leaves that box to you. The per-acre figures below use the rate the South Dakota budgets assume for that zone. Spreading is charged once per pass and is offered on the nitrogen line.',
+    note: 'The pounds per acre are your soil test, so the cost per pound leaves that box to you. The per-acre figures below use the rate the South Dakota budgets assume for that zone. Spreading is charged once per pass and is offered on the nitrogen line.',
     groups: [
       {
         label: 'Cost per pound of potash',
@@ -619,7 +619,7 @@ export const TYPICAL_VALUES = {
     unit: '$/unit of seed',
     appliesTo: 'unit',
     source: SDSU_2026,
-    note: 'Corn and soybeans are priced per bag, wheat by weight. Switch the line to "seeds/ac" if you would rather enter the population you plant at than work out units per acre.',
+    note: 'Corn and soybeans are priced per bag, wheat by weight. Switch the line to "seeds/ac" if you would rather enter the population you plant at.',
     groups: [
       {
         // Corn is published per THOUSAND seeds ($3.80) and is converted here to
@@ -751,7 +751,7 @@ export const TYPICAL_VALUES = {
     source:
       'USDA National Agricultural Statistics Service, 2025 Cash Rent Paid Per Acre, South Dakota county estimates, released 23 August 2025.',
     note:
-      'County averages of what was actually paid for rented ground in 2025. Use your own lease rate where you have one. These are for budgeting ground you have not rented yet, or for checking whether an asking rate is in line.',
+      'County averages of what was paid for rented ground in 2025. Use your own lease rate where you have one. These are for budgeting ground you have not rented yet, or for checking whether an asking rate is in line.',
     groups: [
       {
         label: 'Cropland, non-irrigated',
@@ -1029,7 +1029,7 @@ export const TYPICAL_VALUES = {
     unit: 'years',
     source:
       'Iowa State University Extension and Outreach, Ag Decision Maker File A3-29 / PM 710, "Estimating Farm Machinery Costs", revised March 2026.',
-    note: 'This is ECONOMIC life: how long you expect to own the machine, not how long it would last. The two differ, because most machines are traded before they are worn out. If you know you will trade sooner, enter that number.',
+    note: 'This is ECONOMIC life: how long you expect to own the machine, not how long it would last. If you know you will trade sooner, enter that number.',
     byCategory: true,
     groups: [
       {
@@ -1076,7 +1076,7 @@ export const TYPICAL_VALUES = {
     status: 'provisional',
     source:
       'Conventional depreciation periods for farm structures. No published survey covers these.',
-    note: 'Buildings depreciate to zero in this calculator, so there is no salvage value to enter. These are ordinary depreciation periods rather than measured service lives. A well-kept machine shed outlasts thirty years, and a bin you plan to replace in fifteen should say fifteen.',
+    note: 'Buildings depreciate to zero in this calculator, so there is no salvage value to enter. These are ordinary depreciation periods rather than measured service lives. A well-kept machine shed could outlast thirty years, while a bin you plan to replace in fifteen years should say fifteen.',
     groups: [
       {
         label: 'Common service lives',
