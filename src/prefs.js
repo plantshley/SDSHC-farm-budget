@@ -6,6 +6,8 @@
  * to compute layout, so there is exactly one source of truth per preference.
  */
 
+import { track, setUserProps } from './analytics.js'
+
 const KEY_THEME = 'sdshc-fb-theme'
 const KEY_FONT = 'sdshc-fb-font'
 const KEY_DISMISSED = 'sdshc-fb-dismissed'
@@ -73,18 +75,31 @@ export function initPrefs() {
     const next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'
     applyTheme(next)
     write(KEY_THEME, next)
+    // The event says somebody went looking for the control. The user property,
+    // set from initAnalytics() with the value returned below, says what everyone
+    // is actually reading in — including the majority who never touch either.
+    track('theme_change', { choice: next })
+    setUserProps({ theme: next })
   })
 
   // ── Font ───────────────────────────────────────────────────────────────
-  applyFont(read(KEY_FONT, 'browser'))
+  const font = read(KEY_FONT, 'browser')
+  applyFont(font)
 
   for (const btn of document.querySelectorAll('[data-font-choice]')) {
     btn.addEventListener('click', () => {
       const choice = btn.getAttribute('data-font-choice')
       applyFont(choice)
       write(KEY_FONT, choice)
+      track('font_change', { choice })
+      setUserProps({ font: choice })
     })
   }
+
+  // Handed back so main.js can pass the RESOLVED pair to initAnalytics(). An
+  // unset theme follows the system rather than being stored, so reading the key
+  // back would report a blank for exactly the users who never chose one.
+  return { theme, font }
 }
 
 /**

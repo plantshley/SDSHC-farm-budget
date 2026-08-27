@@ -1,6 +1,7 @@
 // styles.css is linked from index.html, not imported here — see the comment
 // there. Keeping this entry module plain JS lets the smoke tests import it.
 import { initPrefs, dismiss } from './prefs.js'
+import { initAnalytics, track, trackOnce, resetOnce } from './analytics.js'
 import { calcScenario } from './calc.js'
 import {
   getScenario,
@@ -62,7 +63,7 @@ import {
 } from './export.js'
 import { enterpriseLabel, VARIABLE_LINES, COST_BASIS } from './calc.js'
 
-initPrefs()
+initAnalytics(initPrefs())
 
 const app = document.getElementById('app')
 
@@ -543,7 +544,7 @@ function footer() {
       ·
       <button type="button" class="tip" data-action="print">Print</button>
       <p class="footer-privacy">
-        Everything you enter stays on this device.
+        Your figures stay on this device.
         <button type="button" class="tip" data-info="privacy">Read more</button>
       </p>
       <p>South Dakota Soil Health Coalition</p>
@@ -601,6 +602,7 @@ const FORMATTERS = {
 function updateOutputs() {
   if (screen !== 'build') return
   const result = calcScenario(getScenario())
+  trackProgress(getScenario(), result)
 
   for (const el of app.querySelectorAll('[data-out]')) {
     const raw = getPath(result, el.getAttribute('data-out'))
@@ -806,6 +808,16 @@ app.addEventListener('change', (e) => {
   if (path && e.target.tagName === 'SELECT') {
     setPath(getScenario(), path, e.target.value)
     notify()
+
+    // Three of the selects on this page are segmented controls wearing a
+    // dropdown, so they belong under the same `control` dimension as the pills.
+    for (const [re, read] of TRACKED_SELECTS) {
+      const m = re.exec(path)
+      if (!m) continue
+      const [control, context] = read(m)
+      track('mode_select', { control, choice: e.target.value, context })
+      break
+    }
     const changedUnit = /^enterprises\.(\d+)\.yieldUnit$/.exec(path)
     if (changedUnit) dropStaleTypicalValues(Number(changedUnit[1]), e.target.value)
 
@@ -1796,6 +1808,10 @@ document.addEventListener('click', (e) => {
   // `?` — read-only, always.
   const info = btn.getAttribute('data-info')
   if (info) {
+    // The FIRST id only. A `?` may open several definitions at once, and sending
+    // the joined list would make every combination its own dimension value; the
+    // first is the one heading the panel and is what was asked about.
+    track('definition_open', { definition_id: info.split(',')[0] })
     openInfo(info.split(','), btn.getAttribute('data-info-title') || undefined)
     return
   }
@@ -1803,6 +1819,14 @@ document.addEventListener('click', (e) => {
   // "use typical value" — writes exactly one field.
   const typical = btn.getAttribute('data-typical')
   if (typical) {
+    // OPENED, not applied. The gap between this and `typical_value_applied` is
+    // the number worth having: somebody who opens the picker and closes it again
+    // is telling you the shipped figure did not match their operation, which is
+    // a different and more useful signal than "nobody uses typical values".
+    track('typical_value_open', {
+      typical_key: typical,
+      category: btn.getAttribute('data-category') || undefined,
+    })
     // A variable-expense line also passes its entry mode, so the picker can
     // tell a $/acre list from a $/bushel one and land the figure in the right
     // box rather than the box that happens to be showing.
@@ -1840,8 +1864,133 @@ document.addEventListener('click', (e) => {
   handleAction(action, btn)
 })
 
+/* ──────────────────────────── what GA is told ──────────────────────────── */
+
+/**
+ * The actions worth counting, and what each one is called in GA.
+ *
+ * An allowlist rather than "track every action": most of the thirty-eight action
+ * names are plumbing (`toggle-folder`, `focus-name`, `move-scenario-up`) and
+ * counting them would bury the questions anybody actually asks of this data.
+ *
+ * Nothing here carries a name, a crop, or an amount. `count` is the only number
+ * that goes out, and it is a count of rows rather than anything on them.
+ */
+const TRACKED_ACTIONS = {
+  'new-scenario': () => ['scenario_start', {}],
+  'new-folder': () => ['folder_created', {}],
+  'import-scenario': () => ['scenario_imported', {}],
+  'restore-all': () => ['backup_restored', {}],
+  'how-to': () => ['guide_open', { source: 'footer' }],
+  print: () => ['export_file', { format: 'print', scope: 'working' }],
+  'export-csv': () => ['export_file', { format: 'csv', scope: 'working' }],
+  'export-png': () => ['export_file', { format: 'png', scope: 'working' }],
+  'export-json': () => ['export_file', { format: 'json', scope: 'working' }],
+  'export-scenario': () => ['export_file', { format: 'json', scope: 'saved' }],
+  'export-compare-csv': () => ['export_file', { format: 'csv', scope: 'compare' }],
+  'backup-all': () => ['export_file', { format: 'json', scope: 'backup' }],
+  // The segmented controls. Every one of these is a decision the spreadsheet
+  // made for the producer and this app hands back, and none was measurable.
+  'set-line-mode': (btn) => [
+    'mode_select',
+    {
+      control: 'cost_line_mode',
+      choice: btn.getAttribute('data-mode'),
+      // `enterprises.0.variable.seed.mode` -> `seed`. WHICH line reached for the
+      // escape hatch is the whole question: "producers override the sheet
+      // sometimes" is not actionable, "they override it on fertilizer" is.
+      context: (btn.getAttribute('data-path') || '').split('.').at(-2),
+    },
+  ],
+  'set-preharvest-mode': (btn) => [
+    'mode_select',
+    { control: 'preharvest_mode', choice: btn.getAttribute('data-mode') },
+  ],
+}
+
+/** Select paths that are really segmented controls, and the dimension each fills. */
+const TRACKED_SELECTS = [
+  [/^enterprises\.\d+\.yieldUnit$/, () => ['yield_unit', undefined]],
+  [/^fixed\.annualBasis\.(\w+)$/, (m) => ['fixed_basis', m[1]]],
+  [/^fixed\.labor\.hoursBasis$/, () => ['labour_basis', undefined]],
+]
+
+/**
+ * One delegated hook for the allowlist above, plus the counts that are about the
+ * budget rather than the button.
+ */
+function trackAction(action, btn, scenario) {
+  if (action === 'add-enterprise') {
+    // Counted AFTER the row lands, so the number is what the producer now has.
+    // The four-enterprise ceiling is the reason this app exists, so how far past
+    // four anybody actually goes is the one figure that judges that decision.
+    track('enterprise_added', { count: (scenario?.enterprises?.length ?? 0) + 1 })
+    return
+  }
+  if (action === 'compare-selected') {
+    const picked = document.querySelectorAll('[data-compare-id]:checked').length
+    // Below two the case bails out and no comparison happens.
+    if (picked >= 2) track('compare_run', { count: picked })
+    return
+  }
+  if (action === 'new-scenario') resetOnce(scenario?.id)
+
+  const entry = TRACKED_ACTIONS[action]
+  if (!entry) return
+  const [name, params] = entry(btn)
+  track(name, params)
+}
+
+/**
+ * A warning's identity, from its own first six words.
+ *
+ * The model raises warnings as finished sentences, so there is no id to send.
+ * Slugging the opening is the cheapest thing that reads well in a report, and it
+ * has one real cost worth knowing before you reword a warning: **rewording its
+ * first six words starts a new dimension value**, and the old one stops accruing
+ * rather than erroring. Giving warnings real ids means changing what `warnings`
+ * holds, which every consumer reads, and that is a bigger change than analytics
+ * should force.
+ */
+function warningId(text) {
+  return String(text)
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, '')
+    .trim()
+    .split(/\s+/)
+    .slice(0, 6)
+    .join('-')
+    .slice(0, 60)
+}
+
+/**
+ * Reaching a real budget, and anything questionable on the way.
+ *
+ * "Complete" is revenue AND cost both above zero: a budget with only income
+ * typed is half a budget, and its profit line is the revenue over again. There
+ * is no unanswered-goal concept here the way the grazing calculator has one, so
+ * this is the honest substitute and it is worth knowing it is a judgement call.
+ *
+ * Both go through `trackOnce()` against the scenario id, because updateOutputs()
+ * runs on every keystroke.
+ */
+function trackProgress(scenario, result) {
+  const t = result?.totals
+  if (t && t.totalRevenue > 0 && finiteCost(t) > 0) {
+    trackOnce(scenario?.id, 'budget_complete', {
+      enterprises: scenario?.enterprises?.length ?? 0,
+    })
+  }
+  for (const text of result?.warnings ?? []) {
+    trackOnce(scenario?.id, 'warning_shown', { warning_id: warningId(text) })
+  }
+}
+
+const finiteCost = (t) => (t.totalVariable || 0) + (t.totalFixed || 0)
+
 function handleAction(action, btn) {
   const scenario = getScenario()
+  trackAction(action, btn, scenario)
 
   switch (action) {
     case 'add-enterprise': {
@@ -1978,6 +2127,12 @@ function handleAction(action, btn) {
       }
 
       if (result.ok) {
+        // Here rather than on the button: the press can end at the conflict
+        // prompt above, and a count of presses is not a count of work kept.
+        track('scenario_saved', {
+          enterprises: scenario?.enterprises?.length ?? 0,
+          first_save: scenarioIsNew ? 'yes' : 'no',
+        })
         dirty = false
         // A save can add a row, and a row that arrives filtered out of sight
         // reads as the save having failed. Whenever the list grows, the filter

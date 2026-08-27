@@ -224,7 +224,8 @@ export const DEFINITIONS = {
   privacy: {
     title: 'Where your budgets live',
     body: [
-      'Everything you enter stays on this device, in this browser. It is not sent anywherem, is not stored on any server, and will not appear on your other devices.',
+      'Your figures stay on this device, in this browser. They are not sent anywhere, are not stored on any server, and will not appear on your other devices.',
+      'We count anonymous usage: which screen you open, which entry modes you pick, and whether typical values get used. The dollar figures you type, your crop and budget names, and your saved scenarios are never sent, and nothing identifies you.',
       'The South Dakota Soil Health Coalition cannot see your budgets.',
       'To move a budget to another device, or to give one to somebody else, use "Save budget file" to download it and "Upload a budget file" on the Saved tab to read it back in.',
       'To keep a copy of everything at once, use "Export backup" on the Saved tab. It downloads every saved budget and every folder as one file, and "Restore backup" reads it back. Restoring replaces everything on the Saved tab, so the calculator says how many budgets are arriving and how many are going before it does anything.',

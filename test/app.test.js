@@ -3659,11 +3659,17 @@ describe('where the data lives is said, not only linked', () => {
   test('the footer states it in one sentence on every screen', async () => {
     // A producer typing their yields, prices, and land rent into a web page at
     // a workshop is entitled to know where it goes without going looking.
+    //
+    // The sentence narrowed from "Everything you enter" to "Your figures" when
+    // GA landed: which screen you open and which entry modes you pick are now
+    // counted, and a promise covering those would be one the app no longer
+    // keeps. The dollar figures are still what it is about, and they still
+    // never leave.
     for (const action of ['go-build', 'go-scenarios']) {
       click(`[data-action="${action}"]`)
       const line = doc.querySelector('.footer-privacy')
       assert.ok(line, `the ${action} screen states it`)
-      assert.match(line.textContent, /stays on this device/i)
+      assert.match(line.textContent, /stay on this device/i)
     }
   })
 

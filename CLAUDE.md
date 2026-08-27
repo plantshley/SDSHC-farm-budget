@@ -10,7 +10,7 @@ terminology, removes its four-enterprise ceiling, and lets producers save and
 compare scenarios on their own device.
 
 Built for the South Dakota Soil Health Coalition. The users are producers and
-students at the Soil Health School, on phones, often with no signal.
+students at the Soil Health School or at home, on phones or laptops, potentially with no signal.
 
 Vanilla JS + Vite + `vite-plugin-pwa`, deployed to GitHub Pages. No framework.
 Design tokens are ported from the SDSHC Virtual Fence ROI tool so the two look

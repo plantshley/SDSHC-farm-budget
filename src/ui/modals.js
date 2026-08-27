@@ -10,6 +10,7 @@
  * affordances look different, and it is why they are separate functions here.
  */
 
+import { track } from '../analytics.js'
 import { esc } from './format.js'
 import { DEFINITIONS } from '../data/definitions.js'
 import { TYPICAL_VALUES } from '../data/typical-values.js'
@@ -483,6 +484,12 @@ export function openTypical(typicalKey, targetPath, category = '', line = null, 
         err.hidden = false
         return
       }
+
+      // APPLIED, past the error guard and on both exit paths below. The pair
+      // with `typical_value_open` is the point: opens minus applies is how often
+      // a shipped figure did not fit the operation looking at it. `typical_key`
+      // only, never the value — the figure chosen is a fact about their budget.
+      track('typical_value_applied', { typical_key: typicalKey, category: category || undefined })
 
       markQuotedUnit(destination, spec)
       // The GROUP's unit, not the spec's: a mixed picker quotes one list per
