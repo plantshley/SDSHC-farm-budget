@@ -3361,12 +3361,14 @@ describe('the folder palette and glyph set', () => {
     // FOLDER_COLORS with no `.fld-c-<key>` class renders with no colour at all —
     // no error, no fallback, just a chip the same shade as the card. jsdom loads
     // no CSS, so the stylesheet source is the only place this can be checked.
-    // Anchored to the start of a line, so the mention of the selector inside
-    // the token block's own comment does not get taken for the rule itself.
-    const darkAt = css.search(/^\[data-theme="dark"\]/m)
+    // Matched on the selector plus its brace, so the mentions of it inside the
+    // token block's own comment are not taken for the rule itself. It is
+    // indented: the whole dark palette sits inside `@media screen`, so a page
+    // printed from a dark screen falls back to :root and comes out light.
+    const darkAt = css.search(/^\s*\[data-theme="dark"\] \{/m)
     assert.ok(darkAt > 0, 'there is a dark theme block')
     const light = css.slice(0, darkAt)
-    const dark = css.slice(darkAt, css.indexOf('\n}', darkAt))
+    const dark = css.slice(darkAt, css.indexOf('\n  }', darkAt))
 
     for (const key of FOLDER_COLORS) {
       assert.match(
@@ -3696,13 +3698,31 @@ describe('where the data lives is said, not only linked', () => {
     )
   })
 
-  test('the sentence survives printing, the link does not', async () => {
-    // A budget handed to a lender still carries the statement, and it is true
-    // on paper. `.footer button` is what the print block hides.
+  test('the footer does not print at all', async () => {
+    // Not just the buttons in it. Every line is chrome, and on paper the
+    // sentence reads as a caption to the figures rather than a note about the
+    // app. The promise is made in three places and all three are on screen.
     const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
     const print = css.slice(css.indexOf('@media print'))
-    assert.match(print, /\.footer button/)
-    assert.doesNotMatch(print, /\.footer-privacy\s*\{[^}]*display:\s*none/)
+    assert.match(print, /^\s*\.footer \{/m, 'the print block hides the footer')
+    assert.doesNotMatch(print, /\.footer button/, 'not just the buttons in it')
+  })
+
+  test('a page printed in dark mode comes out light', async () => {
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+
+    // The dark palette is scoped to @media screen, so paper falls back to
+    // :root. Undoing it token by token inside the print block would be a second
+    // copy of the light theme, and a copy goes stale the first time a colour
+    // moves. Anything at column 0 is a rule nobody wrapped.
+    for (const m of css.matchAll(/^\[data-theme=["']dark["']\]/gm)) {
+      assert.fail(`a dark rule at index ${m.index} sits outside @media screen`)
+    }
+    assert.match(css, /@media screen \{\s*\[data-theme="dark"\] \{/, 'the palette is wrapped')
+
+    // And the browser is told, for the widgets it draws itself.
+    const print = css.slice(css.indexOf('@media print'))
+    assert.match(print, /color-scheme: light/)
   })
 })
 

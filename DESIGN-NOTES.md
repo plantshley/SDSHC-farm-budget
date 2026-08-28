@@ -834,9 +834,14 @@ about, and it is in three places on purpose:
   accurate and easy to miss; they were folded into the new section rather than
   said twice.
 
-**The sentence survives printing and the link does not.** The print block hides
-`.footer button`, so a budget handed to a lender or an instructor still carries
-the statement, and it is still true on paper.
+**None of it prints.** The print block hides `.footer`, and it used to hide only
+`.footer button` — keeping the sentence on paper on the grounds that a budget
+handed to a lender or an instructor should still carry it. It reads wrong there.
+On screen the line sits under the app's own controls and is plainly about the
+app; on a printout every control is gone and the same grey sentence sits directly
+under the figures, where it reads as a caption to them. The promise is made in
+three places and all three are on screen, which is where somebody is deciding
+whether to type their land rent in.
 
 This is documentation of a fact about the current build, not a promise about the
 next one. `src/submit.js` is a stub and Phase 2 would change what is true here —

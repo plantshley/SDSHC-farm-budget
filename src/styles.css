@@ -150,65 +150,82 @@
   --radius: 10px;
 }
 
-[data-theme="dark"] {
-  --bg: #14181a;
-  --card: #1e2426;
-  --text: #e7ecea;
-  --muted: #9fb0aa;
-  --placeholder: #83908b;
-  --green: #57b75c;
-  --green-dark: #4aa44f;
-  --border: #313a3d;
-  --shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
-  --save: #57b75c;
-  --save-bg: #1c2a1e;
-  --cost: #e57368;
-  --cost-bg: #2c1c1a;
-  --overlay: rgba(0, 0, 0, 0.6);
+/* The dark palette is a SCREEN palette, and that is what the wrapper says.
 
-  /* Lightened so they still carry on a dark card. The brown is the one that
-     cannot survive as-is — at #4e413a it disappears into the background — so
-     in dark mode it hands its heading job to a warm off-white. */
-  --brown: #b9a894;
-  --sky: #4fc9ef;
-  --olive: #c3d456;
-  --clay: #c08a68;
+   Paper is white. A stored dark theme printed as-is puts #e7ecea text and
+   #313a3d rules onto it, and browsers drop background colours from a printout
+   by default while keeping the ink — so the page came out near-white text on
+   white paper, with the figures the whole document exists for the worst of it.
 
-  --info: var(--sky);
-  --info-bg: #10262e;
-  --olive-bg: #232817;
-  --clay-bg: #2b201a;
-  --brand-ink: #dfe6e2;
-  --on-sky: #0a1d24;
-  /* The wash goes the other way here. On a dark card a 35% olive is a bright
-     patch rather than a tint, so it comes down to 18% — and the ink goes UP to
-     the ordinary text colour instead of down to a near-black, because what it
-     is sitting on is now dark. 8:1 over the dark wash. */
-  --olive-soft: rgba(195, 212, 86, 0.18);
-  --on-olive: var(--text);
-  /* The light theme's darkened olive would be 2.4:1 on this background, so the
-     ink flips to the lightened fill colour rather than being carried over. */
-  --olive-ink: var(--olive);
+   Wrapped rather than undone token by token in the print block at the foot of
+   this file: that would be a second copy of the light palette, and a copy is a
+   thing that goes stale the first time a colour changes. Inside `@media screen`
+   there is nothing to keep in step. Print simply never sees the override and
+   falls back to `:root`, which is the light theme.
 
-  /* WASHES ONLY, and that is the whole point: the twelve inks are deliberately
-     NOT overridden here, so a folder is the same colour in either theme. See the
-     note beside them in :root. Each wash is its own ink at low lightness, so the
-     chip still reads as that colour rather than as a grey box. */
-  --fld-pink-bg: #33202a;
-  --fld-magenta-bg: #311f2f;
-  --fld-violet-bg: #2b2036;
-  --fld-indigo-bg: #221c33;
-  --fld-blue-bg: #17273c;
-  --fld-teal-bg: #16302f;
-  --fld-green-bg: #16301f;
-  --fld-lime-bg: #292c17;
-  --fld-yellow-bg: #322c17;
-  --fld-orange-bg: #33251a;
-  /* Slate is a warm brown in this palette, not a blue-grey — its light wash is
-     a tan. A blue-grey dark wash under a brown glyph was the one pair that did
-     not match its own ink. */
-  --fld-slate-bg: #2b2119;
-  --fld-grey-bg: #262c2e;
+   Every other `[data-theme="dark"]` rule in this file is wrapped the same way
+   and for the same reason. If you add one, wrap it. */
+@media screen {
+  [data-theme="dark"] {
+    --bg: #14181a;
+    --card: #1e2426;
+    --text: #e7ecea;
+    --muted: #9fb0aa;
+    --placeholder: #83908b;
+    --green: #57b75c;
+    --green-dark: #4aa44f;
+    --border: #313a3d;
+    --shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+    --save: #57b75c;
+    --save-bg: #1c2a1e;
+    --cost: #e57368;
+    --cost-bg: #2c1c1a;
+    --overlay: rgba(0, 0, 0, 0.6);
+
+    /* Lightened so they still carry on a dark card. The brown is the one that
+       cannot survive as-is — at #4e413a it disappears into the background — so
+       in dark mode it hands its heading job to a warm off-white. */
+    --brown: #b9a894;
+    --sky: #4fc9ef;
+    --olive: #c3d456;
+    --clay: #c08a68;
+
+    --info: var(--sky);
+    --info-bg: #10262e;
+    --olive-bg: #232817;
+    --clay-bg: #2b201a;
+    --brand-ink: #dfe6e2;
+    --on-sky: #0a1d24;
+    /* The wash goes the other way here. On a dark card a 35% olive is a bright
+       patch rather than a tint, so it comes down to 18% — and the ink goes UP to
+       the ordinary text colour instead of down to a near-black, because what it
+       is sitting on is now dark. 8:1 over the dark wash. */
+    --olive-soft: rgba(195, 212, 86, 0.18);
+    --on-olive: var(--text);
+    /* The light theme's darkened olive would be 2.4:1 on this background, so the
+       ink flips to the lightened fill colour rather than being carried over. */
+    --olive-ink: var(--olive);
+
+    /* WASHES ONLY, and that is the whole point: the twelve inks are deliberately
+       NOT overridden here, so a folder is the same colour in either theme. See the
+       note beside them in :root. Each wash is its own ink at low lightness, so the
+       chip still reads as that colour rather than as a grey box. */
+    --fld-pink-bg: #33202a;
+    --fld-magenta-bg: #311f2f;
+    --fld-violet-bg: #2b2036;
+    --fld-indigo-bg: #221c33;
+    --fld-blue-bg: #17273c;
+    --fld-teal-bg: #16302f;
+    --fld-green-bg: #16301f;
+    --fld-lime-bg: #292c17;
+    --fld-yellow-bg: #322c17;
+    --fld-orange-bg: #33251a;
+    /* Slate is a warm brown in this palette, not a blue-grey — its light wash is
+       a tan. A blue-grey dark wash under a brown glyph was the one pair that did
+       not match its own ink. */
+    --fld-slate-bg: #2b2119;
+    --fld-grey-bg: #262c2e;
+  }
 }
 
 /* "Classic" = the Virtual Fence ROI tool's stack, for producers who prefer it
@@ -378,9 +395,13 @@ main {
    Scoped to that one on purpose. The square mark is four coloured leaves, and
    the same filter would flatten it to a solid white blob — the one file in the
    app where "make it light" destroys the thing being made light. Its colours
-   carry on the dark background as they are. */
-[data-theme="dark"] .toplogo-wide {
-  filter: brightness(0) invert(1) opacity(0.92);
+   carry on the dark background as they are.
+
+   Screen only, like the palette above it: on paper the page is light. */
+@media screen {
+  [data-theme="dark"] .toplogo-wide {
+    filter: brightness(0) invert(1) opacity(0.92);
+  }
 }
 
 /* flex: 0 0 auto — these do not shrink. A squeezed font pill wraps its own
@@ -778,9 +799,8 @@ input.invalid {
   font-size: 12px;
 }
 
-/* Kept when the page is printed, unlike every other control in the footer.
-   A budget handed to a lender or an instructor still carries the statement
-   about where the data lives, and the sentence is true on paper. */
+/* Air between the sentence and the row of controls above it: it is the one
+   thing in the footer that is a statement rather than something to press. */
 .footer-privacy {
   margin: 10px 0 4px;
 }
@@ -1608,9 +1628,13 @@ input.invalid {
 
    Declared as its own rule rather than inside the [data-theme="dark"] token
    block, which would need CSS Nesting. Scoped to the control rather than set on
-   :root, so it changes nothing else about how the page is painted. */
-[data-theme='dark'] input[type='number'] {
-  color-scheme: dark;
+   :root, so it changes nothing else about how the page is painted.
+
+   Screen only, like the palette above it: on paper the page is light. */
+@media screen {
+  [data-theme='dark'] input[type='number'] {
+    color-scheme: dark;
+  }
 }
 
 .in-pre {
@@ -4255,7 +4279,17 @@ body.modal-open {
   /* Folder controls are controls. The header itself stays — it is structure,
      and it says which budgets below it belong together. */
   .fld-btns,
-  .footer button {
+  /* The WHOLE footer, not only its buttons. Every line in it is site furniture:
+     a how-to link, the coalition's name, and a sentence about where the data
+     lives on this device. None of that is a fact about the figures being handed
+     to somebody, and on paper the sentence in particular reads as a caption to
+     the numbers above it rather than as a note about the app.
+
+     The privacy line used to be kept here on purpose, as the one piece of the
+     footer that was a statement rather than a control. It is still stated on
+     screen, in the `privacy` definition, and in the how-to — three places, none
+     of which is a printout. */
+  .footer {
     display: none !important;
   }
 
@@ -4299,6 +4333,11 @@ body.modal-open {
   }
 
   body {
+    /* Paper is light, whatever the screen was set to. The dark palette is
+       already out of the way — every [data-theme="dark"] rule in this file is
+       inside `@media screen` — and this says the same thing to the browser
+       about the widgets it draws itself. */
+    color-scheme: light;
     background: #fff;
     color: #000;
     padding: 0;

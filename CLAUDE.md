@@ -676,8 +676,9 @@ and cost a phone a row above the sentence it was tapped to read.
 
 The app says in **three places** that nothing leaves the device: a sentence in
 the footer of every screen (`.footer-privacy`), a `privacy` definition behind the
-*Read more* link, and a how-to section *Where your budgets live*. The footer
-sentence survives printing; the link does not.
+*Read more* link, and a how-to section *Where your budgets live*. **The footer
+does not print** — the print block hides `.footer`, not just the buttons in it.
+All three places are on screen, which is where the promise is being made.
 
 This documents the current build, not a promise about the next one. **If anything
 is ever sent anywhere, these three change first** — see *Not built yet*.
