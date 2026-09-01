@@ -844,9 +844,19 @@ three places and all three are on screen, which is where somebody is deciding
 whether to type their land rent in.
 
 This is documentation of a fact about the current build, not a promise about the
-next one. `src/submit.js` is a stub and Phase 2 would change what is true here —
-see *Not built yet* in CLAUDE.md. If anything is ever sent anywhere, these three
-places are what has to change first, before the feature ships and not after.
+next one, and **the rule has now been exercised.** Sharing shipped, so all three
+places changed first, in the same commit as the feature: the footer sentence
+gained *"unless you turn on sharing"*, and the definition and the guide describe
+what is sent, what is not asked for, and how to stop.
+
+Two details worth keeping. The definition and the how-to section are **one
+array** now, `PRIVACY_BODY` in `data/definitions.js`, imported by `data/howto.js`
+— they were byte-for-byte copies, which is a promise stored twice and therefore
+one that can drift. And the two sentences that had to go, *"not sent anywhere"*
+and *"cannot see your budgets"*, are asserted **absent** in `test/app.test.js`: a
+reassurance that outlives the behaviour it described is worse than one never
+made, and it is the kind of line nobody thinks to delete because deleting text
+never breaks a build. See *Sharing budgets with the Coalition* in CLAUDE.md.
 
 ---
 
@@ -1336,21 +1346,149 @@ interest has its own tests.
 
 ---
 
-## Not built yet
+## Sharing: what the stub asked, and how it was answered
 
-`src/submit.js` is a **stub**. Phase 1 is local-only so the app works with no
-signal, and so that collecting student data stays a deliberate decision with a
-consent conversation attached. When Phase 2 lands, reuse the SDSHC-games-hub
-Firebase setup and its `firestore.rules` pattern.
+`src/submit.js` is gone; `src/share.js` replaced it. Its header comment listed
+three things to decide before enabling it, and they were decided rather than
+skipped:
 
-Before enabling it, decide what students are told and when they agree, whether
-anything identifying is collected at all (default: no), and how long submissions
-are kept.
+- **What producers are told, and when they agree.** Asked once, on their first
+  save, in a dialog that says what is sent before anything is. Not on first
+  visit: that asks somebody to consent to sharing a budget that does not exist
+  yet, before they know what the app collects or whether they will use it twice.
+- **Whether anything identifying is collected.** No account, no email, no name
+  field. The budget name IS sent, because the advisor asked for every input and
+  a nameless budget is hard to talk about — so the consent text says the name
+  goes and says to leave personal details out of it, rather than claiming an
+  anonymity the data does not have.
+- **How long submissions are kept.** Still open, and the only one outstanding.
+  It is a Coalition policy question rather than a technical one, and
+  `PRIVACY_BODY` carries a `TODO` until it is answered.
 
-**The app states in three places that nothing leaves the device** — see *Where
-the data lives is stated, not only linked*. That is a promise made to producers
-in the footer of every screen. Phase 2 cannot ship without changing all three
-first, and changing them is the consent conversation, not a follow-up to it.
+The stub's advice to reuse the games-hub Firebase setup held up: modular SDK,
+client-generated ids, `Date.now()` rather than `serverTimestamp()`, and
+shape-validating rules. One deliberate divergence — **reads are denied to
+everyone.** Game scores are a public leaderboard; enterprise budgets are
+commercially sensitive, and a crop plus an acreage plus a price is close to an
+identifiable operation in a state this size.
+
+### The two failures that would have been silent
+
+**`scenario.id` could not be the remote key.** `makeId()` is a millisecond
+timestamp in base 36 plus a counter that restarts on every page load, so it is
+unique within a device and not across them. Two students opening the app in the
+same millisecond at the same workshop mint the same first id — and keyed on
+that, each save would overwrite the other's budget in a store neither of them
+can read, with nothing on either screen to say so. `shareId` is a
+`crypto.randomUUID()` for exactly this reason.
+
+**A key that is minted but not stored orphans its record forever.** Reads are
+denied, so the key is the only handle: a budget that sent something it cannot
+name can never update it and can never delete it, which quietly falsifies
+*"turning sharing off deletes the records this device has sent"*. So the stamp
+happens **before** `saveScenario()` on the save path, and the two paths that are
+not saves — turning the switch on, answering the dialog — go through
+`shareNow()`, which stamps, stores, and **only then** sends. A failed save means
+no send: a budget nobody shared can be shared later, while a record nobody can
+reach is permanent.
+
+That is also why `saveScenario()` gives `shareId` a third merge rule, neither
+`sortIndex`'s nor `folderId`'s: it is never lost from either side. The in-memory
+value wins when there is one, and the stored one is adopted when there is not.
+`folderId`'s "stored always wins" would delete a key written moments earlier;
+`sortIndex`'s "keep ours" would ignore a share done in another tab and mint a
+second record while stranding the first.
+
+### The environment check, found by turning the config on
+
+`share.js` refuses to connect where there is no IndexedDB, and that guard was
+added because pasting the real Firebase config **hung the test suite**. Until
+then `FIREBASE_CONFIGURED` was false in every environment the code had ever run
+in, so the send path had never actually been taken.
+
+With a real project id, the first save in jsdom reached
+`initializeFirestore(..., { localCache: persistentLocalCache(...) })`, which sat
+waiting on a database that will never open — inside a fire-and-forget promise
+nothing was awaiting, so it hung rather than rejecting. Nothing timed out and no
+test failed; the run simply stopped producing output.
+
+The fix is a capability check **before the SDK is imported**, because loading it
+is the expensive and hanging part rather than something cheap to try and catch.
+IndexedDB is the right thing to check, and not incidentally: persistence is the
+entire offline story, so a place without it is a place where a shared budget
+could not be queued even if the connection succeeded.
+
+Two things worth keeping from this. It is **not** only a test problem — Safari
+private mode and Firefox with site data blocked have `indexedDB` present and
+unopenable, which is the same hang on a producer's phone. And a feature gated
+behind a config flag is a feature whose real path is unexercised: the flag made
+development pleasant and hid the defect until the day it was switched on, which
+is an argument for turning such flags on in a scratch project early rather than
+at the end.
+
+### Ten budgets nobody entered
+
+The hang above was not the whole of it. The same run that hung had already got
+ten documents out, and they were in the live collection: every one named
+**"My Budget Scenario"**, every figure zero, every date that afternoon's. That
+is `newScenario()`'s default name, and the smoke tests drive roughly sixty saves
+past it. They read as ten real producers who opened the app and saved an empty
+budget, which is a plausible enough thing for a producer to do that nothing
+about the rows said what they were.
+
+What identified them was `appVersion`. Vite's `define` stamps the real version
+in dev and in a build alike, so `'dev'` is the `node --test` fallback and
+nothing else can produce it. That one field is why this took a minute to
+diagnose instead of an afternoon of doubting the app, and it is now pinned by a
+test rather than left to drift to something more plausible-looking.
+
+The cause is structural and is not going away: `test/app.test.js` boots the
+**real** app and drives the **real** save path, on purpose, because that is what
+makes it worth having. So the app's own guards are the only thing between the
+suite and the collection, and one of them was capability-shaped —
+`window.indexedDB` — which is a moving target. jsdom does not implement it
+today. The day it does, the first guard opens on its own, silently, with nothing
+failing to announce it.
+
+So there is a second guard that shares no assumption with the first:
+`isNodeRuntime()` checks `process.versions.node`, which a browser never has and
+Node always does. Identity rather than capability. The test for it **fakes
+`window.indexedDB`** and asserts the refusal still stands, because a test that
+merely observed "sharing does not happen in jsdom" would have passed on the day
+it broke.
+
+The general lesson is narrower than "guard your tests". It is that a guard whose
+condition is a property of the environment can be invalidated by the
+environment, without a commit, and the failure it was holding back is one nobody
+is watching for by then. Two independent reasons cost four lines.
+
+**When this happens, the records are deleted rather than filtered out at export
+time.** They are indistinguishable from real data to anybody reading the
+workbook later, and a rule in the exporter is a rule somebody has to know about
+forever.
+
+### Reading it back
+
+There is no Excel export in Firebase at any tier: the managed export needs the
+Blaze plan and writes a format Excel cannot read, and the BigQuery extension
+needs Blaze too. Writing the workbook ourselves is the free-plan answer rather
+than a workaround, and `calc.js` being pure is what makes it cheap — the same
+module recomputes every figure under Node in the script and in the browser in
+the panel, so neither trusts the `results` stored on a record.
+
+`src/export-workbook.js` is deliberately shared by both exits. Two exporters
+flattening the data independently would drift, and the first anybody would know
+of it is two spreadsheets that disagree about a farm.
+
+**The exporter's gesture is not its security**, and the difference from themelab
+is the whole point. Themelab is safe on obfuscation alone because it edits CSS
+variables on one device and touches no data. This reads everybody's budgets, so
+the lock is `firestore.rules` denying reads to all but a signed-in admin,
+enforced on Google's servers and unaffected by anything the client does. Opening
+the panel uninvited is worth nothing, which is what makes a discoverable
+shortcut acceptable.
+
+Full setup and the console steps are in [docs/DATA-EXPORT.md](docs/DATA-EXPORT.md).
 
 ---
 

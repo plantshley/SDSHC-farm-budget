@@ -27,9 +27,23 @@ screen and runs with **no signal**.
 
 ### Your budgets stay on your device
 
-Saved budgets live in your browser and are **not sent anywhere**. That also means
-they won't appear on your other phone or computer, and clearing your browsing
-data will delete them. Export anything you want to keep.
+Saved budgets live in your browser. They are **not sent anywhere unless you turn
+on sharing**, which is off until you choose it. That also means they won't appear
+on your other phone or computer, and clearing your browsing data will delete
+them. Export anything you want to keep.
+
+### Sharing with the Coalition, if you want to
+
+The **Share** switch beside the Budget and Saved tabs sends your saved budgets to
+the South Dakota Soil Health Coalition, so it can understand what production
+costs look like across the state. It is optional and off by default, and you are
+asked once, the first time you save.
+
+If you turn it on, saving a budget sends a copy: every figure you entered, the
+budget name, the crop names, and the planning year. Each budget sends one record,
+and saving again updates it rather than adding another. There is no account and
+no name field, and nobody is asked who they are. Turning the switch off deletes
+what this device has sent.
 
 ---
 

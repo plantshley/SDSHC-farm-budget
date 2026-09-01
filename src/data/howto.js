@@ -10,6 +10,8 @@
  * with the two comparisons the Soil Health School actually teaches.
  */
 
+import { PRIVACY_BODY } from './definitions.js'
+
 export const HOW_TO_SECTIONS = [
   {
     heading: 'What this calculator does',
@@ -57,15 +59,10 @@ export const HOW_TO_SECTIONS = [
     // land rent into a web page at a workshop is entitled to a heading they can
     // find, not a clause inside one about something else.
     heading: 'Where your budgets live',
-    body: [
-      'Your figures stay on this device, in this browser. They are not sent anywhere, are not stored on any server, and will not appear on your other devices.',
-      'We count anonymous usage: which screen you open, which entry modes you pick, and whether typical values get used. The dollar figures you type, your crop and budget names, and your saved scenarios are never sent, and nothing identifies you.',
-      'The South Dakota Soil Health Coalition cannot see your budgets.',
-      'To move a budget to another device, or to give one to somebody else, use "Save budget file" to download it and "Upload a budget file" on the Saved tab to read it back in.',
-      'To keep a copy of everything at once, use "Export backup" on the Saved tab. It downloads every saved budget and every folder as one file, and "Restore backup" reads it back. Restoring replaces everything on the Saved tab, so the calculator says how many budgets are arriving and how many are going before it does anything.',
-      'Those files are the only things that ever leave this device, and only when you download them yourself.',
-      'Because the budgets live in this browser, clearing your browsing data deletes them. Export a backup for anything you want to keep.',
-    ],
+    // Imported, not copied. This section and DEFINITIONS.privacy are the same
+    // promise said in two places, and two copies of a promise is one that can
+    // drift. See the comment on PRIVACY_BODY.
+    body: PRIVACY_BODY,
   },
   {
     heading: 'Saving and comparing scenarios',

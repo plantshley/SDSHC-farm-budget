@@ -122,8 +122,25 @@ export const COST_BASIS = [
  *   - crop insurance 'total' mode: `totalCost`, a whole-enterprise premium
  * A v5 budget has none of these keys and the absence is the correct state, so
  * the v5 → v6 migration step deliberately writes nothing. See storage.js.
+ *
+ * v7 added `shareId`, the key of this budget's record with the Coalition. It is
+ * a `crypto.randomUUID()` written the first time a budget is shared, and it is
+ * the ONLY identifier the remote store has for it, which is why it is on the
+ * scenario rather than derived.
+ *
+ * It could not reuse `id`. `makeId()` in state.js is a timestamp in base 36
+ * plus a counter that restarts every page load, so it is unique within a device
+ * and not across them — two people opening the app in the same millisecond at
+ * the same workshop both get the same first id. Keyed on that, their budgets
+ * would overwrite each other in a store neither of them can see.
+ *
+ * The model ignores it. It is stripped on a single-budget export and import and
+ * dropped by duplicate, and KEPT by a backup restore, for the same reasons
+ * `folderId` is — see the table in storage.js. A v6 budget has never been
+ * shared, so the absence is the correct state and the v6 → v7 step writes
+ * nothing.
  */
-export const SCHEMA_VERSION = 6
+export const SCHEMA_VERSION = 7
 
 /* ────────────────────────────── helpers ────────────────────────────────── */
 

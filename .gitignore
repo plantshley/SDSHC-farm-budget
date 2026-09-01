@@ -144,3 +144,12 @@ vite.config.ts.timestamp-*
 
 # vite-plugin-pwa dev output
 dev-dist/
+
+# The Firebase service-account key used by tools/export-submissions.mjs.
+# It bypasses every rule in firestore.rules. Never commit it, never email it.
+tools/service-account.json
+
+# Exported workbooks. They contain producers' budgets and are generated on
+# demand, so there is no reason for one to sit in the repository.
+submissions-*.xlsx
+submissions-*.csv

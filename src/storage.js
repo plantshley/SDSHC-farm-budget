@@ -216,6 +216,19 @@ function migrate(scenario) {
     scenario.schemaVersion = 6
   }
 
+  // v6 → v7: budgets gained `shareId`, the key of their record with the
+  // Coalition, written the first time the producer shares one.
+  //
+  // Nothing is written here, and this step is the one where inventing a value
+  // would do real harm rather than merely wasting a write. A `shareId` means
+  // "this budget has been sent", so stamping one onto every stored record would
+  // claim consent that was never given, and the next save with sharing on would
+  // upload budgets whose owners had never been asked. Absent is not just the
+  // correct value for a v6 budget, it is the only safe one.
+  if (Number(scenario.schemaVersion) < 7) {
+    scenario.schemaVersion = 7
+  }
+
   return scenario
 }
 
@@ -459,6 +472,34 @@ export function renameScenario(id, name) {
   return result
 }
 
+/**
+ * Write a `shareId` onto a stored record without touching `updatedAt`.
+ *
+ * A FOURTH WRITE THAT BYPASSES saveScenario(), and for a reason of its own.
+ * The other three exist because the Saved tab acts on a row that may not be the
+ * budget open on the Budget tab. This one is about the timestamp: claiming a
+ * key is not editing a farm, exactly as filing into a folder is not.
+ *
+ * It is what lets opening a budget send it. The key has to reach disk before
+ * the record it names exists — reads are denied, so a budget that sent
+ * something it cannot name can never update or delete it — but going through
+ * saveScenario() to get it there would re-date every budget the producer merely
+ * opened, and `updatedAt` is what the saved list prints as the last time they
+ * were at the keyboard.
+ *
+ * An id already carrying a key is left exactly as it is, so this can be called
+ * on every open without consequence.
+ */
+export function setScenarioShareId(id, shareId) {
+  const all = listScenarios()
+  const found = all.find((s) => s.id === id)
+  if (!found) return { ok: false, error: 'NotFound' }
+  if (found.shareId) return { ok: true, shareId: found.shareId }
+  found.shareId = String(shareId)
+  const result = writeRaw(all)
+  return result.ok ? { ok: true, shareId: found.shareId } : result
+}
+
 /** All saved scenarios in list order. Unreadable records are skipped. */
 export function listScenarios() {
   const raw = readRaw()
@@ -543,6 +584,26 @@ export function saveScenario(scenario, { force = false } = {}) {
     if (existing.folderId != null) record.folderId = existing.folderId
     else delete record.folderId
 
+    // `shareId` follows a THIRD rule, and it is neither of the two above: it is
+    // never lost, from either side. The in-memory value wins when there is one
+    // (share.js has just written it), and the stored one is adopted when there
+    // is not.
+    //
+    // It cannot follow folderId's "stored always wins", because share.js writes
+    // the id onto the working scenario and saves in the same breath — the
+    // stored record has no id yet, and letting absence win would delete it on
+    // the way to disk. It cannot follow sortIndex's "keep ours" either: a share
+    // done in another tab is invisible to this copy, so ignoring the stored id
+    // would mint a second one and leave the first record unreachable.
+    //
+    // Unreachable is the whole hazard. The id is the ONLY handle on a remote
+    // record: reads are denied, so a budget that loses its id can never update
+    // or delete what it already sent, and "turning sharing off deletes the
+    // records this device has sent" quietly stops being true.
+    if (record.shareId == null && existing.shareId != null) {
+      record.shareId = existing.shareId
+    }
+
     all[index] = record
   } else {
     // A brand-new budget belongs at the top, alongside where the newest-first
@@ -558,6 +619,33 @@ export function saveScenario(scenario, { force = false } = {}) {
     setLastOpened(scenario.id)
   }
   return result
+}
+
+/**
+ * Forget every `shareId` on this device, and say which ones they were.
+ *
+ * Turning sharing off promises to delete the records this device has sent, and
+ * the promise has two halves that must not come apart: the remote documents go,
+ * and the local budgets stop naming them. This does the local half and hands
+ * back the ids so share.js can do the remote half.
+ *
+ * IT RETURNS THE IDS BEFORE CLEARING THEM, and the caller deletes remotely
+ * AFTER this succeeds, in that order. The other order loses the list on a
+ * failed write: the documents would be gone from the Coalition's store while
+ * the budgets still carried keys to them, and a later save would recreate
+ * records the producer had just asked to be rid of.
+ *
+ * A budget that has never been shared has no `shareId` and is not touched.
+ * `updatedAt` is deliberately NOT bumped — withdrawing consent is not editing a
+ * farm, the same rule moveScenarioToFolder() follows.
+ */
+export function clearAllShareIds() {
+  const all = listScenarios()
+  const ids = all.map((s) => s.shareId).filter((v) => typeof v === 'string' && v)
+  if (!ids.length) return { ok: true, ids: [] }
+  for (const s of all) delete s.shareId
+  const result = writeRaw(all)
+  return result.ok ? { ok: true, ids } : result
 }
 
 export function deleteScenario(id) {
@@ -605,7 +693,13 @@ export function storageAvailable() {
  * collide with a real folder there would file somebody else's budget into it.
  */
 export function exportScenarioJSON(scenario) {
-  const { folderId, ...rest } = scenario
+  // `shareId` goes for a stronger version of the same reason. A folder id that
+  // travels is meaningless on the far device; a shareId that travels is
+  // actively harmful, because it still resolves. Two people would be holding
+  // the key to one record, and whichever saved last would overwrite the other
+  // in a store neither of them can look at. A budget file is a copy of a
+  // budget, never a share of somebody's record.
+  const { folderId, shareId, ...rest } = scenario
   return JSON.stringify({ ...rest, schemaVersion: SCHEMA_VERSION }, null, 2)
 }
 
@@ -624,6 +718,14 @@ export function exportScenarioJSON(scenario) {
  * every id is resolved against the folders in the same file, so membership is
  * internally consistent and stripping it would lose the arrangement the producer
  * built — which is most of what they would be backing up for.
+ *
+ * `shareId` is KEPT here for the same reason and stripped from a budget file
+ * for a stronger one — see exportScenarioJSON. A restore puts a budget back on
+ * the device that shared it, so the id still names that device's own record,
+ * and dropping it would orphan the record: still held by the Coalition, no
+ * longer updatable, and no longer removable by turning sharing off. A budget
+ * file goes to somebody else, where the same id would let two people write over
+ * one record.
  *
  * `kind` is checked on the way back in. Both files are .json and both came out
  * of this app, so nothing about the extension distinguishes them, and restoring
@@ -786,6 +888,13 @@ export function importScenarioJSON(text) {
   // app wrote carries none; a hand-edited one is not evidence of anything about
   // the folders on THIS device.
   delete parsed.folderId
+  // And it has never been shared BY THIS DEVICE, which is the only thing a
+  // shareId can honestly claim. A file the app wrote carries none, since the
+  // export strips it. Stripping it again here covers the hand-edited case and
+  // the file that predates the strip: a budget arriving with somebody else's
+  // key would take over their record on its first save. An import is a new
+  // budget here, and a new budget has not been shared.
+  delete parsed.shareId
   // The two sibling readers both wrap migrate() per record and this one did not,
   // which is the whole difference between "that file is not a saved budget" and
   // an unhandled rejection out of an async change handler, where the producer

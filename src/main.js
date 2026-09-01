@@ -1,6 +1,17 @@
 // styles.css is linked from index.html, not imported here — see the comment
 // there. Keeping this entry module plain JS lets the smoke tests import it.
-import { initPrefs, dismiss } from './prefs.js'
+import {
+  initPrefs,
+  dismiss,
+  isSharingOn,
+  setSharing,
+  hasBeenAskedToShare,
+  markAskedToShare,
+} from './prefs.js'
+// Config only. share.js itself is reached through a dynamic import in the save
+// path, so the Firebase SDK never enters this module's import graph and the
+// Node smoke tests can keep importing main.js directly.
+import { SHARING_ENABLED, SHARING_AVAILABLE } from './firebase-config.js'
 import { initAnalytics, track, trackOnce, resetOnce } from './analytics.js'
 import { calcScenario } from './calc.js'
 import {
@@ -16,6 +27,7 @@ import {
   newEquipment,
   newBuilding,
   duplicateScenario,
+  ensureShareId,
 } from './state.js'
 import {
   listScenarios,
@@ -28,6 +40,7 @@ import {
   importBackupJSON,
   replaceAll,
   renameScenario,
+  setScenarioShareId,
   reorderScenarios,
   listFolders,
   reorderFolders,
@@ -44,7 +57,7 @@ import {
   searchText,
   openExportDialog,
 } from './ui/scenarios.js'
-import { openInfo, openTypical, openGuide, closeModal, withBusy } from './ui/modals.js'
+import { openInfo, openTypical, openGuide, openModal, closeModal, withBusy } from './ui/modals.js'
 import { usd, usdCents, esc, signClass } from './ui/format.js'
 import {
   matchCategory,
@@ -134,6 +147,26 @@ let fixedNotice = null
  * at; an opened one is a farm you already built and are coming back to.
  */
 let scenarioIsNew = true
+
+/**
+ * Whether the budget on screen exists in the saved list.
+ *
+ * SEPARATE FROM scenarioIsNew, which stays true through the first save because
+ * it is what tells the fold defaults to leave a blank budget's one enterprise
+ * open. This one flips the moment there is a stored record, because it answers
+ * a different question: whether the save state is allowed to say "Saved".
+ *
+ * It exists because that line read `dirty ? 'Unsaved changes' : SAVED_LABEL`,
+ * which has no state for a budget nobody has saved yet. A brand-new budget is
+ * not dirty — nothing has been typed into it — so pressing New put a tick and
+ * the word Saved under a budget that was in no list and would be gone on
+ * reload. The producer is being told their work is safe at the one moment it
+ * is not.
+ *
+ * A flag rather than a lookup because updateStatus() runs on every keystroke,
+ * and asking storage would parse the whole saved list each time.
+ */
+let scenarioSaved = false
 
 const isNarrow = () => globalThis.matchMedia?.('(max-width: 899px)').matches ?? false
 
@@ -396,20 +429,60 @@ function header() {
          </div>`
       : ''
 
+  // `role="tablist"` moved off the <nav> and onto an inner wrapper holding the
+  // two tabs and nothing else. It was on the nav, which also carries the `?`
+  // and now the share switch, and a tablist announcing "3 of 3" for a control
+  // that is not a tab misdescribes the whole group. The nav is a plain flex row
+  // of [switch] [tablist] [help].
   return `
     <div class="app-head">
       ${nameBlock}
-      <nav class="app-nav" role="tablist">
-        <button type="button" class="tab ${screen === 'build' ? 'active' : ''}"
-          role="tab" aria-selected="${screen === 'build'}"
-          data-action="go-build">Budget</button>
-        <button type="button" class="tab ${screen !== 'build' ? 'active' : ''}"
-          role="tab" aria-selected="${screen !== 'build'}"
-          data-action="go-scenarios">Saved</button>
+      <nav class="app-nav">
+        ${shareToggle()}
+        <div class="app-tabs" role="tablist">
+          <button type="button" class="tab ${screen === 'build' ? 'active' : ''}"
+            role="tab" aria-selected="${screen === 'build'}"
+            data-action="go-build">Budget</button>
+          <button type="button" class="tab ${screen !== 'build' ? 'active' : ''}"
+            role="tab" aria-selected="${screen !== 'build'}"
+            data-action="go-scenarios">Saved</button>
+        </div>
         <button type="button" class="help-btn" data-action="how-to"
           aria-label="How to use this calculator" title="How to use this calculator">?</button>
       </nav>
     </div>`
+}
+
+/**
+ * The sharing switch, beside the tabs on every screen.
+ *
+ * `role="switch"` rather than a checkbox: it takes effect the moment it is
+ * pressed, with no form to submit, which is what a switch means and what a
+ * checkbox does not.
+ *
+ * THE VISIBLE LABEL IS ONE WORD AND THE ACCESSIBLE NAME IS A SENTENCE. There is
+ * not room for the sentence beside two tabs on a 320px screen, and "Share" on
+ * its own is a question a screen reader cannot answer (share what, with whom?).
+ * `aria-label` overrides the text for anybody who needs the long form. Same
+ * problem the Saved tab's "Open Budget" solves the other way round, and for the
+ * opposite reason: there the short form must not become the accessible name,
+ * here the long one must.
+ *
+ * It renders nothing at all when sharing is switched off in firebase-config.js
+ * or the project is not configured yet. A switch that cannot do anything is
+ * worse than no switch: it invites a producer to turn on a thing that will not
+ * happen, and there is no way for them to tell.
+ */
+function shareToggle() {
+  if (!SHARING_ENABLED) return ''
+  const on = isSharingOn()
+  return `
+    <button type="button" class="share-toggle" role="switch"
+      aria-checked="${on}" data-action="toggle-share"
+      aria-label="Share my budgets with the South Dakota Soil Health Coalition"
+      title="${on ? 'Sharing is on. Saved budgets are sent to the Coalition.' : 'Sharing is off. Nothing is sent.'}">
+      <span class="share-dot" aria-hidden="true"></span>Share
+    </button>`
 }
 
 /**
@@ -534,6 +607,16 @@ function footer() {
   // entitled to know where it goes without having to go looking, and "there is
   // a page about it somewhere" is not the same answer as one sentence they
   // cannot miss. The link opens the full explanation for anyone who wants it.
+  //
+  // The sentence carries "unless you turn on sharing" because it has to be true
+  // in BOTH states. It cannot read the toggle and change: a line that says one
+  // thing to somebody who has opted in and another to somebody who has not is a
+  // line neither of them can quote back at us.
+  //
+  // `data-ex-tap` is the touch gesture for the hidden exporter panel (see
+  // exporter.js). It sits on the Coalition line rather than on the logo because
+  // themelab already owns five-taps-on-the-logo, and two counters watching one
+  // element would both advance.
   return `
     <div class="footer">
       <button type="button" class="tip" data-action="how-to">How to use this calculator</button>
@@ -544,10 +627,10 @@ function footer() {
       ·
       <button type="button" class="tip" data-action="print">Print</button>
       <p class="footer-privacy">
-        Your figures stay on this device.
+        Your figures stay on this device unless you turn on sharing.
         <button type="button" class="tip" data-info="privacy">Read more</button>
       </p>
-      <p>South Dakota Soil Health Coalition</p>
+      <p data-ex-tap>South Dakota Soil Health Coalition</p>
     </div>`
 }
 
@@ -570,7 +653,14 @@ function stickyBar() {
            on screen on the Saved tab. Nothing is lost by that: the two ways to
            discard unsaved work from there, opening another budget and leaving
            the page, both stop and ask first. -->
-      <span class="save-state" id="saveState"></span>
+      <!-- Two lines in a column, and the share line is a SIBLING of #saveState
+           rather than a child of it. updateStatus() rewrites that element's
+           textContent and its className wholesale on every keystroke, so
+           anything nested inside would be thrown away or restyled with it. -->
+      <span class="save-stack">
+        <span class="save-state" id="saveState"></span>
+        <span class="share-state" data-share-state hidden></span>
+      </span>
       <button type="button" class="btn-main" data-action="save-scenario">
         <!-- "Save" alone on a phone, where this button shares a fixed bar with
              two dollar figures and the state beside it. The hidden half is
@@ -664,9 +754,17 @@ function updateStatus() {
     el.textContent = 'This browser will not save budgets'
     el.className = 'save-state warn'
   } else {
-    el.textContent = dirty ? 'Unsaved changes' : SAVED_LABEL
-    el.className = `save-state ${dirty ? 'dirty' : ''}`
+    // Three states, not two. "Not saved yet" is its own thing: it is not an
+    // unsaved CHANGE, because nothing has been changed, and it is certainly not
+    // saved. It wears the same ink as Unsaved changes, since what both mean to
+    // a producer is the same — this is not in the list yet.
+    const unsaved = dirty || !scenarioSaved
+    el.textContent = !scenarioSaved ? 'Not saved yet' : dirty ? 'Unsaved changes' : SAVED_LABEL
+    el.className = `save-state ${unsaved ? 'dirty' : ''}`
   }
+  // Refreshed here rather than only after a send, so the line is right on every
+  // path that rebuilds the bar: a render, opening another budget, or a toggle.
+  updateShareState()
 }
 
 /* ─────────────────────────── input handling ────────────────────────────── */
@@ -2109,6 +2207,10 @@ function handleAction(action, btn) {
     }
 
     case 'save-scenario': {
+      // Stamp the share key BEFORE saving, so the save that triggers the send
+      // is the one that writes the key to disk. See sendSharedBudget().
+      if (SHARING_ENABLED && isSharingOn()) ensureShareId(scenario)
+
       let result = saveScenario(scenario)
 
       // Another tab or window changed this budget after we opened it. Ask
@@ -2129,17 +2231,33 @@ function handleAction(action, btn) {
       if (result.ok) {
         // Here rather than on the button: the press can end at the conflict
         // prompt above, and a count of presses is not a count of work kept.
+        // scenarioSaved, NOT scenarioIsNew. The two look interchangeable here
+        // and are not: scenarioIsNew is about PROVENANCE — this budget was
+        // never opened from the saved list — and it deliberately survives the
+        // first save, because it is what keeps a blank budget's one enterprise
+        // unfolded rather than collapsing it under the producer the moment they
+        // press Save. Read as "is this the first save", it answered yes to
+        // every save of the same budget for as long as the tab stayed open.
+        //
+        // Read BEFORE the assignment below, which is what makes the first
+        // press the one that says yes.
         track('scenario_saved', {
           enterprises: scenario?.enterprises?.length ?? 0,
-          first_save: scenarioIsNew ? 'yes' : 'no',
+          first_save: scenarioSaved ? 'no' : 'yes',
         })
         dirty = false
+        scenarioSaved = true
         // A save can add a row, and a row that arrives filtered out of sight
         // reads as the save having failed. Whenever the list grows, the filter
         // goes.
         scenarioFilter = ''
         updateStatus()
         flashSaved()
+        // Both of these come AFTER the budget is safely stored. Neither can
+        // fail in a way that costs the producer their work, and the modal in
+        // particular must never stand between somebody and a save.
+        sendSharedBudget(scenario)
+        maybeAskToShare(scenario)
       } else if (result.error === 'QuotaExceededError') {
         alert(
           'This browser has run out of storage space. Delete an old budget, or export this one to a file.'
@@ -2170,6 +2288,7 @@ function handleAction(action, btn) {
       collapsedEnterprises.clear()
       collapseDefaultsApplied = false
       scenarioIsNew = true
+      scenarioSaved = false
       render()
       break
 
@@ -2185,6 +2304,11 @@ function handleAction(action, btn) {
         collapsedEnterprises.clear()
         collapseDefaultsApplied = false
         scenarioIsNew = false
+        scenarioSaved = true
+        // getScenario(), NOT the `scenario` this handler captured on entry:
+        // that binding is still the budget the producer just navigated away
+        // from, so it would share the wrong one.
+        shareOnOpen(getScenario())
         render()
       }
       break
@@ -2213,6 +2337,7 @@ function handleAction(action, btn) {
       collapsedEnterprises.clear()
       collapseDefaultsApplied = false
       scenarioIsNew = false
+      scenarioSaved = true
       render()
       break
     }
@@ -2357,6 +2482,83 @@ function handleAction(action, btn) {
     // Removed from the DOM directly rather than through render(). A render here
     // would rebuild the whole saved list to delete one paragraph, throwing away
     // every compare tick on the page — the same rule the filter box follows.
+    case 'toggle-share': {
+      const on = !isSharingOn()
+      // THE SWITCH DOES NOT CONSENT ON ITS OWN. Turning sharing on by flipping a
+      // control labelled with one word would have somebody agree to send their
+      // figures having read nothing about what goes or who gets it. So a press
+      // that would turn it ON raises the dialog instead of taking effect, and
+      // the dialog's own buttons decide — including saving and sending the open
+      // budget, which shareNow() does.
+      //
+      // EVERY TIME, not only the first. Turning sharing off and on again is
+      // consent given a second time, and so is turning it on after declining;
+      // there is no reading of this where the second yes needs less information
+      // than the first. It also cannot nag, because it answers a press the
+      // producer just made.
+      //
+      // This is why openShareConsent() is separate from maybeAskToShare().
+      // `hasBeenAskedToShare()` exists to stop the prompt following every SAVE
+      // around, which is a different question from what an explicit press of
+      // the switch deserves, and gating this on it would have meant "you
+      // already read that once".
+      //
+      // Only in this direction. Turning sharing OFF always takes effect
+      // immediately, whatever has or has not been asked: withdrawing must never
+      // be gated behind reading something.
+      if (on) {
+        openShareConsent(scenario)
+        break
+      }
+      // Turning it ON is one click and takes effect. Turning it OFF also
+      // deletes what this device has already sent, which is destructive and
+      // irreversible, so that direction asks first. The asymmetry is the point:
+      // the confirm is not about consent, it is about the deletion, and the
+      // dialog says what goes rather than asking "are you sure?" — a producer
+      // switching off to stop FUTURE sends may not expect the back catalogue to
+      // go with it, and that is exactly the case that needs the sentence.
+      if (!on) {
+        const ok = confirm(
+          'Stop sharing?\n\n' +
+            'Nothing more will be sent, and the budgets this device has already shared will be ' +
+            'deleted from the Coalition.\n\n' +
+            'Your own copies stay on this device and are not touched.'
+        )
+        if (!ok) break
+      }
+      setSharing(on)
+      // OPERATING THE SWITCH ANSWERS THE CONSENT QUESTION, so the dialog is not
+      // put again. It asks exactly what the switch sets, and somebody who has
+      // just set it deliberately does not need it put to them a second time on
+      // their next save. Without this, turning sharing ON by hand is followed
+      // by a modal asking them to turn sharing on.
+      markAskedToShare()
+      track('share_toggled', { state: on ? 'on' : 'off' })
+      if (on) {
+        // Share the budget on screen right away. Turning the switch on and
+        // seeing nothing happen until the next save reads as a switch that did
+        // not work. shareNow() stamps, stores, and only then sends.
+        shareNow(scenario)
+      } else {
+        import('./share.js')
+          .then((m) => m.unshareEverything())
+          .then(() => {
+            // The working copy is not in the saved list, so clearAllShareIds()
+            // cannot reach it. Without this the very next save would mint a new
+            // record for a budget the producer just withdrew.
+            delete scenario.shareId
+            // The records are gone, so what this session remembers about
+            // sending them is not just stale, it describes documents that no
+            // longer exist.
+            shareOutcomes.clear()
+            render()
+          })
+          .catch(() => render())
+      }
+      render()
+      break
+    }
+
     case 'dismiss-note': {
       dismiss(btn.getAttribute('data-note'))
       btn.closest('.baseline-note')?.remove()
@@ -2580,6 +2782,330 @@ function flashSaved() {
   setTimeout(() => el.classList.remove('flash'), 700)
 }
 
+/* ─────────────────────────── sharing with SDSHC ────────────────────────── */
+
+/**
+ * What the last send of each record actually did: 'sent', 'queued', or 'failed'.
+ *
+ * UI STATE, so it is module-level here and not on the scenario — the same rule
+ * fold state follows. Putting it on the budget would mark it dirty, ride into
+ * the exported file, and describe one device's last network attempt as though
+ * it were a fact about the farm.
+ *
+ * KEYED ON shareId RATHER THAN THE OPEN BUDGET, because a producer can open
+ * another budget between a send going out and the answer coming back.
+ *
+ * IT DOES NOT SURVIVE A RELOAD, and that is honest rather than a gap. Nothing
+ * on this device can find out whether a record exists: reads are denied, which
+ * is the entire point of the rules. So after a reload the line says nothing
+ * until the next send answers. That under-reports, which is the safe direction
+ * for a line whose only job is to not over-claim.
+ */
+const shareOutcomes = new Map()
+
+/** One prefix, so a producer's console filters the lot with one word. */
+function shareLog(message) {
+  console.info(`[share] ${message}`)
+}
+
+/** The three things the line can say. A state with no entry says nothing. */
+const SHARE_STATE_TEXT = {
+  sent: 'Shared',
+  // NOT "Shared", and not an error either. The write is already durable in
+  // IndexedDB and will go on its own, which is the normal path at the Soil
+  // Health School — but it has not gone yet, and saying it has is the exact
+  // false claim this line was rewritten to stop making.
+  queued: 'Shares when back online',
+  failed: 'Not shared',
+}
+
+/**
+ * Send this budget's record, if the producer has asked for that.
+ *
+ * DELIBERATELY NOT AWAITED. The budget is already in localStorage before this
+ * runs, so the send is the one part that can be slow or impossible, and a save
+ * button that waits on a network round trip at a workshop with no signal is a
+ * save button that looks broken. Firestore queues the write in IndexedDB and
+ * flushes it whenever the connection returns, so "fire and forget" here means
+ * "durable and later" rather than "lost".
+ *
+ * The dynamic import is what keeps Firebase out of this module's graph — see
+ * the header of share.js. It is also why this cannot be inlined at the call
+ * site: `import()` is a promise, and awaiting it in the save handler would
+ * reintroduce exactly the wait the comment above is avoiding.
+ */
+function sendSharedBudget(scenario) {
+  // EVERY EXIT SAYS WHICH ONE IT WAS. This function had three silent returns
+  // and a swallowed rejection, so "nothing happened and nothing was logged"
+  // covered a misconfigured project, a switch that was off, a refused write,
+  // and a successful send alike. Diagnosing it meant guessing between them from
+  // the outside, repeatedly. One line in the console is worth more than the
+  // tidiness of not having it.
+  if (!SHARING_AVAILABLE) return shareLog('not sent: sharing is unavailable (check firebase-config.js)')
+  if (!isSharingOn()) return shareLog('not sent: the Share switch is off')
+  if (!scenario) return shareLog('not sent: no budget open')
+  import('./share.js')
+    .then((m) => m.shareBudget(scenario))
+    .then((result) => {
+      const id = scenario.shareId
+      if (id) {
+        shareOutcomes.set(
+          id,
+          result && result.ok ? (result.queued ? 'queued' : 'sent') : 'failed'
+        )
+      }
+      updateShareState()
+      // The id is in the message so it can be matched against the document in
+      // the Firestore console, which is the only way to check from outside that
+      // the record a save claims to have written is the one that is there.
+      if (result && result.ok) {
+        shareLog(`${result.queued ? 'queued, will send when online' : 'sent'} — ${id}`)
+      }
+      // SAY SO IN THE CONSOLE, because otherwise nothing anywhere does.
+      //
+      // shareBudget() RESOLVES {ok: false, error} rather than throwing, which
+      // is what rule 3 in share.js requires of it — but it also means the
+      // .catch() below never sees a rejected write, and the "Shared" line is
+      // written from the presence of a shareId rather than from a send having
+      // landed. So a write refused by firestore.rules produced no failure, no
+      // log, and a budget on screen claiming to be shared. There was nothing
+      // to look at.
+      //
+      // A queued offline write is NOT a failure and is not warned about: it is
+      // durable in IndexedDB and will flush, which is the normal path at the
+      // Soil Health School.
+      if (result && result.ok === false) console.warn('[share] not sent:', result.error)
+
+    })
+    .catch((err) => {
+      /* a failed send must never cost a save */
+      if (scenario.shareId) shareOutcomes.set(scenario.shareId, 'failed')
+      updateShareState()
+      console.warn('[share] not sent:', err)
+    })
+}
+
+/**
+ * Share a budget that is not already mid-save: stamp, store, then send.
+ *
+ * The save path does these three things itself, in this order, spread either
+ * side of its own `saveScenario()`. The other two ways a budget gets shared —
+ * turning the switch on, and answering the consent dialog — are not saves, so
+ * they would otherwise mint an id at SEND time and never write it down.
+ *
+ * THE ORDER IS THE POINT, AND SO IS THE EARLY RETURN. The key has to be on disk
+ * before the record it names exists, because the key is the only handle on that
+ * record: reads are denied, so a budget that sent something it cannot name can
+ * never update it and can never delete it, and "turning sharing off deletes the
+ * records this device has sent" would be false for it forever.
+ *
+ * So a failed save means no send. That is the safe direction: a budget nobody
+ * shared can be shared later, while a record nobody can reach is permanent. A
+ * Conflict here is deliberately NOT forced past — another tab has newer work,
+ * and taking it over to enable a setting is not a trade the producer asked for.
+ */
+function shareNow(scenario) {
+  if (!SHARING_ENABLED) return shareLog('not sent: sharing is switched off in this build')
+  if (!isSharingOn()) return shareLog('not sent: the Share switch is off')
+  if (!scenario) return shareLog('not sent: no budget open')
+  // The three gates above are SHARING_ENABLED, matching the save path's own
+  // stamp a few lines into the `save-scenario` case. Only sendSharedBudget()
+  // below follows SHARING_AVAILABLE: the key is device state and is written
+  // whenever sharing is on, so an unconfigured build behaves exactly like a
+  // configured one right up to the network call. The two must not diverge, or
+  // the code path that runs in development is not the one that runs in
+  // production.
+  ensureShareId(scenario)
+  const result = saveScenario(scenario)
+  if (!result.ok) {
+    // Silent until now, and it is the one exit with a visible consequence: the
+    // key is taken back off the budget, so the producer agreed to share and
+    // nothing at all happened. A Conflict is the likely cause and says nothing
+    // about sharing, which makes it the hardest of these to guess from outside.
+    shareLog(`not sent: the budget could not be saved first (${result.error})`)
+    delete scenario.shareId
+    return
+  }
+  // This IS a save, so the bar has to know. Without it, agreeing to share left
+  // "Not saved yet" standing over a budget that had just been written to disk,
+  // and the share line paired to that state stayed hidden with it.
+  dirty = false
+  scenarioSaved = true
+  updateStatus()
+  sendSharedBudget(scenario)
+}
+
+/**
+ * Send a budget the producer has just opened, if sharing is on.
+ *
+ * WHY OPENING SENDS AT ALL. Sharing only ever fired on a save, so a budget that
+ * was already finished before the switch went on sat there unsent until
+ * somebody thought to open it and press Save for no reason they could see. A
+ * restored backup was the worst of it: twenty budgets arrive, sharing is on,
+ * and nineteen of them are invisible to the Coalition until each is opened and
+ * re-saved by hand.
+ *
+ * IT DOES NOT BUMP updatedAt, which is the one thing separating this from
+ * shareNow(). Opening a budget is not editing it, and `updatedAt` is what the
+ * saved list prints as the last time the producer was at the keyboard — so
+ * routing this through saveScenario() would re-date a budget somebody merely
+ * looked at, and re-sort the list under them. setScenarioShareId() writes the
+ * key and nothing else.
+ *
+ * The key still reaches disk BEFORE the send, which is the rule every path here
+ * obeys: reads are denied, so a record whose key was never written down can
+ * never be updated or deleted.
+ *
+ * Nothing is sent if the key cannot be stored. That is the safe direction, and
+ * it is the same call shareNow() makes for the same reason.
+ */
+function shareOnOpen(scenario) {
+  if (!SHARING_ENABLED || !isSharingOn() || !scenario?.id) return
+  if (!scenario.shareId) {
+    ensureShareId(scenario)
+    const result = setScenarioShareId(scenario.id, scenario.shareId)
+    if (!result.ok) {
+      shareLog(`not sent on open: the key could not be stored (${result.error})`)
+      delete scenario.shareId
+      return
+    }
+    scenario.shareId = result.shareId
+  }
+  sendSharedBudget(scenario)
+}
+
+/**
+ * Ask on a save, and only until the question has been answered.
+ *
+ * ON THE FIRST SAVE RATHER THAN THE FIRST VISIT, which is the whole reason this
+ * is not in the boot block. A consent dialog in front of an empty calculator
+ * asks somebody to agree to share a budget that does not exist yet, before they
+ * know what the app collects or whether they will use it twice. The first save
+ * is the moment there is something to share and the producer has seen what it
+ * looks like.
+ *
+ * `markAskedToShare()` IS CALLED ON AN ANSWER AND ONLY ON AN ANSWER. Declining
+ * has to stick, or the dialog becomes something a producer says no to on every
+ * save, which is how a consent prompt turns into a thing people click through
+ * without reading. But putting the dialog away is not declining.
+ *
+ * This was the other way round and was wrong. Escape and the close button used
+ * to count as having been asked, on the reasoning that silence is the same
+ * answer as "not now" and re-raising it punishes somebody for dismissing it.
+ * That reasoning holds for a prompt offering a feature. It does not hold for
+ * this one, because the two answers are not symmetric: "not now" is a decision
+ * the producer made and can revisit from the switch, while a dismissal is a
+ * producer who has not read the question yet. Treating those alike means the
+ * question is never put again, and the quietest possible way of not answering
+ * becomes permanent.
+ *
+ * So the dialog returns on the next save until it is answered, and BOTH buttons
+ * end it — including the one that says no.
+ */
+function maybeAskToShare(scenario) {
+  if (hasBeenAskedToShare()) return
+  openShareConsent(scenario)
+}
+
+/**
+ * Put the question, whether or not it has been put before.
+ *
+ * TWO ENTRY POINTS, ONE DIALOG, and they are gated differently on purpose. A
+ * save asks through maybeAskToShare(), which asks once, because a prompt that
+ * followed every save around is one people learn to dismiss without reading.
+ * The switch comes straight here every time it would turn sharing ON, because a
+ * press of it is a request to be asked: it is the moment consent is given, and
+ * the second yes does not need less information than the first.
+ *
+ * Answering yes from either place saves and sends the budget on screen through
+ * shareNow().
+ */
+function openShareConsent(scenario) {
+  if (!SHARING_ENABLED) return
+  track('share_prompt_shown')
+  const body = openModal(
+    'Share this budget with the Coalition?',
+    `<div class="def">
+       <p>The South Dakota Soil Health Coalition would like to see the budgets built with this
+          calculator, so it can understand what production costs look like across the state.
+          This is optional and it is up to you.</p>
+       <p><b>If you say yes,</b> saving a budget sends a copy: every figure you entered, the
+          budget name, the crop names, and the planning year. Each budget sends one record, and
+          saving again updates that record instead of adding another.</p>
+       <p><b>We do not ask who you are.</b> There is no account, no email address, and no name
+          field. Your budget name is part of what is sent, so leave personal details out of it
+          if you would rather not be identifiable.</p>
+       <p>Shared budgets are not published, sold, or shared outside the Coalition. You can
+          change your mind at any time with the <b>Share</b> switch beside the tabs, and turning
+          it off deletes the records this device has sent.</p>
+       <div class="share-ask-btns">
+         <button type="button" class="btn-main" data-share-answer="yes">Share my budgets</button>
+         <button type="button" class="btn-remove btn-quiet" data-share-answer="no">Not now</button>
+       </div>
+     </div>`
+  )
+  if (!body) return
+
+  for (const btn of body.querySelectorAll('[data-share-answer]')) {
+    btn.addEventListener('click', () => {
+      const yes = btn.getAttribute('data-share-answer') === 'yes'
+      setSharing(yes)
+      // BOTH buttons end the question, which is the whole difference between an
+      // answer and a dismissal. "Not now" has to stick or it is not an answer.
+      markAskedToShare()
+      track('share_prompt_answered', { answer: yes ? 'yes' : 'no' })
+      closeModal()
+      // The budget that prompted the question is the one they were asked
+      // about, so it goes now rather than waiting for another save. Through
+      // shareNow(), because the save that has just finished ran BEFORE the
+      // answer existed and therefore stamped no key.
+      if (yes) shareNow(scenario)
+      render()
+    })
+  }
+
+  // Nothing is marked here. Dismissing the dialog leaves the question open and
+  // the next save asks it again. See the note above.
+}
+
+/**
+ * Say whether the budget on screen has a record, under the save state.
+ *
+ * A SIBLING OF #saveState, NEVER A CHILD. updateStatus() rewrites that
+ * element's className wholesale, so anything nested inside it is rebuilt or
+ * restyled on every keystroke.
+ *
+ * IT REPORTS THE SEND, NOT THE SETTING, and it used to report neither. The line
+ * followed the presence of a `shareId`, which is stamped BEFORE the save that
+ * triggers a send — so a write the rules refused, a project misconfigured, a
+ * Firestore that would not start, all left "Shared" on screen under a budget
+ * that had gone nowhere. That is the one thing this line must never do: it is
+ * the only place the app says anything about whether the Coalition has the
+ * budget, and a promise it cannot keep is worse than saying nothing.
+ *
+ * So it says what happened, from shareOutcomes, and distinguishes the queued
+ * case rather than folding it into either answer.
+ */
+function updateShareState() {
+  const el = document.querySelector('[data-share-state]')
+  if (!el) return
+  // PAIRED WITH THE SAVE STATE, never shown beside anything but a tick. What
+  // went to the Coalition is the budget as it was SAVED, so the moment there
+  // are unsaved changes the line describes a version that is no longer the one
+  // on screen — and "Shared" over edits somebody is still typing reads as a
+  // promise about those edits. The same goes for a budget that has never been
+  // saved at all, where there is nothing to describe.
+  //
+  // The line comes back on the next save, which is also the next send.
+  const settled = scenarioSaved && !dirty
+  const id = settled && SHARING_ENABLED && isSharingOn() ? getScenario()?.shareId : null
+  const outcome = id ? shareOutcomes.get(id) : undefined
+  const text = SHARE_STATE_TEXT[outcome] ?? ''
+  el.textContent = text
+  el.hidden = !text
+  el.classList.toggle('share-state-bad', outcome === 'failed')
+}
+
 /**
  * Name an imported budget so it can be told apart from what is already saved.
  *
@@ -2625,6 +3151,7 @@ function importFromFile() {
     collapsedEnterprises.clear()
     collapseDefaultsApplied = false
     scenarioIsNew = false
+    scenarioSaved = true
     render()
   })
   input.click()
@@ -2768,6 +3295,7 @@ clearListeners()
 const last = getLastOpened()
 const reopened = last ? getScenarioById(last) : null
 scenarioIsNew = !reopened
+scenarioSaved = Boolean(reopened)
 setScenario(reopened || newScenario())
 // The Saved tab has not been drawn yet, but the section holding the budget
 // being reopened has to be open by the time it is. See revealScenarioFolder.

@@ -1,0 +1,77 @@
+rules_version = '2';
+
+/*
+ * Access rules for the shared-budget collection.
+ *
+ * Modelled on SDSHC-games-hub's firestore.rules, with ONE DELIBERATE
+ * DIFFERENCE: reads are denied to everybody. Game scores are a public
+ * leaderboard; enterprise budgets are commercially sensitive, and a crop plus
+ * an acreage plus a price is close to an identifiable operation in a state this
+ * size. Nothing in the web app ever reads this collection back.
+ *
+ * THE THREAT MODEL, stated so the next person does not assume a stronger one:
+ * the write endpoint is unauthenticated, because a producer at a workshop has
+ * no account and asking them to make one would end the feature. These rules
+ * block casual tampering from a browser console, not a determined attacker.
+ * What limits the damage is the shape check below, Firestore's 1 MiB document
+ * ceiling, and the Spark plan's daily write cap, which turns the worst case
+ * into "writes start failing" rather than a bill.
+ */
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAdmin() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    match /budget-submissions/{shareId} {
+
+      // Only the exporter panel, signed in as an account listed in `admins`.
+      // The Node script uses the Admin SDK, which bypasses rules entirely.
+      allow read: if isAdmin();
+
+      // One document per budget, created and then updated in place by the
+      // device that owns it. hasOnly() is the important half: it pins the
+      // document to exactly the ten fields share.js writes, so the collection
+      // cannot be used as free storage and an unexpected field is a rejected
+      // write rather than a surprise column in the spreadsheet.
+      allow create, update: if
+           request.resource.data.shareId == shareId
+        && shareId.size() == 36
+        && request.resource.data.keys().hasOnly([
+             'shareId', 'schemaVersion', 'appVersion', 'name', 'scenarioYear',
+             'createdAt', 'firstSentAt', 'updatedAt', 'scenario', 'results'
+           ])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() <= 120
+        && request.resource.data.scenario is map
+        && request.resource.data.results is map;
+
+      // THE ID IS THE CAPABILITY, and this is a considered decision rather than
+      // an oversight. Reads are denied, so nobody can enumerate this
+      // collection, and a v4 UUID is 122 bits — a document cannot be found
+      // without already holding its key, which only the device that wrote it
+      // does. That is what makes withdrawing consent self-serve: turning the
+      // Share switch off deletes what this device sent, immediately, without
+      // anybody having to email the Coalition and wait.
+      //
+      // The alternative, admin-only deletion, would make the app's own promise
+      // ("turning sharing off deletes the records this device has sent") a
+      // thing a producer has to trust rather than a thing they can do.
+      allow delete: if true;
+    }
+
+    // The admin roster. Readable by the rules engine through exists(); no
+    // client ever touches it. Documents are created by hand in the console.
+    match /admins/{uid} {
+      allow read, write: if false;
+    }
+
+    // Everything else, including any collection somebody adds later without
+    // thinking about rules.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

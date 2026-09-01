@@ -1,17 +1,25 @@
 /**
  * GA4, and the four rules that keep it out of everything else's way.
  *
- *   1. **Nothing a producer typed ever leaves the device.** Only structure goes
- *      out: which screen, which entry mode, which typical value, which
- *      definition. Every dollar figure, every crop name, every budget name and
- *      every saved scenario stays here. That is what the `privacy` definition and
- *      `.footer-privacy` promise, so a new call to `track()` carrying a number
- *      somebody entered breaks a written promise and not merely a convention.
+ *   1. **Nothing a producer typed ever leaves the device THROUGH THIS FILE.**
+ *      Only structure goes out: which screen, which entry mode, which typical
+ *      value, which definition. Every dollar figure, every crop name, every
+ *      budget name and every saved scenario stays out of `track()`.
  *
  *      Enterprise budgets are commercially sensitive in a way a grazing
  *      worksheet is not. A crop name plus an acreage plus a price is close to an
  *      identifiable operation in a state this size, so the line is drawn tighter
  *      here: counts and mode names only, never a name and never an amount.
+ *
+ *      **This rule survived the arrival of sharing, and the distinction is the
+ *      point.** `share.js` does send figures, names, and crops — but only after
+ *      somebody has been asked and has said yes, only for the budget they
+ *      saved, and to a record they can delete by turning the switch off.
+ *      Analytics is none of those things: it is on by default and nobody
+ *      consented to it individually, which is exactly why it must stay
+ *      structural. The two paths must not be allowed to converge. A figure
+ *      routed through `track()` because it was "already being shared anyway"
+ *      would be collected from the people who declined.
  *   2. **It never throws and never blocks.** Every entry point is wrapped, and a
  *      failure is swallowed. Analytics that can break the calculator is worse
  *      than no analytics.

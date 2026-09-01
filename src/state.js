@@ -173,6 +173,47 @@ export function newScenario(name = 'My Budget Scenario') {
   }
 }
 
+/**
+ * Give a budget its `shareId` if it has not got one, and hand it back.
+ *
+ * HERE, RATHER THAN IN share.js, FOR TWO REASONS. It is a fact about the
+ * scenario's shape, which is this file's job; and it must be callable without
+ * loading Firebase, because main.js has to stamp the id BEFORE `saveScenario()`
+ * runs. Doing it after the save would leave the id in memory only, and a
+ * producer who shared once and never saved again would have a record nobody
+ * could update or delete — see the note in saveScenario().
+ *
+ * A v4 UUID, not `makeId()`. See the SCHEMA_VERSION comment in calc.js: makeId
+ * restarts its counter every page load, so two devices can mint the same one.
+ * This is the key of a record in a store shared by every device, and a
+ * collision there is one budget silently overwriting another.
+ *
+ * `crypto.randomUUID` needs a secure context and is absent in some test
+ * environments, so there is a fallback. It is only ever a fallback: getRandomValues
+ * is still 122 bits of entropy, which is what the id being unguessable rests on.
+ */
+export function ensureShareId(scenario) {
+  if (!scenario) return null
+  if (typeof scenario.shareId === 'string' && scenario.shareId.length === 36) {
+    return scenario.shareId
+  }
+  scenario.shareId = randomUUID()
+  return scenario.shareId
+}
+
+function randomUUID() {
+  const c = globalThis.crypto
+  if (typeof c?.randomUUID === 'function') return c.randomUUID()
+  // RFC 4122 v4 laid out by hand from 16 random bytes.
+  const b = new Uint8Array(16)
+  if (typeof c?.getRandomValues === 'function') c.getRandomValues(b)
+  else for (let i = 0; i < 16; i += 1) b[i] = Math.floor(Math.random() * 256)
+  b[6] = (b[6] & 0x0f) | 0x40
+  b[8] = (b[8] & 0x3f) | 0x80
+  const hex = [...b].map((n) => n.toString(16).padStart(2, '0')).join('')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
+
 /** A copy under a new id and name — the starting point of every comparison. */
 export function duplicateScenario(source, name) {
   const copy = structuredClone(source)
@@ -184,6 +225,12 @@ export function duplicateScenario(source, name) {
   // A copy has never been dragged anywhere. Inheriting the original's list
   // position would put two budgets at the same rank.
   delete copy.sortIndex
+  // A copy has never been shared either, and this one is not cosmetic like the
+  // rank above. `shareId` keys the ORIGINAL's record with the Coalition, so a
+  // duplicate that inherited it would, on its first save, upload itself over
+  // the budget it was copied from — silently, into a store the producer cannot
+  // see, destroying the comparison they made the copy to build.
+  delete copy.shareId
   // Fresh ids so the two scenarios' rows never collide in a compare view.
   for (const e of copy.enterprises) e.id = makeId('ent')
   for (const e of copy.fixed.equipment) e.id = makeId('eq')

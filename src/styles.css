@@ -1096,13 +1096,46 @@ input.invalid {
    it is about. `margin-left: auto` collapses the space before it so the pair
    travels together at the right-hand end, however wide the figures beside them
    get. */
+/* The auto margin moved out here when the share line joined it. The pair is one
+   block travelling together at the right-hand end, and putting the margin on
+   the inner line would have let the two of them drift apart. */
+.save-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 1px;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
 .save-state {
   font-size: 12px;
   color: var(--muted);
   white-space: nowrap;
   flex: 0 0 auto;
-  margin-left: auto;
   text-align: right;
+}
+
+/* Quieter than the save state above it, because it is a fact rather than a
+   prompt: nothing is waiting on the producer to do anything about it. It is
+   --sky and not --green for the reason the whole palette is arranged around —
+   green on this page means a positive dollar figure, and a status line in it
+   would read as money. */
+.share-state {
+  font-size: 11px;
+  color: var(--sky);
+  white-space: nowrap;
+  flex: 0 0 auto;
+  text-align: right;
+}
+
+/* A send that did not land, in the same ink .save-state.warn already uses for a
+   failed save two lines down. The line beside it reports the same kind of thing
+   about the same budget, so a second colour for it would read as a different
+   kind of problem. */
+.share-state-bad {
+  color: var(--cost);
 }
 
 .save-state.dirty {
@@ -1172,6 +1205,221 @@ input.invalid {
 
 .app-nav .help-btn {
   margin: 0 0 10px 8px;
+}
+
+/* The two tabs, and nothing else.
+
+   This wrapper exists for the accessibility tree rather than the layout:
+   `role="tablist"` used to sit on .app-nav, which also carries the `?` and now
+   the share switch, so a screen reader announced "tab 3 of 3" for two controls
+   that are not tabs and cannot be arrowed between. The nav is a plain flex row
+   now and the tablist is exactly the tabs.
+
+   `flex: 1 1 auto` because the narrow-width rule gives each .tab `flex: 1 1 0`
+   to share the row, and a track that cannot itself grow would have left them
+   sharing the width of their own text. */
+.app-tabs {
+  display: flex;
+  gap: 4px;
+  align-items: flex-end;
+  flex: 1 1 auto;
+}
+
+/* ---- share switch ------------------------------------------------------ */
+
+/* Left of the tabs, on every screen, because the answer it holds applies to the
+   whole app rather than to the budget open right now.
+
+   Deliberately quiet: an outlined pill rather than a filled one. It is not the
+   main thing to do on this page, and a solid control beside the tabs would
+   compete with them for "where do I go next". It only gets colour once it is
+   ON, which is the state worth being able to see from across a room.
+
+   --sky and not --green: green means a positive dollar figure everywhere else
+   on this page, and a switch in it would read as money rather than as a
+   setting. */
+.share-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  margin: 0 8px 10px 0;
+  padding: 6px 11px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  min-height: 32px;
+}
+
+.share-toggle:hover {
+  border-color: var(--sky);
+  color: var(--brand-ink);
+}
+
+.share-toggle[aria-checked='true'] {
+  border-color: var(--sky);
+  color: var(--brand-ink);
+  background: var(--olive-bg);
+}
+
+/* The dot carries the state, and the word never changes. A label that flipped
+   between "Share" and "Sharing" would be two words to learn for one setting,
+   and on a phone the wider of them decides the width of the whole row. */
+.share-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border);
+  flex: 0 0 auto;
+}
+
+.share-toggle[aria-checked='true'] .share-dot {
+  background: var(--sky);
+}
+
+/* The consent modal's two answers. Sharing is the filled button because it is
+   what the dialog is asking; declining is the outlined one beside it, not a
+   text link, because "Not now" must not be harder to press than "yes". */
+/* The two answers are deliberately UNEQUAL in weight. Sharing is the offer, so
+   it wears .btn-main; declining is .btn-remove plus .btn-quiet, the same quiet
+   text-link box Remove uses, with .btn-quiet cancelling the red hover because
+   declining destroys nothing. Both are still 44px of target.
+
+   align-items: center, because the text link is a 44px box next to a taller
+   filled button and would otherwise sit against the top of the row. */
+.share-ask-btns {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+/* .btn-remove's own 11px is sized for a row action sitting beside a field. This
+   is one of two answers to a consent question, next to a 17px bold button, and
+   at 11px it read as a footnote rather than a choice — which is the wrong shape
+   for the half that declines. Still visibly lighter than the offer, because the
+   two are meant to be unequal in weight, not in legibility. Its mono step is in
+   the block at the foot of the sheet, which would otherwise take it to 10px. */
+.share-ask-btns .btn-remove {
+  font-size: 15px;
+}
+
+/* ---- hidden data exporter ---------------------------------------------- */
+
+/* Author and Coalition tool, opened on a gesture and linked to from nowhere.
+   See exporter.js.
+
+   Like themelab's panel it declares its own colours rather than reading the
+   page's tokens, for a plainer version of the same reason: this floats over a
+   budget in either theme and has to stay readable in both, and it is not part
+   of the app's own surface. It is fixed and scrollable because a batch of
+   twenty budgets lists seven sheets and their row counts on a laptop that may
+   be showing the Saved tab behind it. */
+.ex-panel {
+  position: fixed;
+  z-index: 60;
+  right: 16px;
+  bottom: 16px;
+  width: min(360px, calc(100vw - 32px));
+  max-height: min(560px, calc(100vh - 32px));
+  overflow: auto;
+  background: #ffffff;
+  color: #23282a;
+  border: 1px solid #c8d0c8;
+  border-radius: 12px;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.28);
+  font-size: 13px;
+}
+
+.ex-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #e2e7e2;
+  position: sticky;
+  top: 0;
+  background: #ffffff;
+}
+
+.ex-close {
+  background: none;
+  border: none;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  color: #5a625a;
+  padding: 0 4px;
+  min-height: 32px;
+}
+
+.ex-body {
+  padding: 12px;
+}
+
+.ex-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: #5a625a;
+}
+
+.ex-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #c8d0c8;
+  border-radius: 8px;
+  /* 16px, and not for looks. Under it, iOS Safari zooms the page when the field
+     takes focus and does not zoom back out — the same cliff the app's own
+     `input, select` rule is wrapped in a hover query to avoid. */
+  font-size: 16px;
+  margin-bottom: 10px;
+  box-sizing: border-box;
+}
+
+.ex-go {
+  width: 100%;
+}
+
+.ex-count {
+  margin: 0 0 12px;
+}
+
+.ex-note {
+  margin: 14px 0 6px;
+  font-size: 12px;
+  color: #5a625a;
+}
+
+.ex-err {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #b3261e;
+}
+
+.ex-csvs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ex-csvs li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 0;
+}
+
+.ex-dim {
+  color: #5a625a;
+  font-size: 11px;
 }
 
 /* ---- input frames ------------------------------------------------------ */
@@ -3695,7 +3943,7 @@ body.modal-open {
      rather than push the tabs sideways. See .scenario-name's text-overflow. */
   .name-wrap {
     flex-direction: column;
-    align-items: flex-start;
+    align-items: center;
     gap: 2px;
     flex: 1 1 0;
     min-width: 0;
@@ -3731,14 +3979,6 @@ body.modal-open {
     line-height: 1.25;
   }
 
-  /* The title's text starts 9px in: 1px of transparent border plus the input's
-     8px of left padding. The year caption is not in a box, so without this it
-     began 9px to the left of the title above it and the two rows read as
-     misaligned. Tied to .scenario-name's padding — change one, change both. */
-  .year-edit {
-    padding-left: 9px;
-  }
-
   /* The row goes full width so a long name can GROW into it. The box itself
      stays sized to its text by sizeNameInput() — an empty input spanning the
      screen reads as a form field you must fill in, which is the thing the
@@ -3746,6 +3986,22 @@ body.modal-open {
      box. */
   .title-row {
     width: 100%;
+    justify-content: center;
+  }
+
+  /* Centring the BOX is not centring the TITLE. The name input reserves 38px at
+     its right edge for the pencil against 8px of padding at its left, so a
+     centred box leaves the words sitting 15px left of centre with the year
+     underneath them dead centre, and the two rows read as misaligned. The 30px
+     makes the two insets equal, which centres the text itself.
+
+     It is padding on the wrapper rather than on the input because the pencil is
+     positioned against this box and must not move with it. The cost is about
+     two characters of name before the ellipsis at 360px, which is the cheaper
+     of the two failures. Tied to .scenario-name's padding pair: change those,
+     change this. */
+  .title-row .name-edit {
+    padding-left: 30px;
   }
 
   /* Full width on a phone, so the auto margin that right-aligns the tabs on a
@@ -3755,6 +4011,21 @@ body.modal-open {
     width: 100%;
     justify-content: flex-start;
     margin-left: 0;
+  }
+
+  /* The switch tightens here and the tabs give up the difference. At 320px the
+     nav row is 296px: the switch takes about 78px, the `?` 30px, and the two
+     tabs share what is left at roughly 92px each — well clear of the 44px
+     minimum the .tab rule below is protecting.
+
+     It keeps its word rather than shrinking to the dot alone. A bare coloured
+     dot beside two tabs is not a control anybody would press on purpose, and
+     the one place a producer needs to be able to find this setting is the one
+     place it must not become a puzzle. */
+  .share-toggle {
+    padding: 6px 9px;
+    margin-right: 6px;
+    gap: 5px;
   }
 
   .tab {
@@ -4110,6 +4381,13 @@ body.modal-open {
   
 }
 
+/* One step down from its own 15px, not down to .btn-remove's 10px. Needs the
+   deeper selector to out-rank the rule directly above, which is the reason this
+   whole block sits last. */
+[data-font="mono"] .share-ask-btns .btn-remove {
+  font-size: 14px;
+}
+
 /* PLACEHOLDERS come down; the input's own text is a separate question, below.
 
    `em`, not a px figure, and that is the whole trick: a placeholder's `em`
@@ -4262,13 +4540,20 @@ body.modal-open {
   .btn-back,
   .tip,
   .help-btn,
+  /* Named explicitly: it is a fixed overlay appended to <body>, so unlike the
+     share switch and the share state it sits inside nothing that is already
+     hidden here. Printing a budget with it open would put the panel across the
+     page, which is the failure the modal overlay two lines down avoids the
+     same way. */
+  .ex-panel,
   .mode-pill,
   .chev,
   .scn-grip,
-  /* .save-state is not listed: it is app state rather than budget data and must
-     not print, but it now lives inside .sticky-bar, which is already hidden two
-     lines up. Naming it again would be a rule that looks load-bearing and is
-     not. If it ever moves out of the bar, it comes back here. */
+  /* .save-state and .share-state are not listed: both are app state rather than
+     budget data and neither must print, but they live inside .sticky-bar, which
+     is already hidden two lines up. Naming them again would be a rule that
+     looks load-bearing and is not. If either moves out of the bar, it comes
+     back here. .share-toggle is covered the same way by .app-nav. */
   .edit-name,
   .edit-icon,
   .overlay,

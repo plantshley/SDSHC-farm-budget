@@ -61,6 +61,50 @@ export function dismiss(id) {
   write(KEY_DISMISSED, [...set].join(','))
 }
 
+/* ────────────────────────── sharing with SDSHC ─────────────────────────── */
+
+/**
+ * Whether this device sends saved budgets to the Coalition, and whether it has
+ * been asked yet.
+ *
+ * Here rather than in the scenario for the same reason the theme is: it is a
+ * fact about this browser, not about a farm. Putting it in the budget would
+ * mark it dirty on every toggle and ride into an exported file, so a budget
+ * handed to a neighbour would carry the sender's answer and start sharing on
+ * their device without anybody being asked.
+ *
+ * TWO KEYS, NOT ONE, and the second is not redundant. "Off" and "never asked"
+ * are different states that must stay different: the consent modal fires on the
+ * absence of an ANSWER, so a single key defaulting to off would re-ask forever
+ * anyone who said no. Storing the answer is what makes "no" stick.
+ *
+ * NO FIREBASE IMPORT IN THIS FILE. main.js needs isSharingOn() to draw the
+ * toggle on every render, and main.js is imported directly by the Node smoke
+ * tests. Pulling the SDK in here would drag it into jsdom, which has no
+ * IndexedDB. Everything that talks to Firestore lives behind the dynamic
+ * import of share.js.
+ */
+const KEY_SHARE = 'sdshc-fb-share'
+const KEY_SHARE_ASKED = 'sdshc-fb-share-asked'
+
+/** Off unless explicitly turned on. An unreadable value is not consent. */
+export function isSharingOn() {
+  return read(KEY_SHARE, '') === 'on'
+}
+
+export function setSharing(on) {
+  write(KEY_SHARE, on ? 'on' : 'off')
+  markAskedToShare()
+}
+
+export function hasBeenAskedToShare() {
+  return read(KEY_SHARE_ASKED, '') === '1'
+}
+
+export function markAskedToShare() {
+  write(KEY_SHARE_ASKED, '1')
+}
+
 export function initPrefs() {
   const root = document.documentElement
 

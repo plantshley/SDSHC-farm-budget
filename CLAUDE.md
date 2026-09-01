@@ -21,7 +21,7 @@ like one family.
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 828 tests: the economic model, storage, data, and a DOM smoke test
+npm test           # 919 tests: the economic model, storage, data, exports, and a DOM smoke test
 npm run build      # -> dist/
 ```
 
@@ -153,7 +153,7 @@ fallback, so a v1 budget reads exactly as it did — `migrate()` sets `name` to
 Producers have saved work in their own browsers. When the scenario shape changes:
 bump `SCHEMA_VERSION` in `calc.js` **and** add a step to `migrate()` in
 `src/storage.js`. **Never drop a scenario because it is old.** One corrupt record
-is skipped, never fatal to the list. Currently at **6**, and the tests assert
+is skipped, never fatal to the list. Currently at **7**, and the tests assert
 against the exported constant rather than a literal.
 
 **A step that writes nothing is still a step worth adding** — see v2 → v3, where
@@ -674,14 +674,28 @@ and cost a phone a row above the sentence it was tapped to read.
 
 ### Where the data lives is stated, not only linked
 
-The app says in **three places** that nothing leaves the device: a sentence in
-the footer of every screen (`.footer-privacy`), a `privacy` definition behind the
-*Read more* link, and a how-to section *Where your budgets live*. **The footer
+The app says in **three places** what happens to a producer's figures: a sentence
+in the footer of every screen (`.footer-privacy`), a `privacy` definition behind
+the *Read more* link, and a how-to section *Where your budgets live*. **The footer
 does not print** — the print block hides `.footer`, not just the buttons in it.
 All three places are on screen, which is where the promise is being made.
 
-This documents the current build, not a promise about the next one. **If anything
-is ever sent anywhere, these three change first** — see *Not built yet*.
+**The definition and the how-to section are ONE array, `PRIVACY_BODY` in
+`data/definitions.js`, which `data/howto.js` imports.** They were byte-for-byte
+copies, which is a promise stored twice and therefore a promise that can drift.
+Asserted by identity, not by comparison.
+
+**The footer sentence cannot read the switch.** It says *"unless you turn on
+sharing"* because it has to be true for somebody who has opted in and somebody
+who has not, in one form of words. A line that said different things to different
+producers is one neither of them could quote back at us.
+
+**This rule was exercised, not merely stated.** Sharing arrived, so the text
+changed first, in the same commit, and the two sentences it replaced — *"not sent
+anywhere"* and *"cannot see your budgets"* — are now asserted **absent** in
+`test/app.test.js`. A reassurance that outlives the behaviour it described is
+worse than one never made. **If what is collected changes again, this changes
+first, and changing it is the consent conversation rather than a follow-up.**
 
 ### Prose style in every modal, hint and definition
 
@@ -980,7 +994,7 @@ it.
 
 ## Tests
 
-828 tests across seven files. `npm test` runs them, and so does the deploy
+919 tests across eight files. `npm test` runs them, and so does the deploy
 workflow before it builds. *Detail in [DESIGN-NOTES.md](DESIGN-NOTES.md).*
 
 - `test/calc.test.js` — the model against real Excel output, plus the deliberate
@@ -996,6 +1010,12 @@ workflow before it builds. *Detail in [DESIGN-NOTES.md](DESIGN-NOTES.md).*
 - `test/typical-values.test.js` — the shape and provenance of every shipped
   figure, including the SDSU nutrient costs reconciled against a total whose
   right answer is already known.
+- `test/export-workbook.test.js` — the seven-sheet builder: that every sheet
+  leads with `shareId` and `Budget name` (the join contract), that each sits at
+  the grain it claims, that `All data` stays a rectangle whatever is in the
+  batch, and that **a blank never exports as `0`**. Shape rather than
+  arithmetic — the figures come from `calcScenario()`, which `calc.test.js`
+  already proves against real Excel output.
 - `test/themelab.test.js` — the author-only palette editor: the light-to-dark
   mirror's arithmetic against the shipped pairs **parsed out of `styles.css`**,
   and the rules about what the shelf of saved themes must survive. Not a
@@ -1012,11 +1032,112 @@ an afternoon — see [DESIGN-NOTES.md](DESIGN-NOTES.md).
 
 ---
 
-## Not built yet
+## Sharing budgets with the Coalition
 
-`src/submit.js` is a **stub**, and Phase 1 is local-only so the app works with no
-signal. **The app states in three places that nothing leaves the device** (see
-*Where the data lives is stated, not only linked*), so Phase 2 cannot ship
-without changing all three first — and changing them is the consent
-conversation, not a follow-up to it. What has to be decided before enabling it is
-in [DESIGN-NOTES.md](DESIGN-NOTES.md).
+**Phase 2 shipped.** `src/submit.js` is gone and `src/share.js` replaced it. Full
+setup, the console steps, and how to read the workbook are in
+[docs/DATA-EXPORT.md](docs/DATA-EXPORT.md).
+
+Opt-in, off until a producer turns it on, asked once on their **first save** —
+not on their first visit, which would ask somebody to consent to sharing a budget
+that does not exist yet. The switch sits left of the tabs on every screen.
+
+- **One document per budget, keyed on `shareId`, upserted with `setDoc`.** Saving
+  again updates that record rather than adding one. This is what makes an
+  unfinished budget harmless: it corrects itself when the producer finishes it,
+  so nothing has to interrupt a save to ask whether the work is done.
+- **`shareId` is a `crypto.randomUUID()` and could NOT reuse `scenario.id`.**
+  `makeId()` restarts its counter every page load, so two devices opening the app
+  in the same millisecond mint the same id — keyed on that, two producers at one
+  workshop would overwrite each other in a store neither can see.
+- **It is stamped BEFORE `saveScenario()`, never after.** The save that triggers
+  a send is the one that persists the key to it. Stamped afterwards, a producer
+  who shared once and closed the tab would own a record nothing could ever update
+  or delete.
+- **Stripped by duplicate, single-budget export, and import; KEPT by a backup.**
+  Same table as `folderId`, and the export case is stronger: a travelling
+  `folderId` is meaningless on the far device, a travelling `shareId` still
+  *resolves*.
+- **`saveScenario()` gives it a THIRD rule**, neither `sortIndex`'s nor
+  `folderId`'s: never lost from either side. Unreachable is the hazard — reads
+  are denied, so a budget that loses its id can never update or delete what it
+  already sent, and *"turning sharing off deletes the records this device has
+  sent"* quietly stops being true.
+- **Firebase is imported by `share.js` and `exporter.js` and nowhere else**, both
+  dynamically. `index.html` loads `main.js` as a plain module so the Node smoke
+  tests can import it, and the SDK in jsdom finds no IndexedDB. A source scan in
+  `test/app.test.js` enforces this.
+- **The interface follows `SHARING_ENABLED`; only the send follows
+  `SHARING_AVAILABLE`.** Hiding the switch when the project is unconfigured looks
+  tidier and would make it untestable, invisible in development, and first seen
+  in production.
+- **Timestamps are `Date.now()` millis, never `serverTimestamp()`**, which
+  resolves to null on a queued offline write. The offline path is the normal path
+  at the Soil Health School.
+- **The consent modal is raised AFTER a successful save, and by the FIRST press
+  of the Share switch, and never blocks a save.** The switch raises it rather
+  than acting: turning sharing on is consent, and a control labelled with one
+  word is not where that is given. Only in that direction — turning sharing off
+  always takes effect at once, since withdrawing must never be gated behind
+  reading something. Answering yes from either place saves and sends the open
+  budget through `shareNow()`. **A press that would turn sharing ON always
+  raises it**, not only the first: turning it on is the moment consent is given,
+  and a second yes does not need less information than the first.
+- **The `Shared` line follows the SEND, never the setting or the `shareId`.**
+  The key is stamped before the save that triggers a send, so keying the line on
+  it left "Shared" under budgets that had gone nowhere. `shareOutcomes` in
+  `main.js` is UI state, keyed on `shareId`, and does not survive a reload —
+  reads are denied, so nothing here can check whether a record still exists, and
+  under-reporting is the safe direction. A queued write says **`Shares when back
+  online`**, folded into neither answer.
+- **Opening a saved budget sends it, and does NOT re-date it.** Sharing only
+  ever fired on a save, so a budget finished before the switch went on stayed
+  unsent, and a restored backup left nineteen of twenty invisible.
+  `shareOnOpen()` stamps through **`setScenarioShareId()`** — a FOURTH write
+  bypassing `saveScenario()`, for a reason of its own: claiming a key is not
+  editing a farm, and `updatedAt` is what the list prints as the last time the
+  producer was at the keyboard.
+- **The `Shared` line is PAIRED with the save state and never shows without a
+  tick.** What the Coalition has is the budget as it was saved, so a word about
+  sharing standing over unsaved edits reads as a promise about those edits.
+- **`scenarioIsNew` is about PROVENANCE, not saved-ness**, and survives the
+  first save on purpose: it is what keeps a blank budget's one enterprise
+  unfolded rather than collapsing it the moment Save is pressed. The
+  `first_save` analytics flag reads **`scenarioSaved`**, or it answers yes to
+  every save of the same budget for as long as the tab is open.
+- **`scenarioSaved` is separate from `scenarioIsNew`, and the save state has
+  THREE cases.** `dirty ? 'Unsaved changes' : '✓ Saved'` had nowhere to put a
+  budget nobody has saved: a blank one is not dirty, so pressing New put a tick
+  and the word Saved under a budget that was in no list and would be gone on
+  reload. **`Not saved yet` outranks `Unsaved changes`**, which implies a saved
+  version to have changed away from.
+  **Only an ANSWER ends it.** Both buttons are one, including *Not now*, and so
+  is operating the Share switch, which sets exactly what the dialog asks.
+  Dismissing it is not: the next save puts the question again. This was the
+  other way round and was wrong, because the two are not symmetric. *Not now*
+  is a decision that can be revisited from the switch; a dismissal is somebody
+  who has not read the question yet, and counting them alike let the quietest
+  way of not answering settle it permanently.
+
+### Reading it back
+
+`src/export-workbook.js` builds **seven sheets at three grains** and is shared by
+the hidden panel (`Ctrl`+`Alt`+`E`) and `npm run export-submissions`, so the two
+cannot disagree. **Every sheet leads with `shareId` and `Budget name`** — the one
+contract the whole set obeys. It imports `calcScenario()` and **recomputes**,
+ignoring each record's stored `results`, which is only possible because `calc.js`
+is pure and is the clearest payoff that rule has had.
+
+**A blank must never export as `0`.** "Left empty" and "entered zero" are
+different facts about a farm, and averaging a column that treats them alike
+counts every untouched budget as a real zero.
+
+**Firestore has no Excel export**, at any tier: managed export needs the Blaze
+plan and writes a format Excel cannot read, and the BigQuery extension needs
+Blaze too. Writing the workbook ourselves is the free-plan answer, not a
+workaround.
+
+**The exporter's gesture is not its security.** The bundle is public, so anybody
+can find the chord. `firestore.rules` denying reads to all but a signed-in admin
+is the lock, and it is enforced on Google's servers. Themelab gets away with
+obfuscation alone because it edits CSS variables and touches no data.

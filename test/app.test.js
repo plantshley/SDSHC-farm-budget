@@ -3665,21 +3665,26 @@ describe('where the data lives is said, not only linked', () => {
     // The sentence narrowed from "Everything you enter" to "Your figures" when
     // GA landed: which screen you open and which entry modes you pick are now
     // counted, and a promise covering those would be one the app no longer
-    // keeps. The dollar figures are still what it is about, and they still
-    // never leave.
+    // keeps.
+    //
+    // It gained "unless you turn on sharing" when sharing landed, and the
+    // condition is the whole point. The line has to be true for somebody who
+    // has opted in AND somebody who has not, in one form of words, because it
+    // cannot read the toggle: a sentence that says different things to
+    // different producers is one neither of them can quote back at us.
     for (const action of ['go-build', 'go-scenarios']) {
       click(`[data-action="${action}"]`)
       const line = doc.querySelector('.footer-privacy')
       assert.ok(line, `the ${action} screen states it`)
       assert.match(line.textContent, /stay on this device/i)
+      assert.match(line.textContent, /unless you turn on sharing/i)
     }
   })
 
   test('the link opens the full explanation and writes nothing', async () => {
     click('.footer-privacy [data-info="privacy"]')
     const body = textOf('.overlay.open .modal-body')
-    assert.match(body, /not sent anywhere/i)
-    assert.match(body, /cannot see your budgets/i)
+    assert.match(body, /saved in this browser, on this device/i)
     assert.match(body, /clearing your browsing data/i)
     assert.match(body, /Save budget file/i, 'and says how to move one on purpose')
     assert.equal(
@@ -3687,6 +3692,60 @@ describe('where the data lives is said, not only linked', () => {
       0,
       'it is a definition, not a picker'
     )
+  })
+
+  test('the explanation describes sharing, in all four parts', async () => {
+    // These four sentences are the consent conversation. CLAUDE.md's rule is
+    // that if anything is ever sent anywhere, the places that say otherwise
+    // change FIRST, so this test is what stops the feature outliving the text
+    // that describes it.
+    click('.footer-privacy [data-info="privacy"]')
+    const body = textOf('.overlay.open .modal-body')
+    assert.match(body, /off until you turn it on/i, 'that it is opt-in')
+    assert.match(body, /sends a copy to the South Dakota Soil Health Coalition/i, 'that a copy goes')
+    assert.match(body, /budget name/i, 'that the budget name is part of what goes')
+    assert.match(body, /turning sharing off deletes/i, 'how to withdraw')
+  })
+
+  test('the consent dialog itemises what is sent, even where the definition summarises', () => {
+    // The definition was shortened to a summary. That is a reasonable call for a
+    // page somebody browses, but the ITEMISED list has to survive somewhere, and
+    // the right somewhere is the dialog: it is the one screen where a producer
+    // is being asked to decide, and a decision needs the specifics in front of
+    // it rather than a link to them. So the four things that go are asserted
+    // here rather than there.
+    click('[data-action="save-scenario"]')
+    const ask = textOf('.overlay.open .modal-body')
+    // \s+ throughout: the dialog is a template literal, so its indentation
+    // lands inside the rendered text and a phrase can wrap mid-sentence.
+    assert.match(ask, /every figure you entered/i)
+    assert.match(ask, /the\s+budget name/i)
+    assert.match(ask, /the crop names/i)
+    assert.match(ask, /the planning year/i)
+  })
+
+  test('the explanation no longer claims nothing is ever sent', async () => {
+    // The two sentences this replaces were true of every build before sharing
+    // and are false now. Asserting their ABSENCE is the point: a promise that
+    // outlives the behaviour it described is worse than one never made, and
+    // this is the one file where a stale reassurance is a broken commitment
+    // rather than an out-of-date comment.
+    click('.footer-privacy [data-info="privacy"]')
+    const body = textOf('.overlay.open .modal-body')
+    assert.doesNotMatch(body, /not sent anywhere/i)
+    assert.doesNotMatch(body, /cannot see your budgets/i)
+    assert.doesNotMatch(body, /only things that ever leave this device/i)
+  })
+
+  test('the definition and the guide are one text, not two copies', async () => {
+    // They were byte-for-byte duplicates, which is a promise stored twice and
+    // therefore a promise that can drift. howto.js imports PRIVACY_BODY now.
+    const { DEFINITIONS, PRIVACY_BODY } = await import('../src/data/definitions.js')
+    const { HOW_TO_SECTIONS } = await import('../src/data/howto.js')
+    const section = HOW_TO_SECTIONS.find((s) => /Where your budgets live/i.test(s.heading))
+    assert.ok(section, 'the guide still has the section')
+    assert.strictEqual(section.body, PRIVACY_BODY, 'the guide holds the same array')
+    assert.strictEqual(DEFINITIONS.privacy.body, PRIVACY_BODY, 'and so does the definition')
   })
 
   test('the how-to guide gives it its own heading', async () => {
@@ -4204,10 +4263,27 @@ describe('the save state stands next to the button it is about', () => {
     assert.ok(state, 'the state is on the page')
     assert.ok(state.closest('.sticky-bar'), 'in the sticky bar')
     assert.equal(state.closest('.app-head'), null, 'and no longer in the page header')
+
+    // The adjacency is measured from the stack rather than from #saveState
+    // itself, because the share line joined it as a SIBLING — it has to be one,
+    // since updateStatus() rewrites #saveState's textContent and className
+    // wholesale on every keystroke and would take a nested child with it. The
+    // pair still sits immediately left of the button.
+    const stack = state.closest('.save-stack')
+    assert.ok(stack, 'the state is in the save stack')
     assert.equal(
-      state.nextElementSibling.dataset.action,
+      stack.nextElementSibling.dataset.action,
       'save-scenario',
       'with the Save button immediately after it'
+    )
+    assert.ok(
+      stack.querySelector('[data-share-state]'),
+      'and the share line is a sibling inside the stack, not a child of the state'
+    )
+    assert.equal(
+      state.querySelector('[data-share-state]'),
+      null,
+      'never nested inside the element updateStatus() rewrites'
     )
 
     // Still exactly one in the DOM, because updateStatus() and flashSaved()
@@ -4786,5 +4862,796 @@ describe('a placeholder says what the box is actually for', () => {
     const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
     assert.match(css, /\n\.ent-fig \{[^}]*display: block/)
     assert.match(css, /\n\.ent-fig \{[^}]*white-space: nowrap/)
+  })
+})
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Sharing: the switch, the one-time question, and what must not leak
+   ══════════════════════════════════════════════════════════════════════════ */
+
+describe('the sharing switch sits beside the tabs', () => {
+  beforeEach(async () => {
+    await boot()
+  })
+
+  test('it is inside the nav, before the tabs, and starts off', () => {
+    const nav = doc.querySelector('.app-nav')
+    const toggle = nav?.querySelector('[data-action="toggle-share"]')
+    assert.ok(toggle, 'the switch is in the nav')
+    assert.equal(toggle.getAttribute('role'), 'switch')
+    assert.equal(toggle.getAttribute('aria-checked'), 'false', 'off until turned on')
+
+    // Left of the tabs, which is where it was asked for and is also the only
+    // place with room: .app-nav is margin-left:auto at width, and the tabs are
+    // flex:1 1 0 below it, so they give up a little rather than wrapping.
+    const tabs = nav.querySelector('.app-tabs')
+    assert.ok(tabs, 'the tabs have their own wrapper')
+    assert.equal(
+      toggle.compareDocumentPosition(tabs) & 0x04 /* DOCUMENT_POSITION_FOLLOWING */,
+      0x04,
+      'the switch comes before the tabs'
+    )
+  })
+
+  test('the tablist holds only tabs', () => {
+    // role="tablist" used to sit on .app-nav, which also carries the `?` — so a
+    // screen reader announced "3 of 3" for a control that is not a tab and
+    // cannot be arrowed to. Adding the switch would have made it four. The
+    // tablist is now exactly the two tabs.
+    const list = doc.querySelector('[role="tablist"]')
+    assert.ok(list)
+    assert.equal(list.className, 'app-tabs')
+    for (const child of list.children) {
+      assert.equal(child.getAttribute('role'), 'tab', 'every child of the tablist is a tab')
+    }
+    assert.equal(list.querySelectorAll('[role="tab"]').length, 2)
+    assert.equal(list.querySelector('.help-btn'), null, 'the ? is outside it')
+    assert.equal(list.querySelector('[data-action="toggle-share"]'), null, 'and so is the switch')
+  })
+
+  test('it is on both screens, because the answer is not about one budget', () => {
+    for (const action of ['go-build', 'go-scenarios']) {
+      click('[data-action="' + action + '"]')
+      assert.ok(
+        doc.querySelector('.app-nav [data-action="toggle-share"]'),
+        'the switch is on the ' + action + ' screen'
+      )
+    }
+  })
+
+  test('the short label is not the accessible name', () => {
+    // "Share" alone is a question a screen reader cannot answer: share what,
+    // with whom? There is no room for the sentence beside two tabs at 320px, so
+    // aria-label carries it. The opposite of the Saved tab's "Open Budget",
+    // where the SHORT form has to win the accessible name.
+    const toggle = doc.querySelector('[data-action="toggle-share"]')
+    assert.match(toggle.textContent.trim(), /^Share$/)
+    assert.match(toggle.getAttribute('aria-label'), /South Dakota Soil Health Coalition/i)
+  })
+
+  test('turning it on flips the switch and remembers', () => {
+    // Through the dialog, which the first press raises rather than acting. See
+    // 'the first press of the switch raises the dialog instead of acting'.
+    click('[data-action="toggle-share"]')
+    click('[data-share-answer="yes"]')
+    assert.equal(
+      doc.querySelector('[data-action="toggle-share"]').getAttribute('aria-checked'),
+      'true'
+    )
+    assert.equal(win.localStorage.getItem('sdshc-fb-share'), 'on')
+  })
+
+  test('turning it off asks first, because it deletes', () => {
+    // The asymmetry is deliberate. Switching ON is one press; switching OFF
+    // also removes what was already sent, which is destructive and
+    // irreversible, so it says what goes rather than asking "are you sure?".
+    // A producer switching off to stop FUTURE sends may not expect the back
+    // catalogue to go with it, and that is the case the sentence is for.
+    click('[data-action="toggle-share"]')
+    click('[data-share-answer="yes"]')
+    let asked = ''
+    globalThis.confirm = win.confirm = (message) => {
+      asked = message
+      return false
+    }
+    click('[data-action="toggle-share"]')
+    assert.match(asked, /deleted from the Coalition/i, 'the dialog says what goes')
+    assert.match(asked, /stay on this device/i, 'and what does not')
+    assert.equal(
+      doc.querySelector('[data-action="toggle-share"]').getAttribute('aria-checked'),
+      'true',
+      'declining the confirm leaves it on'
+    )
+    globalThis.confirm = win.confirm = () => true
+  })
+})
+
+describe('the sharing question is asked once, on the first save', () => {
+  beforeEach(async () => {
+    await boot()
+  })
+
+  const askOpen = () => Boolean(doc.querySelector('.overlay.open [data-share-answer]'))
+
+  test('nothing is asked before there is anything to share', () => {
+    // A consent dialog in front of an empty calculator asks somebody to agree
+    // to share a budget that does not exist yet, before they know what the app
+    // collects or whether they will use it twice. The first save is the moment
+    // there is something to share and they have seen what it looks like.
+    assert.equal(askOpen(), false, 'not on boot')
+    click('[data-action="go-scenarios"]')
+    click('[data-action="go-build"]')
+    assert.equal(askOpen(), false, 'and not just from moving around')
+  })
+
+  test('it opens after the first save, and says what is sent', () => {
+    click('[data-action="save-scenario"]')
+    assert.equal(askOpen(), true)
+    const body = textOf('.overlay.open .modal-body')
+    assert.match(body, /every figure you entered, the\s+budget name/i, 'what goes')
+    assert.match(body, /do not ask who you are/i, 'what is not asked for')
+    assert.match(body, /not published, sold, or shared/i, 'what happens to it')
+    assert.match(body, /deletes the records this device has sent/i, 'how to undo it')
+  })
+
+  test('declining sticks, and is not re-asked on the next save', () => {
+    // Otherwise the dialog becomes something a producer says no to every time
+    // they save, which is how a consent prompt turns into a thing people click
+    // through without reading.
+    click('[data-action="save-scenario"]')
+    click('[data-share-answer="no"]')
+    assert.equal(askOpen(), false, 'the dialog closed')
+    assert.equal(win.localStorage.getItem('sdshc-fb-share'), 'off')
+
+    click('[data-action="save-scenario"]')
+    assert.equal(askOpen(), false, 'and never comes back')
+  })
+
+  test('accepting turns the switch on', () => {
+    click('[data-action="save-scenario"]')
+    click('[data-share-answer="yes"]')
+    assert.equal(win.localStorage.getItem('sdshc-fb-share'), 'on')
+    assert.equal(
+      doc.querySelector('[data-action="toggle-share"]').getAttribute('aria-checked'),
+      'true'
+    )
+  })
+
+  test('putting it away leaves the question open, and it is asked again', () => {
+    // A DISMISSAL IS NOT AN ANSWER, and this used to be the other way round.
+    // The two are not symmetric: "not now" is a decision the producer made and
+    // can revisit from the switch, while a dismissal is a producer who has not
+    // read the question yet. Counting them alike meant the quietest possible
+    // way of not answering settled the matter permanently.
+    click('[data-action="save-scenario"]')
+    assert.equal(askOpen(), true)
+    click('.overlay.open .modal-close')
+    assert.equal(win.localStorage.getItem('sdshc-fb-share'), null, 'nothing was consented to')
+    click('[data-action="save-scenario"]')
+    assert.equal(askOpen(), true, 'so the next save puts it again')
+  })
+
+  test('escape leaves it open too, and either answer ends it', () => {
+    // Escape is the other way out, and must behave the same as the close
+    // button. The escape from the loop is an ANSWER, and both buttons are one
+    // — including the one that says no, which is what stops this becoming a
+    // prompt people click through without reading.
+    click('[data-action="save-scenario"]')
+    doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    click('[data-action="save-scenario"]')
+    assert.equal(askOpen(), true, 'escape did not answer it')
+    click('[data-share-answer="no"]')
+    click('[data-action="save-scenario"]')
+    assert.equal(askOpen(), false, 'but "Not now" did')
+  })
+
+  test('the first press of the switch raises the dialog instead of acting', () => {
+    // A CONTROL LABELLED WITH ONE WORD IS NOT WHERE CONSENT IS GIVEN. Flipping
+    // it used to turn sharing on and send the open budget, having shown nobody
+    // what goes or who receives it.
+    click('[data-action="toggle-share"]')
+    assert.equal(askOpen(), true, 'the question is put')
+    assert.equal(win.localStorage.getItem('sdshc-fb-share'), null, 'and nothing is on yet')
+  })
+
+  test('agreeing from the switch saves the open budget and shares it', () => {
+    // The budget on screen is the one they were looking at when they agreed, so
+    // it goes now rather than waiting for a save they have no reason to make.
+    click('[data-action="toggle-share"]')
+    click('[data-share-answer="yes"]')
+    assert.equal(win.localStorage.getItem('sdshc-fb-share'), 'on')
+    const list = JSON.parse(win.localStorage.getItem('sdshc-fb-scenarios') ?? '[]')
+    assert.equal(list.length, 1, 'saved without a separate press of Save')
+    assert.equal(typeof list[0].shareId, 'string', 'and carries the key naming its record')
+  })
+
+  test('declining from the switch leaves it off, and no SAVE asks again', () => {
+    click('[data-action="toggle-share"]')
+    click('[data-share-answer="no"]')
+    assert.equal(win.localStorage.getItem('sdshc-fb-share'), 'off')
+    click('[data-action="save-scenario"]')
+    assert.equal(askOpen(), false, 'the prompt does not follow saves around')
+  })
+
+  test('but pressing the switch after declining asks again', () => {
+    // The two gates are separate. hasBeenAskedToShare() stops the prompt
+    // chasing every save; it says nothing about what an explicit press of the
+    // switch deserves. Suppressing the dialog here would answer a producer
+    // reaching for the control with "you already read that once".
+    click('[data-action="toggle-share"]')
+    click('[data-share-answer="no"]')
+    click('[data-action="toggle-share"]')
+    assert.equal(askOpen(), true)
+  })
+
+  test('turning it off and back on asks again', () => {
+    // TURNING IT ON IS THE MOMENT CONSENT IS GIVEN, every time, and a second
+    // yes does not need less information than the first. Somebody who withdrew
+    // and is now reconsidering is exactly who should see what goes.
+    click('[data-action="toggle-share"]')
+    click('[data-share-answer="yes"]')
+    win.confirm = () => true
+    click('[data-action="toggle-share"]')
+    assert.equal(win.localStorage.getItem('sdshc-fb-share'), 'off')
+    click('[data-action="toggle-share"]')
+    assert.equal(askOpen(), true, 'the question is put again')
+    assert.equal(win.localStorage.getItem('sdshc-fb-share'), 'off', 'and nothing is on until answered')
+  })
+
+  test('dismissing from the switch leaves the switch off and the question open', () => {
+    click('[data-action="toggle-share"]')
+    click('.overlay.open .modal-close')
+    assert.equal(win.localStorage.getItem('sdshc-fb-share'), null, 'not turned on')
+    click('[data-action="toggle-share"]')
+    assert.equal(askOpen(), true, 'and pressing it again asks again')
+  })
+
+  test('turning sharing OFF is never gated behind the dialog', () => {
+    // The asymmetry is deliberate. Consent has to be informed; withdrawing it
+    // has to be immediate, and making somebody read a dialog to stop sending
+    // would be the wrong way round.
+    click('[data-action="toggle-share"]')
+    click('[data-share-answer="yes"]')
+    win.confirm = () => true
+    click('[data-action="toggle-share"]')
+    assert.equal(askOpen(), false, 'no dialog on the way out')
+    assert.equal(win.localStorage.getItem('sdshc-fb-share'), 'off')
+  })
+
+  test('declining is the quiet control, and sharing is the offered one', () => {
+    // Unequal on purpose: consent is the thing being offered, so it carries the
+    // weight, and declining wears Remove's quiet text-link box. .btn-quiet is
+    // worn ALONGSIDE .btn-remove rather than instead of it, so the padding and
+    // the 44px target keep coming from one place, and it cancels the red hover
+    // because declining destroys nothing.
+    click('[data-action="save-scenario"]')
+    const yes = doc.querySelector('.overlay.open [data-share-answer="yes"]')
+    const no = doc.querySelector('.overlay.open [data-share-answer="no"]')
+    assert.ok(yes.classList.contains('btn-main'))
+    assert.ok(no.classList.contains('btn-remove'), 'the quiet text-link box')
+    assert.ok(no.classList.contains('btn-quiet'), 'without the red hover')
+    assert.equal(no.classList.contains('btn-main'), false)
+  })
+
+  test('a budget saved with sharing off carries no share key', () => {
+    click('[data-action="save-scenario"]')
+    click('[data-share-answer="no"]')
+    const stored = JSON.parse(win.localStorage.getItem('sdshc-fb-scenarios'))[0]
+    assert.equal('shareId' in stored, false, 'declining means no record and no key to one')
+  })
+})
+
+describe('the answer is device state, not budget state', () => {
+  beforeEach(async () => {
+    await boot()
+  })
+
+  test('it is not carried in the budget', () => {
+    // It is a fact about this browser, not about a farm. In the scenario it
+    // would mark the budget dirty on every toggle and ride into an exported
+    // file, so a budget handed to a neighbour would start sharing on their
+    // device without anybody being asked.
+    click('[data-action="toggle-share"]')
+    click('[data-action="save-scenario"]')
+    const stored = JSON.parse(win.localStorage.getItem('sdshc-fb-scenarios'))[0]
+    assert.equal('sharing' in stored, false)
+    assert.equal('share' in stored, false)
+  })
+
+  test('choosing it does not raise the unsaved-changes flag', () => {
+    click('[data-action="save-scenario"]')
+    click('[data-share-answer="no"]')
+    assert.equal(textOf('#saveState'), SAVED_LABEL)
+    click('[data-action="toggle-share"]')
+    click('[data-share-answer="yes"]')
+    assert.equal(textOf('#saveState'), SAVED_LABEL, 'choosing a setting is not editing a farm')
+  })
+
+  test('the share line is hidden until there is a record', () => {
+    const line = doc.querySelector('[data-share-state]')
+    assert.ok(line, 'the line exists in the bar')
+    assert.equal(line.hidden, true, 'and says nothing while nothing has been sent')
+  })
+
+  test('a send that did not land never says Shared', async () => {
+    // THE LINE FOLLOWS THE SEND, NOT THE SETTING. It used to follow the
+    // presence of a shareId, which is stamped BEFORE the save that triggers a
+    // send — so a refused write, a misconfigured project, or a Firestore that
+    // would not start all left "Shared" under a budget that had gone nowhere.
+    //
+    // jsdom is exactly that case and needs no stubbing: share.js refuses to
+    // connect where there is no IndexedDB, so the send fails for real here.
+    click('[data-action="toggle-share"]')
+    click('[data-share-answer="yes"]')
+    await new Promise((r) => setTimeout(r, 0))
+    const line = doc.querySelector('[data-share-state]')
+    assert.equal(line.textContent, 'Not shared')
+    assert.ok(line.classList.contains('share-state-bad'))
+    assert.equal(win.localStorage.getItem('sdshc-fb-share'), 'on', 'though sharing IS on')
+  })
+
+  test('opening a saved budget with sharing on sends it', () => {
+    // SHARING ONLY EVER FIRED ON A SAVE, so a budget finished before the switch
+    // went on sat unsent until somebody opened it and pressed Save for no
+    // reason they could see. A restored backup was the worst of it: twenty
+    // budgets arrive and nineteen stay invisible to the Coalition.
+    click('[data-action="save-scenario"]')
+    click('[data-share-answer="no"]')
+    const first = JSON.parse(win.localStorage.getItem('sdshc-fb-scenarios'))[0]
+    assert.equal('shareId' in first, false, 'saved while sharing was off')
+
+    click('[data-action="go-scenarios"]')
+    click('[data-action="new-scenario"]')
+    click('[data-action="save-scenario"]')
+    click('[data-action="toggle-share"]')
+    click('[data-share-answer="yes"]')
+
+    click('[data-action="go-scenarios"]')
+    click(`[data-action="open-scenario"][data-id="${first.id}"]`)
+    const after = JSON.parse(win.localStorage.getItem('sdshc-fb-scenarios')).find(
+      (r) => r.id === first.id
+    )
+    assert.equal(typeof after.shareId, 'string', 'opening it claimed a key')
+  })
+
+  test('and opening it does not re-date it', () => {
+    // OPENING A BUDGET IS NOT EDITING IT. `updatedAt` is what the saved list
+    // prints as the last time the producer was at the keyboard, and the filter
+    // searches it, so routing this through saveScenario() would re-date every
+    // budget somebody merely looked at and re-sort the list under them.
+    click('[data-action="save-scenario"]')
+    click('[data-share-answer="no"]')
+    const first = JSON.parse(win.localStorage.getItem('sdshc-fb-scenarios'))[0]
+
+    click('[data-action="go-scenarios"]')
+    click('[data-action="new-scenario"]')
+    click('[data-action="save-scenario"]')
+    click('[data-action="toggle-share"]')
+    click('[data-share-answer="yes"]')
+
+    click('[data-action="go-scenarios"]')
+    click(`[data-action="open-scenario"][data-id="${first.id}"]`)
+    const after = JSON.parse(win.localStorage.getItem('sdshc-fb-scenarios')).find(
+      (r) => r.id === first.id
+    )
+    assert.equal(after.updatedAt, first.updatedAt, 'the saved date is untouched')
+  })
+
+  test('a brand-new budget does not claim to be saved', () => {
+    // "not dirty" IS NOT "saved". A blank budget has had nothing typed into it,
+    // so the old two-state line — dirty ? 'Unsaved changes' : SAVED_LABEL —
+    // put a tick and the word Saved under a budget that was in no list and
+    // would be gone on reload. That is the one moment the producer's work is
+    // not safe, and it was the moment they were told it was.
+    assert.equal(textOf('#saveState'), 'Not saved yet')
+    assert.ok(doc.getElementById('saveState').classList.contains('dirty'), 'and reads as unsaved')
+    click('[data-action="save-scenario"]')
+    click('[data-share-answer="no"]')
+    assert.equal(textOf('#saveState'), SAVED_LABEL, 'the first press of Save is what saves it')
+  })
+
+  test('and Not saved yet outranks Unsaved changes', () => {
+    // Both are true of a new budget somebody has typed into, and the more
+    // useful one wins: "Unsaved changes" implies there is a saved version to
+    // have changed away from, and there is not.
+    type('enterprises.0.acres', '500')
+    assert.equal(textOf('#saveState'), 'Not saved yet')
+  })
+
+  test('starting a new budget goes back to Not saved yet', () => {
+    click('[data-action="save-scenario"]')
+    click('[data-share-answer="no"]')
+    click('[data-action="go-scenarios"]')
+    click('[data-action="new-scenario"]')
+    assert.equal(textOf('#saveState'), 'Not saved yet')
+  })
+
+  test('every way of not sending says which one it was', () => {
+    // A SILENT RETURN IS A DIAGNOSTIC DEAD END. This path had three of them
+    // plus a swallowed rejection, so an empty console covered a misconfigured
+    // project, a switch that was off, a save that hit a conflict, a refused
+    // write, and a send that worked — all the same. Every branch now names
+    // itself, and the success case logs too, so "nothing in the console" stops
+    // being one of the possible answers.
+    const src = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+    for (const phrase of [
+      'sharing is unavailable',
+      'the Share switch is off',
+      'no budget open',
+      'could not be saved first',
+    ]) {
+      assert.ok(src.includes(phrase), `the console says "${phrase}"`)
+    }
+    assert.ok(src.includes("'queued, will send when online' : 'sent'"), 'and says when it worked')
+  })
+
+  test('the share line is paired with the save state', async () => {
+    // WHAT WENT TO THE COALITION IS THE BUDGET AS IT WAS SAVED. The moment
+    // there are unsaved changes the line describes a version that is no longer
+    // the one on screen, and a word about sharing sitting over edits somebody
+    // is still typing reads as a promise about those edits.
+    click('[data-action="toggle-share"]')
+    click('[data-share-answer="yes"]')
+    // The send is a promise, so the outcome the line reports arrives a tick
+    // later. In jsdom it always arrives as a failure, which is the point of
+    // 'a send that did not land never says Shared' above.
+    await new Promise((r) => setTimeout(r, 0))
+    const line = doc.querySelector('[data-share-state]')
+    assert.equal(line.hidden, false, 'it shows beside a clean save')
+
+    type('enterprises.0.acres', '640')
+    assert.equal(textOf('#saveState'), 'Unsaved changes')
+    assert.equal(line.hidden, true, 'and goes the moment the budget is edited')
+
+    click('[data-action="save-scenario"]')
+    await new Promise((r) => setTimeout(r, 0))
+    assert.equal(doc.querySelector('[data-share-state]').hidden, false, 'back on the next save')
+  })
+
+  test('the three states it can report are the three that can happen', () => {
+    // A queued write is its own answer and is folded into neither of the other
+    // two: it is durable in IndexedDB and will go, which is the normal path at
+    // the Soil Health School, but it has not gone.
+    const src = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+    const block = src.slice(src.indexOf('const SHARE_STATE_TEXT'))
+    assert.match(block, /sent: 'Shared'/)
+    assert.match(block, /queued: 'Shares when back online'/)
+    assert.match(block, /failed: 'Not shared'/)
+  })
+})
+
+describe('Firebase stays out of the modules the app boots from', () => {
+  test('main.js imports no Firebase, statically or otherwise', () => {
+    // index.html loads main.js as a plain module so these very tests can import
+    // it, and the SDK dragged into jsdom finds no IndexedDB. Everything that
+    // talks to Firestore is behind a dynamic import of share.js. A source scan,
+    // in the style of the backtick-in-comment scan, because the failure mode is
+    // a static import somebody adds later for convenience.
+    const src = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+    assert.doesNotMatch(src, /^\s*import\s+[^\n]*from\s+['"]firebase/m, 'no firebase import')
+    assert.doesNotMatch(
+      src,
+      /^\s*import\s+[^\n]*from\s+['"]\.\/share\.js['"]/m,
+      'and no static share.js import'
+    )
+    assert.match(src, /import\('\.\/share\.js'\)/, 'it is reached dynamically')
+  })
+
+  test('prefs.js imports no Firebase either', () => {
+    // main.js calls isSharingOn() on every render to draw the switch, so this
+    // is the file that would drag the SDK in by the back door. The check is on
+    // IMPORTS rather than on the word, because the file's own comment explains
+    // at length why it must not import the SDK, and a test that forbade saying
+    // so would delete the reason along with the risk.
+    const src = readFileSync(new URL('../src/prefs.js', import.meta.url), 'utf8')
+    assert.doesNotMatch(src, /from\s+['"]firebase/)
+    assert.doesNotMatch(src, /import\(['"]firebase/)
+    assert.doesNotMatch(src, /from\s+['"]\.\/(share|firebase-config)\.js['"]/)
+  })
+
+  test('only the two modules that need the SDK import it', () => {
+    const dir = new URL('../src/', import.meta.url)
+    const files = readdirSync(dir).filter((f) => f.endsWith('.js'))
+    const importers = files.filter((f) =>
+      /from\s+['"]firebase\/|import\(['"]firebase\//.test(readFileSync(new URL(f, dir), 'utf8'))
+    )
+    assert.deepEqual(importers.sort(), ['exporter.js', 'share.js'])
+  })
+
+  test('the committed config carries no service-account key', () => {
+    // The web config is public by design and is meant to be committed: it is an
+    // address, and firestore.rules is what actually stops a stranger. The
+    // service-account key is the opposite — it bypasses every rule — and it
+    // belongs in a gitignored file.
+    const src = readFileSync(new URL('../src/firebase-config.js', import.meta.url), 'utf8')
+    assert.doesNotMatch(src, /private_key|BEGIN [A-Z ]*PRIVATE KEY|"type": ?"service_account"/i)
+
+    const ignore = readFileSync(new URL('../.gitignore', import.meta.url), 'utf8')
+    assert.match(ignore, /^tools\/service-account\.json$/m, 'and the key file is ignored')
+  })
+})
+
+describe('the test suite must never reach the live collection', () => {
+  // THIS BLOCK EXISTS BECAUSE IT HAPPENED. Pasting the real config turned
+  // SHARING_AVAILABLE on, and for the length of one hung test run the smoke
+  // tests below wrote to the Coalition's actual Firestore: roughly sixty saves
+  // of a `newScenario()`, which arrived as ten identical documents named
+  // "My Budget Scenario" with every figure at zero. They looked like real
+  // producer records with real dates on them and were nothing of the kind.
+  //
+  // What made it possible is not a bug in any one line. It is that everything
+  // here drives the REAL app, on purpose, and the real app sends budgets. The
+  // guards in share.js are what stand between the two, so they are asserted by
+  // behaviour rather than trusted.
+
+  test('sharing switched on, a save still sends nothing', async () => {
+    await boot()
+    const share = await import(`../src/share.js?bust=${Math.random()}`)
+    const result = await share.shareBudget({ name: 'x', enterprises: [], fixed: {} })
+    assert.equal(result.ok, false)
+    assert.equal(result.error, 'NoStorage')
+  })
+
+  test('and it still refuses when IndexedDB is present', async () => {
+    // The point of the second guard. canConnect() tests a CAPABILITY, and a
+    // capability can arrive — jsdom is a moving target, and the day it ships
+    // IndexedDB the first guard opens on its own with nothing to announce it.
+    // Node is Node whatever DOM is wrapped around it, so the runtime check
+    // holds. Faking the capability here is the only way to prove the two do not
+    // rest on the same assumption.
+    await boot()
+    const had = Object.prototype.hasOwnProperty.call(win, 'indexedDB')
+    const before = win.indexedDB
+    Object.defineProperty(win, 'indexedDB', { value: {}, configurable: true, writable: true })
+    try {
+      const share = await import(`../src/share.js?bust=${Math.random()}`)
+      const result = await share.shareBudget({ name: 'x', enterprises: [], fixed: {} })
+      assert.equal(result.error, 'NoStorage', 'the runtime check stands on its own')
+    } finally {
+      if (had) win.indexedDB = before
+      else delete win.indexedDB
+    }
+  })
+
+  test('withdrawing consent still clears the keys it can reach', async () => {
+    // Refusing to connect must not become refusing to stop. The local half is
+    // the half a producer asked for, and it runs in an environment that never
+    // sent anything and therefore has nothing to strand.
+    await boot()
+    const share = await import(`../src/share.js?bust=${Math.random()}`)
+    const result = await share.unshareEverything()
+    assert.equal(result.ok, true)
+  })
+
+  test('a stray record could be told apart from a real one afterwards', () => {
+    // appVersion is what made the ten rows readable: vite's define stamps the
+    // real version in dev and in a build alike, so 'dev' means node --test and
+    // nothing else. It is the audit trail for exactly this failure, so the
+    // fallback is pinned rather than left to drift to something plausible.
+    const src = readFileSync(new URL('../src/share.js', import.meta.url), 'utf8')
+    assert.match(src, /__APP_VERSION__ === 'string' \? __APP_VERSION__ : 'dev'/)
+  })
+})
+
+describe('the rules deny what the app promises they deny', () => {
+  const rules = readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8')
+
+  test('reads are admin only, unlike the games-hub leaderboard they copy', () => {
+    // Budget figures are commercially sensitive; game scores are a public
+    // board. This is the one deliberate divergence from the pattern this file
+    // is modelled on, so it is asserted rather than left to a comment.
+    assert.match(rules, /allow read: if isAdmin\(\)/)
+    assert.doesNotMatch(rules, /allow read: if true/)
+  })
+
+  test('a write is pinned to exactly the fields share.js sends', () => {
+    // hasOnly() is what stops the collection being used as free storage, and
+    // what makes an unexpected field a rejected write rather than a surprise
+    // column in the spreadsheet.
+    assert.match(rules, /hasOnly\(\[/)
+    for (const key of [
+      'shareId',
+      'schemaVersion',
+      'appVersion',
+      'name',
+      'scenarioYear',
+      'createdAt',
+      'firstSentAt',
+      'updatedAt',
+      'scenario',
+      'results',
+    ]) {
+      assert.match(rules, new RegExp("'" + key + "'"), key + ' is in the allowed key list')
+    }
+  })
+
+  test('everything outside the collection is denied by default', () => {
+    assert.match(rules, /match \/\{document=\*\*\} \{\s*allow read, write: if false;/)
+  })
+})
+
+describe('a record is never created before the key that names it is stored', () => {
+  beforeEach(async () => {
+    await boot()
+  })
+
+  const storedKey = () => {
+    const list = JSON.parse(win.localStorage.getItem('sdshc-fb-scenarios') ?? '[]')
+    return list[0] ? list[0].shareId : undefined
+  }
+
+  test('accepting the prompt writes the key to disk', () => {
+    // The save that raised the dialog ran BEFORE the answer existed, so it
+    // stamped nothing. Without shareNow() the id would be minted at send time
+    // and live only in memory — and because reads are denied, a budget that
+    // sent something it cannot name can never update or delete it. "Turning
+    // sharing off deletes the records this device has sent" would be false for
+    // that record forever.
+    click('[data-action="save-scenario"]')
+    assert.equal(storedKey(), undefined, 'nothing is claimed before the answer')
+    click('[data-share-answer="yes"]')
+    assert.equal(typeof storedKey(), 'string', 'the key is on disk')
+    assert.equal(storedKey().length, 36, 'and it is a UUID, not a local id')
+  })
+
+  test('turning the switch on writes it too', () => {
+    click('[data-action="save-scenario"]')
+    click('[data-share-answer="no"]')
+    assert.equal(storedKey(), undefined)
+    // Through the dialog, which a press that would turn sharing ON always
+    // raises — including after a decline.
+    click('[data-action="toggle-share"]')
+    click('[data-share-answer="yes"]')
+    assert.equal(typeof storedKey(), 'string')
+  })
+
+  test('the key is stamped before the save, not after it', () => {
+    // On the ordinary save path the stamp happens ahead of saveScenario(), so
+    // the save that triggers a send is the one that persists the key to it.
+    click('[data-action="save-scenario"]')
+    click('[data-share-answer="yes"]')
+    const first = storedKey()
+    const el = doc.querySelector('[data-path="enterprises.0.acres"]')
+    el.value = '640'
+    el.dispatchEvent(new win.Event('input', { bubbles: true }))
+    click('[data-action="save-scenario"]')
+    assert.equal(storedKey(), first, 'the same record is updated, never a second one')
+  })
+
+  test('a budget that cannot be saved is not shared', () => {
+    // The safe direction: a budget nobody shared can be shared later, while a
+    // record nobody can reach is permanent.
+    click('[data-action="save-scenario"]')
+    click('[data-share-answer="no"]')
+
+    // jsdom's localStorage is a Proxy that turns any property assignment into a
+    // stored ITEM, so `store.setItem = fn` silently stores something called
+    // "setItem" and leaves the method alone. The global the modules actually
+    // read is swapped instead.
+    const real = globalThis.localStorage
+    globalThis.localStorage = {
+      getItem: (k) => real.getItem(k),
+      removeItem: (k) => real.removeItem(k),
+      clear: () => real.clear(),
+      setItem: (k, v) => {
+        if (k === 'sdshc-fb-scenarios') {
+          const err = new Error('full')
+          err.name = 'QuotaExceededError'
+          throw err
+        }
+        real.setItem(k, v)
+      },
+    }
+    click('[data-action="toggle-share"]')
+    click('[data-share-answer="yes"]')
+    globalThis.localStorage = real
+
+    assert.equal(storedKey(), undefined, 'no key was stored while the store was full')
+
+    // The PREFERENCE still took, and should have: the producer answered the
+    // question, and only the write failed. The budget is shared by the next
+    // save that succeeds, which is the self-healing direction. What must never
+    // happen is the opposite — a record created under a key that was never
+    // written down, which nothing could afterwards update or delete.
+    assert.equal(win.localStorage.getItem('sdshc-fb-share'), 'on')
+    click('[data-action="save-scenario"]')
+    assert.equal(typeof storedKey(), 'string', 'and it catches up on the next good save')
+  })
+
+  test('a duplicate does not inherit the original record', () => {
+    // Otherwise the copy would, on its first save, upload itself over the
+    // budget it was copied from — silently, into a store the producer cannot
+    // see, destroying the comparison they made the copy to build.
+    click('[data-action="save-scenario"]')
+    click('[data-share-answer="yes"]')
+    const original = storedKey()
+    assert.equal(typeof original, 'string')
+
+    click('[data-action="go-scenarios"]')
+    click('[data-action="duplicate-scenario"]')
+    const list = JSON.parse(win.localStorage.getItem('sdshc-fb-scenarios'))
+    assert.equal(list.length, 2)
+    const copy = list.find((s) => s.shareId !== original)
+    assert.ok(copy, 'the copy is a different record')
+    assert.equal('shareId' in copy, false, 'and claims none at all until it is shared')
+  })
+})
+
+/* ══════════════════════════════════════════════════════════════════════════
+   The hidden exporter: how it opens, and what it refuses to show
+   ══════════════════════════════════════════════════════════════════════════ */
+
+describe('the exporter opens on a gesture and shows nothing without a password', () => {
+  beforeEach(async () => {
+    await boot()
+    // index.html loads it beside themelab. The smoke boot only imports main.js,
+    // so it is brought in here.
+    await import(`../src/exporter.js?bust=${Math.random()}`)
+  })
+
+  const panel = () => doc.querySelector('[data-exporter]')
+
+  const press = (key, opts = {}) =>
+    doc.dispatchEvent(new win.KeyboardEvent('keydown', { key, bubbles: true, ...opts }))
+
+  test('Ctrl+Alt+E opens it, Escape closes it', () => {
+    assert.equal(panel(), null, 'nothing links to it, so it starts closed')
+    press('e', { ctrlKey: true, altKey: true })
+    assert.ok(panel(), 'the chord opens it')
+    press('Escape')
+    assert.equal(panel(), null)
+  })
+
+  test('the chord needs both modifiers, so it cannot fire mid-typing', () => {
+    // A lone key or a typed word would fire while somebody is filling in a
+    // budget. Themelab's Ctrl+Alt+T is the same shape for the same reason.
+    press('e')
+    assert.equal(panel(), null, 'e alone does nothing')
+    press('e', { ctrlKey: true })
+    assert.equal(panel(), null, 'and neither does Ctrl+E')
+    press('e', { ctrlKey: true, altKey: true })
+    assert.ok(panel())
+  })
+
+  test('five taps on the footer line opens it on touch', () => {
+    const target = doc.querySelector('[data-ex-tap]')
+    assert.ok(target, 'the Coalition line is the tap target')
+    assert.match(target.textContent, /South Dakota Soil Health Coalition/)
+    for (let i = 0; i < 4; i += 1) {
+      target.dispatchEvent(new win.MouseEvent('click', { bubbles: true }))
+      assert.equal(panel(), null, `still shut after ${i + 1} taps`)
+    }
+    target.dispatchEvent(new win.MouseEvent('click', { bubbles: true }))
+    assert.ok(panel(), 'and opens on the fifth')
+  })
+
+  test('its tap target is not themelab s', () => {
+    // Two counters watching one element would both advance, and a producer
+    // fidgeting with the logo would open a panel at random. Themelab owns the
+    // logo; this owns the footer line.
+    const target = doc.querySelector('[data-ex-tap]')
+    assert.equal(target.closest('.topbar'), null, 'not in the top bar')
+    assert.equal(target.querySelector('img'), null, 'and not the logo')
+  })
+
+  test('it shows no data and no export button before a sign-in', () => {
+    // THE GESTURE IS NOT THE SECURITY. The bundle is public, so anybody can
+    // find the chord. What protects the data is firestore.rules denying reads
+    // to all but a signed-in admin, enforced on Google's servers. Opening this
+    // uninvited has to be worth nothing, and that is what makes a discoverable
+    // shortcut acceptable here.
+    press('e', { ctrlKey: true, altKey: true })
+    const p = panel()
+    assert.equal(p.querySelector('[data-ex-xlsx]'), null, 'no download button')
+    assert.equal(p.querySelector('[data-ex-csv]'), null, 'no CSV buttons')
+    assert.equal(p.textContent.includes('Budget name'), false, 'and no rows')
+  })
+
+  test('it is hidden when printing', () => {
+    // A fixed overlay appended to <body>, so unlike the share switch and the
+    // share state it sits inside nothing that the print block already hides.
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+    const print = css.slice(css.indexOf('@media print'))
+    assert.match(print, /\.ex-panel,/)
   })
 })

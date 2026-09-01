@@ -79,6 +79,13 @@
          <html> before the first render, and kept out of main.js so the entry
          module the smoke tests import stays exactly what it was. -->
     <script type="module" src="/src/themelab.js"></script>
+    <!-- The second hidden panel, on the same terms: no screen links to it, and
+         it is kept out of main.js so the entry module the smoke tests import
+         stays plain. Unlike themelab it reads real data, so the gesture is only
+         how it OPENS — firestore.rules and a password are what gate it. Its
+         Firebase imports are dynamic, so a producer who never opens it never
+         downloads the SDK. See the header of exporter.js. -->
+    <script type="module" src="/src/exporter.js"></script>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

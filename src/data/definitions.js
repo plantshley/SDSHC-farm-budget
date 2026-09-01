@@ -20,6 +20,41 @@
  *   - Short sentences. These are read on a phone, often outdoors.
  */
 
+/**
+ * The privacy answer, written once and read in two places.
+ *
+ * `DEFINITIONS.privacy` (the footer's Read more) and the "Where your budgets
+ * live" section of data/howto.js both print this array. They used to hold
+ * byte-for-byte copies of it, which is a promise stored twice and therefore a
+ * promise that can drift. It is one export now, and howto.js imports it.
+ *
+ * CLAUDE.md's rule is that if anything is ever sent anywhere, the places that
+ * say otherwise change FIRST, and that changing them is the consent
+ * conversation rather than a follow-up to it. Sharing exists now, so this text
+ * describes it: what goes, when, what is not asked for, and how to stop.
+ *
+ * Two sentences here are load-bearing and were argued over. The budget name is
+ * free text and people put farm and family names in it, so the text says the
+ * name is sent and says to leave personal details out, rather than claiming an
+ * anonymity the data does not have. And turning sharing off DELETES what this
+ * device sent, which is a promise share.js has to keep.
+ *
+ * TODO: paragraph 5 states what shared budgets are used for but not how long
+ * they are kept. Decide a retention period with the Coalition and say it here.
+ */
+export const PRIVACY_BODY = [
+  'Your budgets are saved in this browser, on this device. They are not on any server unless you turn on sharing, and they will not appear on your other devices.',
+  'Sharing is off until you turn it on. The switch sits beside the Budget and Saved tabs, and you can turn it off again at any time.',
+  'When sharing is on, saving a budget sends a copy to the South Dakota Soil Health Coalition.',
+  'Your information remains anonymous. Leave personally identifying information out of your budget name.',
+  'Shared budgets help the Coalition understand how this calculator is used and what production costs look like across the state. They are not published, sold, or shared outside the Coalition.',
+  'Turning sharing off deletes the records this device has sent.',
+  'Separately, we count anonymous usage: which screen you open, which entry modes you pick, and whether typical values get used. That counting carries no dollar figures and no names, and it happens whether or not sharing is on.',
+  'To move a budget to another device, or to give one to somebody else, use "Save budget file" to download it and "Upload a budget file" on the Saved tab to read it back in.',
+  'To keep a copy of everything at once, use "Export backup" on the Saved tab. It downloads every saved budget and every folder as one file, and "Restore backup" reads it back. Restoring replaces everything on the Saved tab, so the calculator says how many budgets are arriving and how many are going before it does anything.',
+  'Because the budgets live in this browser, clearing your browsing data deletes them. Export a backup for anything you want to keep.',
+]
+
 export const DEFINITIONS = {
   enterpriseName: {
     title: 'Enterprise name',
@@ -223,15 +258,7 @@ export const DEFINITIONS = {
   // away rather than something they have to ask a person about.
   privacy: {
     title: 'Where your budgets live',
-    body: [
-      'Your figures stay on this device, in this browser. They are not sent anywhere, are not stored on any server, and will not appear on your other devices.',
-      'We count anonymous usage: which screen you open, which entry modes you pick, and whether typical values get used. The dollar figures you type, your crop and budget names, and your saved scenarios are never sent, and nothing identifies you.',
-      'The South Dakota Soil Health Coalition cannot see your budgets.',
-      'To move a budget to another device, or to give one to somebody else, use "Save budget file" to download it and "Upload a budget file" on the Saved tab to read it back in.',
-      'To keep a copy of everything at once, use "Export backup" on the Saved tab. It downloads every saved budget and every folder as one file, and "Restore backup" reads it back. Restoring replaces everything on the Saved tab, so the calculator says how many budgets are arriving and how many are going before it does anything.',
-      'Those files are the only things that ever leave this device, and only when you download them yourself.',
-      'Because the budgets live in this browser, clearing your browsing data deletes them. Export a backup for anything you want to keep.',
-    ],
+    body: PRIVACY_BODY,
   },
 }
 

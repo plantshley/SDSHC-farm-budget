@@ -55,6 +55,7 @@ const {
   exportBackupJSON,
   importBackupJSON,
   replaceAll,
+  clearAllShareIds,
 } = await import('../src/storage.js')
 const { SCHEMA_VERSION } = await import('../src/calc.js')
 
@@ -1057,5 +1058,166 @@ describe('reporting instead of throwing', () => {
     assert.equal(result.ok, false)
     assert.equal(result.budgetsRestored, true)
     assert.equal(listScenarios().length, 1, 'budgets first is what makes this survivable')
+  })
+})
+
+/* ══════════════════════════════════════════════════════════════════════════
+   v7 — shareId, the key of a budget's record with the Coalition
+   ══════════════════════════════════════════════════════════════════════════ */
+
+describe('v7 migration', () => {
+  // The step deliberately writes nothing, and this is the version where
+  // inventing a value would do real harm rather than merely waste a write: a
+  // shareId means "this budget has been sent", so stamping one onto stored
+  // records would claim a consent nobody gave.
+  function v6Budget() {
+    return [
+      {
+        schemaVersion: 6,
+        id: 'a',
+        name: 'Existing',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        enterprises: [{ id: 'e1', crop: 'Corn', acres: 500 }],
+        fixed: { labor: {}, annual: {}, annualBasis: {}, equipment: [], buildings: [] },
+      },
+    ]
+  }
+
+  test('a v6 budget comes forward with no shareId invented', () => {
+    store.setItem(KEY, JSON.stringify(v6Budget()))
+    const [s] = listScenarios()
+    assert.equal(s.schemaVersion, SCHEMA_VERSION)
+    assert.equal('shareId' in s, false, 'never sent is the correct state, and absence says it')
+  })
+
+  test('a budget that already has one keeps it through a read', () => {
+    const records = v6Budget()
+    records[0].shareId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+    store.setItem(KEY, JSON.stringify(records))
+    const [s] = listScenarios()
+    assert.equal(s.shareId, 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee')
+  })
+})
+
+describe('shareId is stripped in three places and kept in one', () => {
+  const ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+
+  function shared(id = 'a') {
+    const s = makeScenario(id, 'Shared budget')
+    s.shareId = ID
+    return s
+  }
+
+  test('a single-budget export strips it', () => {
+    // Stronger reason than folderId's. A folder id that travels is meaningless
+    // on the far device; a shareId that travels still RESOLVES, so two people
+    // would hold the key to one record and whoever saved last would overwrite
+    // the other in a store neither of them can look at.
+    const json = JSON.parse(exportScenarioJSON(shared()))
+    assert.equal('shareId' in json, false)
+    assert.equal(json.name, 'Shared budget', 'and the rest of the budget travels')
+  })
+
+  test('an import drops one that arrives anyway', () => {
+    // The export strips it, so a file the app wrote carries none. This covers
+    // the hand-edited file and the file that predates the strip.
+    const text = JSON.stringify({ ...shared(), shareId: ID })
+    const result = importScenarioJSON(text)
+    assert.equal(result.ok, true)
+    assert.equal('shareId' in result.scenario, false)
+  })
+
+  test('a backup keeps it, because a restore is the same device', () => {
+    // The asymmetry with the two above is the whole point. A restore puts a
+    // budget back where it came from, so the id still names that device's own
+    // record; dropping it would orphan the record, still held by the Coalition
+    // and no longer removable by turning sharing off.
+    saveScenario(shared())
+    const backup = JSON.parse(exportBackupJSON())
+    assert.equal(backup.scenarios[0].shareId, ID)
+    const back = importBackupJSON(JSON.stringify(backup))
+    assert.equal(back.ok, true)
+    assert.equal(back.scenarios[0].shareId, ID)
+  })
+})
+
+describe('a save never loses a shareId', () => {
+  const ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+
+  test('the stored id is adopted when the working copy has none', () => {
+    // A share done in another tab is invisible to this copy. Ignoring the
+    // stored id would mint a second one and leave the first record unreachable
+    // forever: reads are denied, so nothing could update or delete it, and
+    // "turning sharing off deletes what this device sent" would stop being
+    // true without anything on screen to say so.
+    const s = makeScenario('a', 'Budget')
+    saveScenario(s)
+    const stored = JSON.parse(store.getItem(KEY))
+    stored[0].shareId = ID
+    store.setItem(KEY, JSON.stringify(stored))
+
+    const stale = { ...makeScenario('a', 'Budget'), updatedAt: stored[0].updatedAt }
+    assert.equal('shareId' in stale, false)
+    saveScenario(stale, { force: true })
+    assert.equal(getScenarioById('a').shareId, ID, 'the record is still reachable')
+  })
+
+  test('the working copy wins when it has one', () => {
+    // share.js writes the id onto the working scenario and saves in the same
+    // breath, so the stored record has none yet. Letting absence win — the rule
+    // folderId follows — would delete it on the way to disk.
+    const s = makeScenario('a', 'Budget')
+    saveScenario(s)
+    const fresh = getScenarioById('a')
+    fresh.shareId = ID
+    saveScenario(fresh)
+    assert.equal(getScenarioById('a').shareId, ID)
+  })
+})
+
+describe('withdrawing consent clears every key and says which they were', () => {
+  test('the ids come back so the remote half can run', () => {
+    // Returned BEFORE being cleared, and the caller deletes remotely only after
+    // this succeeds. The other order loses the list on a failed write: the
+    // documents would be gone while the budgets still named them.
+    const a = makeScenario('a', 'One')
+    a.shareId = 'aaaaaaaa-bbbb-4ccc-8ddd-111111111111'
+    const b = makeScenario('b', 'Two')
+    b.shareId = 'aaaaaaaa-bbbb-4ccc-8ddd-222222222222'
+    saveScenario(a)
+    saveScenario(b)
+    saveScenario(makeScenario('c', 'Never shared'))
+
+    const result = clearAllShareIds()
+    assert.equal(result.ok, true)
+    assert.deepEqual(result.ids.sort(), [
+      'aaaaaaaa-bbbb-4ccc-8ddd-111111111111',
+      'aaaaaaaa-bbbb-4ccc-8ddd-222222222222',
+    ])
+    for (const s of listScenarios()) {
+      assert.equal('shareId' in s, false, `${s.name} no longer names a record`)
+    }
+    assert.equal(listScenarios().length, 3, 'and no budget was deleted')
+  })
+
+  test('a device that never shared reports nothing and writes nothing', () => {
+    saveScenario(makeScenario('a', 'One'))
+    const before = store.getItem(KEY)
+    const result = clearAllShareIds()
+    assert.equal(result.ok, true)
+    assert.deepEqual(result.ids, [])
+    assert.equal(store.getItem(KEY), before, 'the store is untouched')
+  })
+
+  test('a failed write reports rather than half-clearing', () => {
+    const a = makeScenario('a', 'One')
+    a.shareId = 'aaaaaaaa-bbbb-4ccc-8ddd-111111111111'
+    saveScenario(a)
+    store.failWrites = 'QuotaExceededError'
+    const result = clearAllShareIds()
+    assert.equal(result.ok, false)
+    store.failWrites = null
+    assert.equal(getScenarioById('a').shareId, 'aaaaaaaa-bbbb-4ccc-8ddd-111111111111')
   })
 })
