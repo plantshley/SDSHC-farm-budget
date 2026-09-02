@@ -35,7 +35,7 @@
 
 import { calcScenario } from './calc.js'
 import { ensureShareId } from './state.js'
-import { clearAllShareIds } from './storage.js'
+import { clearAllShareIds, firstSentAt } from './storage.js'
 import { firebaseConfig, SUBMISSIONS, SHARING_AVAILABLE } from './firebase-config.js'
 
 /* ──────────────────────────── lazy connection ──────────────────────────── */
@@ -251,7 +251,11 @@ export function buildSubmission(scenario) {
     name: String(scenario.name ?? '').slice(0, 120),
     scenarioYear: String(scenario.scenarioYear ?? ''),
     createdAt: String(scenario.createdAt ?? ''),
-    firstSentAt: now,
+    // Read from this device rather than stamped, because `merge: true` leaves
+    // alone only the fields a payload OMITS. Stamped here it overwrote itself
+    // on every send and was `updatedAt` under another name. See KEY_SHARE_FIRST
+    // in storage.js, and why the document cannot simply be read instead.
+    firstSentAt: firstSentAt(scenario.shareId, now),
     updatedAt: now,
     scenario: rest,
     results: {
@@ -271,14 +275,21 @@ export function buildSubmission(scenario) {
 /**
  * Send or update one budget's record.
  *
- * ensureShareId() runs again here even though main.js stamps it before saving,
- * because this is also reachable from the consent modal's "Share my budgets",
- * where no save has just happened.
+ * ensureShareId() runs here as a backstop only. EVERY CALLER MUST HAVE SAVED
+ * FIRST — the key has to be on disk before the record it names exists, because
+ * reads are denied and a record whose key was never written down can never be
+ * updated or deleted. All three call sites do (`save-scenario`, `shareNow()`,
+ * `shareOnOpen()`), and this call cannot enforce it: it stamps in memory and
+ * persists nothing. A new caller that skips the save creates an unreachable
+ * document, and nothing here will catch it.
  *
- * The merge write is what keeps the first send date honest. `firstSentAt` is
- * written on every call, but a merge only ever adds fields to an existing
- * document, so the value that matters is the one the create put there. A later
- * update carries a fresh `updatedAt` and leaves the original date alone.
+ * THE MERGE DOES NOT KEEP THE FIRST SEND DATE HONEST, and a comment here used
+ * to say it did. `merge: true` leaves untouched only the fields a payload
+ * omits; a field present on every write is overwritten on every write. So
+ * `firstSentAt` stamped at send time was `updatedAt` spelled differently, and
+ * the exporter reported last activity as first contact. It now comes from this
+ * device's own record of it — see `firstSentAt()` in storage.js — because reads
+ * are denied and the document cannot be consulted.
  */
 export async function shareBudget(scenario) {
   if (!SHARING_AVAILABLE || !scenario) return { ok: false, error: 'Unavailable' }
@@ -288,7 +299,21 @@ export async function shareBudget(scenario) {
     const { db, firestore } = await getDb()
     const payload = buildSubmission(scenario)
     const ref = firestore.doc(db, SUBMISSIONS, scenario.shareId)
-    return await settleWrite(firestore.setDoc(ref, payload, { merge: true }))
+    // A SEND UNMARKS. A budget can come back after its record was marked
+    // deleted: a backup made before the delete, restored afterwards, brings it
+    // back with its key intact. Merge keeps every field a payload omits, so
+    // without this the record would stay marked deleted forever while the
+    // producer was actively editing the budget — and the workbook would report
+    // a live farm as gone. deleteField() removes the key rather than writing a
+    // null, so firestore.rules' hasOnly() sees a document that simply does not
+    // have it, and a record that was never marked is unaffected.
+    return await settleWrite(
+      firestore.setDoc(
+        ref,
+        { ...payload, deletedAt: firestore.deleteField() },
+        { merge: true }
+      )
+    )
   } catch (error) {
     return { ok: false, error }
   }
@@ -306,22 +331,86 @@ export async function shareBudget(scenario) {
  * Deletes are settled together and individually tolerant: one document that
  * will not go must not strand the other nineteen.
  */
+/**
+ * Mark the record named by `shareId` as deleted, and keep the figures.
+ *
+ * THIS IS NOT A WITHDRAWAL, and the difference is the whole reason it exists.
+ * A producer clearing last year's plans out of their saved list is tidying
+ * their own device, not asking the Coalition to forget what they contributed —
+ * and last year's costs are exactly the data this collection is being gathered
+ * for. Withdrawing is the Share switch, which still deletes everything, marked
+ * records included.
+ *
+ * `deletedAt` RATHER THAN A RENAME. The obvious alternative is to prefix the
+ * budget name, and it is worse in a way that only shows up later: `name` is the
+ * producer's own text, so rewriting it makes every export ambiguous about what
+ * they actually typed, and a reader filtering the workbook would be pattern
+ * matching on a label instead of reading a column. It is a separate optional
+ * field in firestore.rules for the same reason.
+ *
+ * A MERGE THAT WRITES TWO FIELDS AND TOUCHES NOTHING ELSE. Merge leaves alone
+ * only the fields a payload omits, which is the trap `firstSentAt` fell into —
+ * here it is what makes this safe, since every figure is omitted and therefore
+ * kept exactly as last sent.
+ *
+ * If no record was ever created, the rules reject this: a merge onto a missing
+ * document would leave one with no `name`, no `scenario`, and no `results`, and
+ * all three are required. That is the right failure, and it is reported rather
+ * than thrown.
+ */
+export async function markBudgetDeleted(shareId) {
+  if (!SHARING_AVAILABLE) return { ok: false, error: 'Unavailable' }
+  if (typeof shareId !== 'string' || !shareId) return { ok: false, error: 'NoKey' }
+  if (!canConnect()) return { ok: false, error: 'NoStorage' }
+  try {
+    const { db, firestore } = await getDb()
+    const now = Date.now()
+    return await settleWrite(
+      firestore.setDoc(
+        firestore.doc(db, SUBMISSIONS, shareId),
+        { deletedAt: now, updatedAt: now },
+        { merge: true }
+      )
+    )
+  } catch (error) {
+    return { ok: false, error }
+  }
+}
+
 export async function unshareEverything() {
-  if (!SHARING_AVAILABLE) return { ok: true, deleted: 0 }
   // The local half runs FIRST and runs even where the remote half cannot, which
   // is the right way round: an environment that could not connect never sent
   // anything, so there is nothing out there to strand, and the producer's
   // instruction to stop is honoured either way.
+  //
+  // THE SHARING_AVAILABLE CHECK IS BELOW THIS, NOT ABOVE IT, and it used to be
+  // above. Keys are stamped whenever SHARING_ENABLED, so an unconfigured build
+  // hands out keys and sent nothing — and returning early left every one of
+  // them on the budgets, along with the tombstones, after a producer had asked
+  // the app to stop. Nothing was at risk, but the device then disagreed with
+  // itself about what it had shared, which is the state every other path here
+  // works to avoid.
   const cleared = clearAllShareIds()
   if (!cleared.ok) return cleared
   if (!cleared.ids.length) return { ok: true, deleted: 0 }
+  if (!SHARING_AVAILABLE) return { ok: true, deleted: 0, localCleared: cleared.ids.length }
   if (!canConnect()) return { ok: true, deleted: 0, localCleared: cleared.ids.length }
   try {
     const { db, firestore } = await getDb()
-    const results = await Promise.allSettled(
-      cleared.ids.map((id) => firestore.deleteDoc(firestore.doc(db, SUBMISSIONS, id)))
+    // THROUGH settleWrite(), for the same reason every other write here is: a
+    // Firestore promise stays pending until the server acknowledges it, so
+    // offline these never settle at all. Deletes were awaited directly, and
+    // offline — the normal path at the Soil Health School — this hung forever.
+    //
+    // The caller in main.js clears the working budget's own key in the `.then()`
+    // of this promise, so hanging here left that budget holding a key its
+    // stored copy had already lost, and the producer's next save wrote it
+    // straight back. Turning sharing off appeared to work and then quietly
+    // undid itself.
+    const results = await Promise.all(
+      cleared.ids.map((id) => settleWrite(firestore.deleteDoc(firestore.doc(db, SUBMISSIONS, id))))
     )
-    return { ok: true, deleted: results.filter((r) => r.status === 'fulfilled').length }
+    return { ok: true, deleted: results.filter((r) => r.ok).length }
   } catch (error) {
     // The local half succeeded, so this device has already stopped sharing and
     // stopped naming those records. Report rather than throw.

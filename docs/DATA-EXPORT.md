@@ -23,7 +23,19 @@ Nobody is asked who they are. There is no account, no email address, and no name
 field. The budget name is free text and is sent as typed, which is why the
 consent dialog tells producers to leave personal details out of it.
 
-Turning the switch off **deletes the records that device has sent**.
+A record is also sent for a budget that arrives without a save: one opened from
+the Saved tab, a duplicate, and an imported budget file. Turning the switch on
+sends **every budget already saved**, not only the one on screen.
+
+Turning the switch off **deletes the records that device has sent**, including
+the ones marked deleted below. It is the only control that removes anything.
+
+**Deleting a budget on the device does NOT delete its record.** The record is
+marked with a `deletedAt` date and every figure is kept. A producer clearing out
+last year's plans is tidying their own list rather than withdrawing what they
+already contributed, and last year's costs are the data being gathered. The
+workbook carries a **`Deleted`** column on every sheet so those rows can be told
+apart. The delete dialog says this on screen when there is a record to describe.
 
 > The exact wording shown to producers lives in `PRIVACY_BODY` in
 > `src/data/definitions.js`, and it is printed in three places: the footer link,
@@ -35,6 +47,16 @@ Turning the switch off **deletes the records that device has sent**.
 `PRIVACY_BODY` says what shared budgets are used for but not **how long they are
 kept**. That is a Coalition policy question, not a technical one, and the text
 carries a `TODO` until it is answered.
+
+**Restoring a backup** behaves the same way. Budgets the backup carries keep
+their own records. Budgets on the device that the backup does not carry are
+dropped, and their records are marked deleted and kept, exactly as if each had
+been deleted by hand.
+
+It also says nothing about **deleting a budget**, which now keeps the shared
+copy. Nothing there is false, but a reader would reasonably assume deleting a
+budget deletes the copy, and the only place the app corrects that assumption is
+the delete dialog itself. One sentence in `PRIVACY_BODY` would close it.
 
 ---
 
@@ -105,6 +127,12 @@ One time, about fifteen minutes. Steps 1 to 9 produce the config the app needs.
 
 10. **Publish the rules.** Paste `firestore.rules` into *Firestore → Rules →
     Publish*, or:
+
+    > **Re-publish them whenever `firestore.rules` changes in the repo.** They
+    > live on Google's servers, not in the bundle, so editing the file does
+    > nothing until it is published. The most recent change added `deletedAt` to
+    > the allowed keys; without it, deleting a shared budget fails with a
+    > permission error and the record keeps saying the budget is live.
 
     ```bash
     npm i -g firebase-tools
@@ -187,7 +215,7 @@ them can be joined to any other with a pivot table or a `VLOOKUP`.
 | **Fixed costs** | budget | Land rent, labor, and overheads. |
 | **Equipment and buildings** | machine or building | Machinery. A `Kind` column separates the two. |
 
-### Four things that will trip you up
+### Five things that will trip you up
 
 1. **A row is a budget, not a save.** Saving the same budget again updates its
    row. The row count is a count of budgets, never of visits.
@@ -204,6 +232,19 @@ them can be joined to any other with a pivot table or a `VLOOKUP`.
 4. **A blank cell means the box was never filled**, which is not the same as
    `0`. Averaging a column that treats them alike counts every untouched budget
    as a real zero. An explicit `0` a producer typed is exported as `0`.
+
+5. **A `Deleted` date means the producer no longer has that budget.** Deleting a
+   budget on the device marks the record and keeps the figures, so the workbook
+   carries rows for plans nobody has on screen any more. The figures are the
+   last ones sent and are as good as any other row; what has changed is that
+   they will never be updated again. **Decide whether to include them before you
+   average anything.** The column is on every sheet, so it can be filtered at
+   whatever grain the question is being asked at. A blank means the budget is
+   still live.
+
+   The one thing this is not is a withdrawal. A producer who turns the **Share**
+   switch off has their records deleted outright, marked ones included, and they
+   leave the collection entirely.
 
 ### Where the numbers come from
 

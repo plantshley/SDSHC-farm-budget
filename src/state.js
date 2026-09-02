@@ -201,6 +201,17 @@ export function ensureShareId(scenario) {
   return scenario.shareId
 }
 
+/**
+ * A fresh key, with no scenario to hang it on.
+ *
+ * ensureAllShareIds() in storage.js stamps a whole list in one write and has no
+ * scenario object to pass. Exported from here so there is one implementation of
+ * what a share key IS, rather than a second copy of the fallback below.
+ */
+export function newShareId() {
+  return randomUUID()
+}
+
 function randomUUID() {
   const c = globalThis.crypto
   if (typeof c?.randomUUID === 'function') return c.randomUUID()

@@ -108,11 +108,29 @@ function stamp(value) {
  * `Budget name` is included on every grain, not just the budget-level sheets,
  * because a bare UUID is unreadable: somebody scanning the enterprise sheet
  * needs to see which farm a row belongs to without going and looking it up.
+ *
+ * `Deleted` RIDES WITH THE IDENTITY, ON EVERY SHEET, and that is deliberate. A
+ * producer deleting a budget from their own device does not delete the record —
+ * see markBudgetDeleted() in share.js — so the workbook has rows in it for
+ * budgets nobody has on screen any more, and a reader who cannot see which is
+ * which will average them in without knowing. Filtering it out has to be
+ * possible at whatever grain the question is being asked at, so it cannot live
+ * on the summary sheet alone.
+ *
+ * A COLUMN RATHER THAN A MARK IN THE NAME. `Budget name` is the producer's own
+ * text; a prefix stamped into it would make every row ambiguous about what they
+ * actually typed, and would have a reader pattern matching on a label instead
+ * of filtering a field.
+ *
+ * Empty, never "No", for a budget that is still live. A blank reads as "this
+ * does not apply" at a glance down the column, where a column of "No" with the
+ * occasional "Yes" hides the thing being looked for.
  */
 function identity(doc) {
   return {
     shareId: doc?.shareId ?? '',
     'Budget name': doc?.name ?? '',
+    Deleted: doc?.deletedAt ? stamp(doc.deletedAt) : '',
   }
 }
 

@@ -21,7 +21,7 @@ like one family.
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 919 tests: the economic model, storage, data, exports, and a DOM smoke test
+npm test           # 977 tests: the economic model, storage, data, exports, and a DOM smoke test
 npm run build      # -> dist/
 ```
 
@@ -994,7 +994,7 @@ it.
 
 ## Tests
 
-919 tests across eight files. `npm test` runs them, and so does the deploy
+977 tests across nine files. `npm test` runs them, and so does the deploy
 workflow before it builds. *Detail in [DESIGN-NOTES.md](DESIGN-NOTES.md).*
 
 - `test/calc.test.js` — the model against real Excel output, plus the deliberate
@@ -1090,13 +1090,23 @@ that does not exist yet. The switch sits left of the tabs on every screen.
   reads are denied, so nothing here can check whether a record still exists, and
   under-reporting is the safe direction. A queued write says **`Shares when back
   online`**, folded into neither answer.
-- **Opening a saved budget sends it, and does NOT re-date it.** Sharing only
-  ever fired on a save, so a budget finished before the switch went on stayed
-  unsent, and a restored backup left nineteen of twenty invisible.
-  `shareOnOpen()` stamps through **`setScenarioShareId()`** — a FOURTH write
-  bypassing `saveScenario()`, for a reason of its own: claiming a key is not
-  editing a farm, and `updatedAt` is what the list prints as the last time the
-  producer was at the keyboard.
+- **A budget that reaches the screen without a save is sent anyway, and is NOT
+  re-dated.** Sharing only ever fired on a save, so a budget finished before the
+  switch went on stayed unsent, and a restored backup left nineteen of twenty
+  invisible. `shareOnOpen()` stamps through **`setScenarioShareId()`** — a
+  FOURTH write bypassing `saveScenario()`, for a reason of its own: claiming a
+  key is not editing a farm, and `updatedAt` is what the list prints as the last
+  time the producer was at the keyboard.
+  **Three callers, not one**: opening a saved budget, **duplicating** one, and
+  **importing a budget file**. The last two were the same gap one step further
+  along — each ends with a budget in the list that nobody pressed Save for.
+  Both arrive with `shareId` stripped, so each mints its own key and becomes its
+  own record rather than overwriting the budget it was copied from or the one
+  the exporting device had already sent. Past that they are ordinary: every
+  later save upserts that record through the save path. **A reload is
+  deliberately not a fourth caller** — the boot block reopens the last budget
+  and sends nothing, because sending on every page load is noise and the next
+  save covers it.
 - **The `Shared` line is PAIRED with the save state and never shows without a
   tick.** What the Coalition has is the budget as it was saved, so a word about
   sharing standing over unsaved edits reads as a promise about those edits.
@@ -1111,13 +1121,70 @@ that does not exist yet. The switch sits left of the tabs on every screen.
   and the word Saved under a budget that was in no list and would be gone on
   reload. **`Not saved yet` outranks `Unsaved changes`**, which implies a saved
   version to have changed away from.
-  **Only an ANSWER ends it.** Both buttons are one, including *Not now*, and so
-  is operating the Share switch, which sets exactly what the dialog asks.
-  Dismissing it is not: the next save puts the question again. This was the
-  other way round and was wrong, because the two are not symmetric. *Not now*
-  is a decision that can be revisited from the switch; a dismissal is somebody
-  who has not read the question yet, and counting them alike let the quietest
-  way of not answering settle it permanently.
+- **Only an ANSWER ends the save-time prompt, and the switch is not one.** Both
+  dialog buttons end it, *Not now* included. Dismissing it does not: the next
+  save puts the question again. This was the other way round and was wrong,
+  because the two are not symmetric. *Not now* is a decision that can be
+  revisited from the switch; a dismissal is somebody who has not read the
+  question yet, and counting them alike let the quietest way of not answering
+  settle it permanently.
+  **`setSharing()` marks the question answered only in the ON direction.**
+  Switching off used to mark it too, so a producer who tried sharing and turned
+  it off again was never asked anything on any later save — which quietly made
+  the switch a way of opting out of being asked, and a control labelled with one
+  word cannot say that. Off **clears** the flag through `clearAskedToShare()`,
+  so the next save asks again; the dialog's *Not now* calls `markAskedToShare()`
+  after `setSharing(false)` and therefore still wins. The cost is one dialog on
+  the first save after a switch-off, which is the right price.
+- **Deleting a budget MARKS its record, and does not remove it.** Clearing out
+  last year's plans is tidying this device's list, not withdrawing what was
+  already contributed, and last year's costs are the data being gathered.
+  `markBudgetDeleted()` merges `deletedAt` and touches nothing else — merge
+  keeps every field a payload omits, which is the trap `firstSentAt` fell into
+  and is what makes this safe. **`deletedAt` is a field, not a prefix on
+  `name`**: the name is the producer's own text, and stamping it would make
+  every export ambiguous about what they typed. It is the one optional key in
+  `firestore.rules`, so pre-existing records stay valid under `hasOnly()`.
+- **The key OUTLIVES the budget, in `sdshc-fb-share-deleted`.** It lives on the
+  budget and nowhere else, and reads are denied, so a deleted budget took the
+  only handle on its record with it — *stop sharing* walks the budgets that
+  remain and could not reach it. That is what produced *"only some of them were
+  deleted"*. `delete-scenario` reads `shareId` **before** `deleteScenario()`,
+  calls `rememberDeletedShareId()` after it succeeds, and `clearAllShareIds()`
+  returns the tombstones alongside the live keys — so **turning the switch off
+  still deletes everything**, which is what the consent dialog promises. The
+  tombstone is written **before** the network call and is not gated on
+  `isSharingOn()`: the key existing is the evidence something was sent, and the
+  switch says nothing about the past.
+- **The delete confirm says the shared copy is kept**, and only when there is a
+  record to describe. Otherwise "this cannot be undone" reads as covering both.
+- **`unshareEverything()` clears the LOCAL half before checking
+  `SHARING_AVAILABLE`**, and used to check first. Keys are stamped whenever
+  `SHARING_ENABLED`, so an unconfigured build hands them out and sends nothing —
+  and returning early left every key and every tombstone in place after a
+  producer had asked the app to stop. Nothing was at risk; the device simply
+  disagreed with itself about what it had shared.
+- **A restore KEEPS the records it drops, and tombstones their keys.** A backup
+  carries `shareId`, so budgets that come back keep their own records; budgets
+  on the device that the backup does not carry are dropped, and their keys with
+  them. `replaceAll()` reads those keys **before** the write that drops them,
+  and writes the tombstones **after** it succeeds — the other order names
+  budgets still in the list, and the next *stop sharing* would delete records
+  the producer is still editing. It returns them as `dropped`, and `main.js`
+  marks them, the same decision one budget's delete follows.
+- **A send UNMARKS.** A backup made before a delete and restored after it brings
+  the budget back with its key. Merge keeps every field a payload omits, so
+  without this the record stayed marked deleted while the producer was editing
+  the budget, and the workbook reported a live farm as gone. `shareBudget()`
+  writes `deletedAt: deleteField()` on every send — it **removes** the key
+  rather than writing a null, so `hasOnly()` sees a document that does not have
+  it and a record that was never marked is unaffected.
+- **Saying yes sends every budget already saved, not only the open one**
+  (`shareAllSaved()`). Agreeing at the end of a season used to send one of
+  twenty and leave the rest to be opened by hand. `ensureAllShareIds()` stamps
+  the whole list in ONE write and does not bump `updatedAt` — flipping a switch
+  must not re-date twenty budgets and re-sort the list — and if that write fails
+  nothing is sent, the same rule every path here obeys.
 
 ### Reading it back
 

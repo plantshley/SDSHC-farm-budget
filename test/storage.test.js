@@ -56,6 +56,9 @@ const {
   importBackupJSON,
   replaceAll,
   clearAllShareIds,
+  deletedShareIds,
+  rememberDeletedShareId,
+  ensureAllShareIds,
 } = await import('../src/storage.js')
 const { SCHEMA_VERSION } = await import('../src/calc.js')
 
@@ -1058,6 +1061,109 @@ describe('reporting instead of throwing', () => {
     assert.equal(result.ok, false)
     assert.equal(result.budgetsRestored, true)
     assert.equal(listScenarios().length, 1, 'budgets first is what makes this survivable')
+  })
+})
+
+/* ══════════════════════════════════════════════════════════════════════════
+   A record outlives the budget that named it
+   ══════════════════════════════════════════════════════════════════════════ */
+
+describe('a restore keeps the records it drops, and keeps them reachable', () => {
+  const shared = (id, name, shareId) => ({ ...makeScenario(id, name), shareId })
+
+  test('a budget the backup does not carry leaves a tombstone', () => {
+    // THE KEY IS THE ONLY HANDLE. Reads are denied, so a record whose budget is
+    // gone can never be named again, and "stop sharing" walks the budgets that
+    // remain. Without this the restore stranded those records forever.
+    replaceAll([shared('a', 'North', 'key-a'), shared('b', 'South', 'key-b')], [])
+    assert.deepEqual(deletedShareIds(), [], 'nothing dropped yet')
+
+    replaceAll([shared('a', 'North', 'key-a')], [])
+    assert.deepEqual(deletedShareIds(), ['key-b'], 'the one that was dropped')
+  })
+
+  test('a budget the backup DOES carry keeps its key and is not tombstoned', () => {
+    // A backup keeps shareId on purpose: it restores a list onto itself, so the
+    // record is the same record. Marking it deleted would report a budget the
+    // producer is still holding as gone.
+    replaceAll([shared('a', 'North', 'key-a')], [])
+    replaceAll([shared('a', 'North', 'key-a'), shared('b', 'South', 'key-b')], [])
+    assert.deepEqual(deletedShareIds(), [])
+    assert.equal(listScenarios().find((s) => s.id === 'a').shareId, 'key-a')
+  })
+
+  test('a failed restore tombstones nothing', () => {
+    // The tombstone is written AFTER the budgets, or it would name budgets
+    // still sitting in the list, and the next "stop sharing" would delete
+    // records the producer is still editing.
+    replaceAll([shared('a', 'North', 'key-a')], [])
+    const loop = shared('b', 'Loop', 'key-b')
+    loop.self = loop
+    assert.equal(replaceAll([loop], []).ok, false)
+    assert.deepEqual(deletedShareIds(), [], 'nothing was dropped, because nothing was written')
+    assert.equal(listScenarios()[0].shareId, 'key-a')
+  })
+
+  test('turning sharing off returns the tombstones alongside the live keys', () => {
+    // "Turning it off deletes any records this device has sent" has to be true
+    // of the ones whose budget is gone, which are the records a producer is
+    // least likely to remember.
+    replaceAll([shared('a', 'North', 'key-a')], [])
+    rememberDeletedShareId('key-gone')
+    const cleared = clearAllShareIds()
+    assert.equal(cleared.ok, true)
+    assert.deepEqual([...cleared.ids].sort(), ['key-a', 'key-gone'])
+    assert.deepEqual(deletedShareIds(), [], 'and the list is emptied with them')
+    assert.equal('shareId' in listScenarios()[0], false)
+  })
+
+  test('a key in both lists is returned once', () => {
+    replaceAll([shared('a', 'North', 'key-a')], [])
+    rememberDeletedShareId('key-a')
+    assert.deepEqual(clearAllShareIds().ids, ['key-a'])
+  })
+
+  test('the same key is never tombstoned twice', () => {
+    rememberDeletedShareId('key-x')
+    rememberDeletedShareId('key-x')
+    assert.deepEqual(deletedShareIds(), ['key-x'])
+  })
+
+  test('an unreadable tombstone list reads as empty rather than throwing', () => {
+    localStorage.setItem('sdshc-fb-share-deleted', 'not json')
+    assert.deepEqual(deletedShareIds(), [])
+    localStorage.setItem('sdshc-fb-share-deleted', '{"a":1}')
+    assert.deepEqual(deletedShareIds(), [], 'and so does one that is not a list')
+  })
+})
+
+describe('turning sharing on stamps the whole list in one write', () => {
+  test('every budget gets a key, and each one is its own', () => {
+    replaceAll([makeScenario('a', 'North'), makeScenario('b', 'South')], [])
+    const result = ensureAllShareIds()
+    assert.equal(result.ok, true)
+    const keys = listScenarios().map((s) => s.shareId)
+    assert.equal(keys.filter((k) => typeof k === 'string' && k.length === 36).length, 2)
+    assert.equal(new Set(keys).size, 2)
+  })
+
+  test('a budget that already has one keeps it', () => {
+    const key = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+    replaceAll([{ ...makeScenario('a', 'North'), shareId: key }], [])
+    ensureAllShareIds()
+    assert.equal(listScenarios()[0].shareId, key)
+  })
+
+  test('and nothing is re-dated', () => {
+    // Flipping a switch is not editing twenty farms. `updatedAt` is what the
+    // saved list prints and sorts on.
+    replaceAll([makeScenario('a', 'North'), makeScenario('b', 'South')], [])
+    const before = listScenarios().map((s) => s.updatedAt)
+    ensureAllShareIds()
+    assert.deepEqual(
+      listScenarios().map((s) => s.updatedAt),
+      before
+    )
   })
 })
 

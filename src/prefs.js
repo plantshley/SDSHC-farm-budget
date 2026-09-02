@@ -92,9 +92,29 @@ export function isSharingOn() {
   return read(KEY_SHARE, '') === 'on'
 }
 
+/**
+ * TURNING IT ON ANSWERS THE QUESTION. TURNING IT OFF RE-OPENS IT.
+ *
+ * The asked flag exists to stop the consent dialog following every save around,
+ * and this used to mark it in both directions on the reasoning that operating
+ * the switch is an answer either way. It is not, and the asymmetry is the same
+ * one the switch itself has. Turning sharing ON is consent, and somebody who
+ * has just given it does not need the dialog on their next save asking them to
+ * turn on what they turned on. Turning it OFF is a decision about the setting,
+ * not a decision never to be asked again — and it is often somebody trying it
+ * out, or clearing what they had sent, rather than declining for good.
+ *
+ * So only the dialog's own "Not now" ends the question, which is the button
+ * that means "stop asking me". It is called after this, so it wins.
+ *
+ * The cost is one dialog on the first save after a switch-off, and that is the
+ * right price: the alternative silently made the switch a way of never being
+ * asked again, which is not what a control labelled with one word can say.
+ */
 export function setSharing(on) {
   write(KEY_SHARE, on ? 'on' : 'off')
-  markAskedToShare()
+  if (on) markAskedToShare()
+  else clearAskedToShare()
 }
 
 export function hasBeenAskedToShare() {
@@ -103,6 +123,11 @@ export function hasBeenAskedToShare() {
 
 export function markAskedToShare() {
   write(KEY_SHARE_ASKED, '1')
+}
+
+/** Put the question back. See setSharing(). */
+export function clearAskedToShare() {
+  write(KEY_SHARE_ASKED, '')
 }
 
 export function initPrefs() {

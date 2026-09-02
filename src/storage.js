@@ -12,6 +12,7 @@
  */
 
 import { SCHEMA_VERSION } from './calc.js'
+import { newShareId } from './state.js'
 
 const KEY = 'sdshc-fb-scenarios'
 const KEY_LAST = 'sdshc-fb-last-open'
@@ -26,6 +27,50 @@ const KEY_LAST = 'sdshc-fb-last-open'
  * single budget.
  */
 const KEY_FOLDERS = 'sdshc-fb-folders'
+
+/**
+ * When each shared record was FIRST sent, by `shareId`. Device state.
+ *
+ * IT EXISTS BECAUSE FIRESTORE CANNOT WORK THIS OUT AND NEITHER CAN WE. A send
+ * is `setDoc(ref, payload, { merge: true })`, and merge leaves alone only the
+ * fields a payload OMITS — a field that is present every time is overwritten
+ * every time. So `firstSentAt` stamped at send time was simply `updatedAt`
+ * under another name, and the exporter's date range, which reads it, reported
+ * last activity while calling it first contact.
+ *
+ * The obvious repair is to look the document up and keep what is there, and it
+ * is not available: `firestore.rules` denies reads to every client, which is
+ * the entire security model. This device is therefore the only place the date
+ * can live.
+ *
+ * NOT ON THE SCENARIO. It is a fact about a record on a server, not about a
+ * farm — putting it there would mark the budget dirty, ride into the exported
+ * file, and need a schema version of its own. Same reasoning that keeps fold
+ * state out.
+ */
+const KEY_SHARE_FIRST = 'sdshc-fb-share-first'
+
+/**
+ * Keys to records whose budget has been deleted from this device. Device state.
+ *
+ * DELETING A BUDGET NO LONGER DELETES ITS RECORD — it marks it deleted and the
+ * Coalition keeps the figures, which is a deliberate decision about what this
+ * collection is for. A producer clearing out last year's plans is tidying their
+ * own list, not withdrawing what they already contributed.
+ *
+ * BUT THE WITHDRAWAL PROMISE STILL HAS TO BE TRUE. The consent dialog says
+ * turning the Share switch off deletes any records this device has sent, and
+ * "any" means the marked ones too. The key lives on the budget and nowhere
+ * else, so a budget leaving the list took the only handle on its record with
+ * it: reads are denied, nothing can find a document it cannot name, and the
+ * record was stranded forever. That is exactly the "only some of them were
+ * deleted" this list exists to prevent.
+ *
+ * So the key outlives the budget here, and clearAllShareIds() returns these
+ * alongside the live ones. Nothing else reads it: it is a list of ids, holds no
+ * figures, and says nothing about a farm.
+ */
+const KEY_SHARE_GONE = 'sdshc-fb-share-deleted'
 
 /**
  * The `updatedAt` we last read or wrote for each scenario, so a save can tell
@@ -641,11 +686,113 @@ export function saveScenario(scenario, { force = false } = {}) {
  */
 export function clearAllShareIds() {
   const all = listScenarios()
-  const ids = all.map((s) => s.shareId).filter((v) => typeof v === 'string' && v)
+  // THE MARKED RECORDS GO TOO. "Any records this device has sent" includes the
+  // ones whose budget was deleted, which are marked rather than removed and
+  // whose only surviving handle is this list. Leaving them out would make the
+  // consent dialog's promise false for exactly the records a producer is most
+  // likely to have forgotten about. Deduplicated, since a key can be in both
+  // lists if a budget was somehow restored after a delete.
+  const ids = [
+    ...new Set([
+      ...all.map((s) => s.shareId).filter((v) => typeof v === 'string' && v),
+      ...deletedShareIds(),
+    ]),
+  ]
   if (!ids.length) return { ok: true, ids: [] }
   for (const s of all) delete s.shareId
   const result = writeRaw(all)
+  // The dates describe records that are being deleted, so they go with them. A
+  // budget shared again later is first sent again, which is the truth. The
+  // tombstones go for the same reason: the records they name are being removed,
+  // so there is nothing left for them to point at.
+  if (result.ok) {
+    writeKey(KEY_SHARE_FIRST, {})
+    writeKey(KEY_SHARE_GONE, [])
+  }
   return result.ok ? { ok: true, ids } : result
+}
+
+/**
+ * The keys of records whose budget is gone from this device.
+ *
+ * An unreadable list reads as empty rather than throwing, same rule as every
+ * other key here. The cost of that is a record this device can no longer
+ * withdraw, which is the same cost as the storage being wiped by hand, and the
+ * alternative is a module that promises not to throw and then does.
+ */
+export function deletedShareIds() {
+  try {
+    const parsed = JSON.parse(readKey(KEY_SHARE_GONE) ?? '[]')
+    return Array.isArray(parsed) ? parsed.filter((v) => typeof v === 'string' && v) : []
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Remember a record whose budget has just been deleted, so it stays reachable.
+ *
+ * CALLED AFTER THE LOCAL DELETE HAS SUCCEEDED, never before: a tombstone for a
+ * budget that is still in the list would have "stop sharing" delete a record
+ * the producer is still editing. The caller reads the key off the budget first,
+ * because after the delete there is nowhere left to read it from.
+ */
+export function rememberDeletedShareId(shareId) {
+  if (typeof shareId !== 'string' || !shareId) return { ok: false, error: 'NoKey' }
+  const ids = deletedShareIds()
+  if (ids.includes(shareId)) return { ok: true }
+  ids.push(shareId)
+  return writeKey(KEY_SHARE_GONE, ids)
+}
+
+/**
+ * Give every saved budget a share key, in ONE write, and hand back the list.
+ *
+ * Turning sharing on sends everything already saved, so this stamps the whole
+ * list at once rather than calling setScenarioShareId() per budget — that is a
+ * read-modify-write of the entire list each time, which is quadratic in the
+ * number of budgets and leaves the store half-stamped if one of them fails.
+ *
+ * `updatedAt` is deliberately NOT bumped, for the reason setScenarioShareId()
+ * does not either: claiming a key is not editing a farm, and re-dating twenty
+ * budgets would re-sort the saved list under a producer who only flipped a
+ * switch.
+ */
+export function ensureAllShareIds() {
+  const all = listScenarios()
+  const missing = all.filter((s) => typeof s.shareId !== 'string' || s.shareId.length !== 36)
+  if (!missing.length) return { ok: true, scenarios: all }
+  for (const s of missing) s.shareId = newShareId()
+  const result = writeRaw(all)
+  return result.ok ? { ok: true, scenarios: all } : result
+}
+
+/**
+ * The moment this device first sent the record named by `shareId`.
+ *
+ * Recorded on the first call and returned unchanged by every call after, so a
+ * send can simply ask for it. See KEY_SHARE_FIRST for why the server cannot be
+ * asked instead.
+ *
+ * A FAILED WRITE STILL RETURNS A USABLE TIME. The alternative is refusing to
+ * send over a date, which trades a real record for a tidy one; a device that
+ * cannot persist this reports the send time, which is what the field held
+ * before this existed anyway.
+ */
+export function firstSentAt(shareId, now = Date.now()) {
+  if (typeof shareId !== 'string' || !shareId) return now
+  let map = {}
+  try {
+    const parsed = JSON.parse(readKey(KEY_SHARE_FIRST) ?? '{}')
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) map = parsed
+  } catch {
+    /* an unreadable map is a map we start again */
+  }
+  const seen = map[shareId]
+  if (typeof seen === 'number' && Number.isFinite(seen)) return seen
+  map[shareId] = now
+  writeKey(KEY_SHARE_FIRST, map)
+  return now
 }
 
 export function deleteScenario(id) {
@@ -852,12 +999,38 @@ export function importBackupJSON(text) {
  * makes the save after a restore ask.
  */
 export function replaceAll(scenarios, folders) {
+  // WHAT THIS RESTORE IS ABOUT TO DROP, read before the write that drops it. A
+  // budget on this device that the backup does not carry is gone in a moment,
+  // and its share key with it — and the key is the only handle on its record,
+  // because reads are denied. Left alone, that record could never be marked and
+  // could never be withdrawn: "stop sharing" walks the budgets that remain.
+  //
+  // THE RECORDS THEMSELVES ARE KEPT, deliberately, exactly as when a producer
+  // deletes one budget. A restore is somebody rolling their own list back, not
+  // asking the Coalition to forget what they already contributed. This is only
+  // about staying able to reach them.
+  const keeping = new Set(
+    (Array.isArray(scenarios) ? scenarios : [])
+      .map((s) => s?.shareId)
+      .filter((v) => typeof v === 'string' && v)
+  )
+  const dropped = listScenarios()
+    .map((s) => s.shareId)
+    .filter((v) => typeof v === 'string' && v && !keeping.has(v))
+
   const wrote = writeRaw(scenarios)
   if (!wrote.ok) return wrote
 
+  // AFTER the write and not before. A tombstone written for a restore that then
+  // failed would name budgets still sitting in the list, and the next "stop
+  // sharing" would delete records the producer is still editing.
+  for (const id of dropped) rememberDeletedShareId(id)
+
   const wroteFolders = writeFolders(folders)
-  if (!wroteFolders.ok) return { ok: false, error: wroteFolders.error, budgetsRestored: true }
-  return { ok: true }
+  if (!wroteFolders.ok) {
+    return { ok: false, error: wroteFolders.error, budgetsRestored: true, dropped }
+  }
+  return { ok: true, dropped }
 }
 
 /**

@@ -3707,21 +3707,29 @@ describe('where the data lives is said, not only linked', () => {
     assert.match(body, /turning sharing off deletes/i, 'how to withdraw')
   })
 
-  test('the consent dialog itemises what is sent, even where the definition summarises', () => {
-    // The definition was shortened to a summary. That is a reasonable call for a
-    // page somebody browses, but the ITEMISED list has to survive somewhere, and
-    // the right somewhere is the dialog: it is the one screen where a producer
-    // is being asked to decide, and a decision needs the specifics in front of
-    // it rather than a link to them. So the four things that go are asserted
-    // here rather than there.
+  test('the consent dialog makes the four promises a decision needs', () => {
+    // WHAT IS ASSERTED HERE IS DELIBERATELY WEAKER THAN IT WAS, and the gap is
+    // recorded rather than quietly closed. This used to pin an itemised list —
+    // every figure you entered, the budget name, the crop names, the planning
+    // year — because the `privacy` definition had been shortened to a summary
+    // and the specifics had to survive somewhere. The dialog was that
+    // somewhere: it is the one screen where a producer is being asked to
+    // decide, and a decision needs specifics rather than a link to them.
+    //
+    // The dialog has since been shortened too, so the itemised list is now in
+    // neither place and "sends a copy" does not say what is in the copy. That
+    // is the author's call and this test follows the shipped wording, but the
+    // four properties below are the floor: they are what makes the answer an
+    // informed one, and none of them may go the same way without a deliberate
+    // decision.
     click('[data-action="save-scenario"]')
     const ask = textOf('.overlay.open .modal-body')
     // \s+ throughout: the dialog is a template literal, so its indentation
     // lands inside the rendered text and a phrase can wrap mid-sentence.
-    assert.match(ask, /every figure you entered/i)
-    assert.match(ask, /the\s+budget name/i)
-    assert.match(ask, /the crop names/i)
-    assert.match(ask, /the planning year/i)
+    assert.match(ask, /sends a copy/i, 'that saving sends something')
+    assert.match(ask, /optional and it is up to you/i, 'that it is a choice')
+    assert.match(ask, /anonymous/i, 'that nobody is asked who they are')
+    assert.match(ask, /deletes any records this device has sent/i, 'how to undo it')
   })
 
   test('the explanation no longer claims nothing is ever sent', async () => {
@@ -4988,10 +4996,10 @@ describe('the sharing question is asked once, on the first save', () => {
     click('[data-action="save-scenario"]')
     assert.equal(askOpen(), true)
     const body = textOf('.overlay.open .modal-body')
-    assert.match(body, /every figure you entered, the\s+budget name/i, 'what goes')
-    assert.match(body, /do not ask who you are/i, 'what is not asked for')
+    assert.match(body, /saving a budget sends a copy/i, 'what goes')
+    assert.match(body, /anonymous/i, 'what is not asked for')
     assert.match(body, /not published, sold, or shared/i, 'what happens to it')
-    assert.match(body, /deletes the records this device has sent/i, 'how to undo it')
+    assert.match(body, /deletes any records this device has sent/i, 'how to undo it')
   })
 
   test('declining sticks, and is not re-asked on the next save', () => {
@@ -5237,6 +5245,72 @@ describe('the answer is device state, not budget state', () => {
     assert.equal(after.updatedAt, first.updatedAt, 'the saved date is untouched')
   })
 
+  test('duplicating a budget with sharing on sends the copy', () => {
+    // A DUPLICATE IS THE SAME GAP AS AN OPEN, ONE STEP ALONG. It ends with a
+    // budget in the saved list and on screen that nobody pressed Save for, so
+    // left alone it sat unsent until somebody pressed it for no reason they
+    // could see. Same for an imported budget file, below.
+    click('[data-action="toggle-share"]')
+    click('[data-share-answer="yes"]')
+    click('[data-action="save-scenario"]')
+    const source = JSON.parse(win.localStorage.getItem('sdshc-fb-scenarios'))[0]
+    assert.equal(typeof source.shareId, 'string', 'the source has a key of its own')
+
+    click('[data-action="go-scenarios"]')
+    click(`[data-action="duplicate-scenario"][data-id="${source.id}"]`)
+    const rows = JSON.parse(win.localStorage.getItem('sdshc-fb-scenarios'))
+    const copy = rows.find((r) => r.id !== source.id)
+    assert.ok(copy, 'the copy is in the list')
+    assert.equal(typeof copy.shareId, 'string', 'and claimed a key without a save')
+    // THE WHOLE REASON duplicateScenario() STRIPS THE KEY. A copy that kept it
+    // would upsert the original's record, so making a copy would quietly
+    // overwrite the budget it was copied from in a store nobody can read back.
+    assert.notEqual(copy.shareId, source.shareId, 'its own record, not the source s')
+  })
+
+  test('importing a budget file with sharing on sends it', async () => {
+    click('[data-action="toggle-share"]')
+    click('[data-share-answer="yes"]')
+    click('[data-action="save-scenario"]')
+    const source = JSON.parse(win.localStorage.getItem('sdshc-fb-scenarios'))[0]
+    // What exportScenarioJSON() writes: the budget with its folder id and its
+    // share key stripped. Built by hand rather than imported, so this test
+    // drives main.js through the DOM alone like the rest of this file.
+    const { shareId, folderId, ...rest } = source
+    const file = JSON.stringify(rest)
+    assert.equal(file.includes('shareId'), false, 'a budget file carries no key')
+
+    // importFromFile() builds its own <input type="file"> and clicks it, so the
+    // element is caught on the way out and handed a file by hand. jsdom will
+    // not open a picker and clicking a detached file input does nothing.
+    const realCreate = doc.createElement.bind(doc)
+    let picker = null
+    doc.createElement = (tag) => {
+      const el = realCreate(tag)
+      if (tag === 'input') picker = el
+      return el
+    }
+    click('[data-action="go-scenarios"]')
+    click('[data-action="import-scenario"]')
+    doc.createElement = realCreate
+    assert.ok(picker, 'the picker was built')
+
+    Object.defineProperty(picker, 'files', {
+      value: [new win.File([file], 'budget.json', { type: 'application/json' })],
+    })
+    picker.dispatchEvent(new win.Event('change'))
+    await new Promise((r) => setTimeout(r, 0))
+
+    const rows = JSON.parse(win.localStorage.getItem('sdshc-fb-scenarios'))
+    const opened = rows.find((r) => r.id !== source.id)
+    assert.ok(opened, 'the file is in the list')
+    assert.equal(typeof opened.shareId, 'string', 'and claimed a key without a save')
+    // A file lands on a device that is not necessarily the one that exported
+    // it, so it is a new budget here and gets a record of its own. Keeping the
+    // key would have it overwrite whatever the exporting device had sent.
+    assert.notEqual(opened.shareId, source.shareId)
+  })
+
   test('a brand-new budget does not claim to be saved', () => {
     // "not dirty" IS NOT "saved". A blank budget has had nothing typed into it,
     // so the old two-state line — dirty ? 'Unsaved changes' : SAVED_LABEL —
@@ -5460,9 +5534,29 @@ describe('the rules deny what the app promises they deny', () => {
       'updatedAt',
       'scenario',
       'results',
+      // The one OPTIONAL key. hasOnly() permits a subset, so records written
+      // before it existed stay valid and a budget that is never deleted never
+      // carries it. Without it in this list, deleting a shared budget is a
+      // rejected write and the record goes on saying the budget is live.
+      'deletedAt',
     ]) {
       assert.match(rules, new RegExp("'" + key + "'"), key + ' is in the allowed key list')
     }
+  })
+
+  test('a send unmarks a record that was marked deleted', () => {
+    // A BUDGET CAN COME BACK. A backup made before a delete, restored after it,
+    // returns the budget with its key intact. Merge keeps every field a payload
+    // omits, so without this the record stayed marked deleted forever while the
+    // producer was actively editing the budget, and the workbook reported a
+    // live farm as gone.
+    //
+    // deleteField() rather than a null: it removes the key, so hasOnly() sees a
+    // document that simply does not have it, and a record that was never marked
+    // is unaffected.
+    const src = readFileSync(new URL('../src/share.js', import.meta.url), 'utf8')
+    const send = src.slice(src.indexOf('export async function shareBudget'))
+    assert.match(send.slice(0, send.indexOf('\n}')), /deletedAt: firestore\.deleteField\(\)/)
   })
 
   test('everything outside the collection is denied by default', () => {
@@ -5573,7 +5667,154 @@ describe('a record is never created before the key that names it is stored', () 
     assert.equal(list.length, 2)
     const copy = list.find((s) => s.shareId !== original)
     assert.ok(copy, 'the copy is a different record')
-    assert.equal('shareId' in copy, false, 'and claims none at all until it is shared')
+    // It DOES claim a key, because a duplicate is sent the moment it is made —
+    // see "duplicating a budget with sharing on sends the copy". What it must
+    // never claim is the original's. This asserted the absence of a key when
+    // nothing sent a copy until the producer pressed Save; the property that
+    // mattered then and matters now is that the two ids differ.
+    assert.equal(typeof copy.shareId, 'string', 'it has a record of its own')
+    assert.notEqual(copy.shareId, original)
+  })
+
+  test('switching sharing off puts the question back', () => {
+    // SWITCHING OFF IS NOT AN ANSWER. It used to mark the question answered, so
+    // a producer who tried sharing and turned it off again was never asked
+    // anything on any later save — which made the switch a way of opting out of
+    // being asked, and a control labelled with one word cannot say that.
+    click('[data-action="toggle-share"]')
+    click('[data-share-answer="yes"]')
+    assert.equal(win.localStorage.getItem('sdshc-fb-share-asked'), '1')
+
+    win.confirm = () => true // the off direction asks before deleting
+    click('[data-action="toggle-share"]')
+    assert.equal(win.localStorage.getItem('sdshc-fb-share'), 'off')
+
+    click('[data-action="save-scenario"]')
+    assert.ok(doc.querySelector('[data-share-answer="yes"]'), 'the next save asks again')
+  })
+
+  test('but Not now still stops it being asked', () => {
+    // The one button that means "stop asking me". It calls markAskedToShare()
+    // AFTER setSharing(false), so it outlives the clear that switching off does.
+    click('[data-action="save-scenario"]')
+    click('[data-share-answer="no"]')
+    assert.equal(win.localStorage.getItem('sdshc-fb-share-asked'), '1')
+    click('[data-action="save-scenario"]')
+    assert.equal(doc.querySelector('[data-share-answer]'), null, 'and is not asked again')
+  })
+
+  test('deleting a budget keeps a handle on its record', async () => {
+    // THE KEY OUTLIVES THE BUDGET. It lives on the budget and nowhere else, and
+    // reads are denied, so a delete used to strand the record forever: "stop
+    // sharing" walks the budgets that remain and could not name it. That is
+    // what produced "only some of them were deleted".
+    click('[data-action="toggle-share"]')
+    click('[data-share-answer="yes"]')
+    click('[data-action="save-scenario"]')
+    const saved = JSON.parse(win.localStorage.getItem('sdshc-fb-scenarios'))[0]
+    assert.equal(typeof saved.shareId, 'string')
+
+    win.confirm = () => true
+    click('[data-action="go-scenarios"]')
+    click(`[data-action="delete-scenario"][data-id="${saved.id}"]`)
+    await new Promise((r) => setTimeout(r, 0))
+    assert.equal(JSON.parse(win.localStorage.getItem('sdshc-fb-scenarios')).length, 0)
+
+    const gone = JSON.parse(win.localStorage.getItem('sdshc-fb-share-deleted'))
+    assert.deepEqual(gone, [saved.shareId], 'the key is remembered, so it stays reachable')
+  })
+
+  test('and the key is read before the budget goes, never after', () => {
+    // share.js cannot connect under jsdom, so the remote half is unobservable.
+    // The ORDER is not: after the local delete there is nowhere left to read
+    // the key from, so reading it late would find nothing every time.
+    const src = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+    const body = src.slice(src.indexOf("case 'delete-scenario'"))
+    const readAt = body.indexOf('target.shareId')
+    const deleteAt = body.indexOf('deleteScenario(id)')
+    const rememberAt = body.indexOf('rememberDeletedShareId')
+    const markAt = body.indexOf('markDeletedRecord')
+    assert.ok(readAt > -1 && deleteAt > -1 && rememberAt > -1 && markAt > -1)
+    assert.ok(readAt < deleteAt, 'the key is read first')
+    assert.ok(rememberAt > deleteAt, 'the tombstone is written after the delete succeeds')
+    assert.ok(rememberAt < markAt, 'and before the network call, which may never land')
+  })
+
+  test('turning sharing off still reaches a deleted budget s record', async () => {
+    // "TURNING IT OFF DELETES ANY RECORDS THIS DEVICE HAS SENT" has to stay
+    // true of the marked ones, which are the records a producer is most likely
+    // to have forgotten about. clearAllShareIds() returns the tombstones
+    // alongside the live keys, and the list is emptied with them.
+    click('[data-action="toggle-share"]')
+    click('[data-share-answer="yes"]')
+    click('[data-action="save-scenario"]')
+    const saved = JSON.parse(win.localStorage.getItem('sdshc-fb-scenarios'))[0]
+
+    win.confirm = () => true
+    click('[data-action="go-scenarios"]')
+    click(`[data-action="delete-scenario"][data-id="${saved.id}"]`)
+    assert.deepEqual(JSON.parse(win.localStorage.getItem('sdshc-fb-share-deleted')), [
+      saved.shareId,
+    ])
+
+    click('[data-action="toggle-share"]')
+    assert.equal(win.localStorage.getItem('sdshc-fb-share'), 'off')
+    // unshareEverything() is reached through a dynamic import, so the local
+    // half runs a microtask later even though it is synchronous itself.
+    await new Promise((r) => setTimeout(r, 0))
+    assert.deepEqual(
+      JSON.parse(win.localStorage.getItem('sdshc-fb-share-deleted')),
+      [],
+      'the tombstones go with the records they name'
+    )
+  })
+
+  test('saying yes sends every budget already saved, not just the open one', () => {
+    // AGREEING AT THE END OF A SEASON used to send one of twenty and leave the
+    // rest to be opened by hand, with nothing on screen saying so.
+    click('[data-action="save-scenario"]')
+    click('[data-share-answer="no"]')
+    click('[data-action="go-scenarios"]')
+    click('[data-action="new-scenario"]')
+    click('[data-action="save-scenario"]')
+    click('[data-action="go-scenarios"]')
+    click('[data-action="new-scenario"]')
+    click('[data-action="save-scenario"]')
+
+    const before = JSON.parse(win.localStorage.getItem('sdshc-fb-scenarios'))
+    assert.equal(before.length, 3)
+    assert.equal(before.filter((s) => s.shareId).length, 0, 'none of them shared yet')
+
+    click('[data-action="toggle-share"]')
+    click('[data-share-answer="yes"]')
+
+    const after = JSON.parse(win.localStorage.getItem('sdshc-fb-scenarios'))
+    assert.equal(after.filter((s) => typeof s.shareId === 'string').length, 3, 'all three')
+    assert.equal(new Set(after.map((s) => s.shareId)).size, 3, 'and each has its own key')
+  })
+
+  test('and does not re-date any of them', () => {
+    // Flipping a switch is not editing twenty farms. `updatedAt` is what the
+    // saved list prints and sorts on, so stamping keys through saveScenario()
+    // would re-order the whole list under somebody who touched one control.
+    click('[data-action="save-scenario"]')
+    click('[data-share-answer="no"]')
+    click('[data-action="go-scenarios"]')
+    click('[data-action="new-scenario"]')
+    click('[data-action="save-scenario"]')
+    const before = JSON.parse(win.localStorage.getItem('sdshc-fb-scenarios'))
+
+    click('[data-action="toggle-share"]')
+    click('[data-share-answer="yes"]')
+
+    const after = JSON.parse(win.localStorage.getItem('sdshc-fb-scenarios'))
+    for (const row of before) {
+      const now = after.find((s) => s.id === row.id)
+      // The open budget goes through shareNow(), which IS a save and does
+      // re-date it. Every other one is stamped and left alone.
+      if (row.id === before[before.length - 1].id) continue
+      assert.equal(now.updatedAt, row.updatedAt, `${row.name} was not re-dated`)
+    }
   })
 })
 

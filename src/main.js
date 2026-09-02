@@ -41,6 +41,8 @@ import {
   replaceAll,
   renameScenario,
   setScenarioShareId,
+  ensureAllShareIds,
+  rememberDeletedShareId,
   reorderScenarios,
   listFolders,
   reorderFolders,
@@ -2209,6 +2211,13 @@ function handleAction(action, btn) {
     case 'save-scenario': {
       // Stamp the share key BEFORE saving, so the save that triggers the send
       // is the one that writes the key to disk. See sendSharedBudget().
+      // Remembered so the failure paths below can put it back. A key stamped
+      // for a save that then fails is a key the disk never received, and
+      // leaving it on the working budget is the one shape this app treats as
+      // dangerous: it disagrees with storage until some later save happens to
+      // reconcile it. shareNow() and shareOnOpen() both undo their stamp on
+      // failure; this did not.
+      const hadShareId = Boolean(scenario?.shareId)
       if (SHARING_ENABLED && isSharingOn()) ensureShareId(scenario)
 
       let result = saveScenario(scenario)
@@ -2227,6 +2236,12 @@ function handleAction(action, btn) {
         if (!overwrite) break
         result = saveScenario(scenario, { force: true })
       }
+
+      // A key stamped for a save that then failed is a key the disk never
+      // received, so it comes back off. Nothing is sent in that state anyway,
+      // but leaving it would have the working budget disagree with storage
+      // until some later save happened to reconcile it.
+      if (!result.ok && !hadShareId) delete scenario.shareId
 
       if (result.ok) {
         // Here rather than on the button: the press can end at the conflict
@@ -2338,6 +2353,12 @@ function handleAction(action, btn) {
       collapseDefaultsApplied = false
       scenarioIsNew = false
       scenarioSaved = true
+      // A copy is a budget that arrived in the list without a save being
+      // pressed, exactly like one opened from it, so it goes now rather than
+      // waiting for a save the producer has no reason to make. It carries no
+      // key — duplicateScenario() strips it — so this mints a fresh one and
+      // writes a SECOND record, never overwriting the original's.
+      shareOnOpen(getScenario())
       render()
       break
     }
@@ -2346,8 +2367,52 @@ function handleAction(action, btn) {
       const id = btn.getAttribute('data-id')
       const target = getScenarioById(id)
       if (!target) return
-      if (!confirm(`Delete "${target.name}"? This cannot be undone.`)) return
-      deleteScenario(id)
+      // IT SAYS WHAT ACTUALLY HAPPENS. A budget that has been sent leaves a
+      // copy with the Coalition, marked deleted rather than removed, and
+      // somebody pressing Delete would otherwise reasonably read the word as
+      // covering both. The sentence is only shown when there is a record to
+      // describe, and it names the control that does remove it. See the
+      // KEY_SHARE_GONE comment in storage.js.
+      const shared = Boolean(target.shareId) && SHARING_ENABLED
+      if (
+        !confirm(
+          `Delete "${target.name}"? This cannot be undone.` +
+            (shared
+              ? '\n\nThe copy you shared with the Coalition is kept and marked deleted. ' +
+                'If you would like to unshare it as well, turn the Share switch off and back on.'
+              : '')
+        )
+      )
+        return
+      // READ BEFORE THE DELETE, because after it there is nowhere left to read
+      // it from. The key lives on the budget alone and reads are denied, so a
+      // record whose budget is gone can never be named again by anything — not
+      // by a later save, and not by "stop sharing", which walks the budgets
+      // that remain. Deleting a budget locally while its copy stayed with the
+      // Coalition forever is the one outcome this app must not have.
+      const key = target.shareId
+      const gone = deleteScenario(id)
+      // THE RECORD IS MARKED, NOT REMOVED. Clearing out last year's plans is
+      // tidying this device's list, not withdrawing what was already
+      // contributed, and last year's costs are the data being gathered. The
+      // Share switch is the control that means withdraw, and it still reaches
+      // these — which is what the tombstone below is for.
+      if (key && gone.ok) {
+        // BEFORE the network call and after the local delete. The key lives on
+        // the budget and nowhere else, so without this the record has no
+        // surviving handle: reads are denied, nothing can find a document it
+        // cannot name, and "stop sharing" walks the budgets that remain. That
+        // is what left records behind.
+        const kept = rememberDeletedShareId(key)
+        if (!kept.ok) console.warn('[share] could not remember a deleted record:', key, kept.error)
+        // Fire and forget, exactly like a send: the local delete has already
+        // happened and is what the producer asked for, so a slow or impossible
+        // network must not hold the list open.
+        markDeletedRecord(key)
+        // The outcome described the record as this session last left it, and
+        // the budget it belonged to is gone from the page.
+        shareOutcomes.delete(key)
+      }
       compareIds = compareIds.filter((x) => x !== id)
       render()
       break
@@ -2526,34 +2591,36 @@ function handleAction(action, btn) {
         )
         if (!ok) break
       }
+      // AND THE QUESTION COMES BACK, which is setSharing()'s doing rather than
+      // this line's — see its comment. Switching off used to mark the question
+      // answered, so a producer who tried sharing and turned it off again was
+      // never asked anything on any later save. That made the switch a way of
+      // opting out of being asked, which is not something a control labelled
+      // with one word can say. Only the dialog's own "Not now" ends it.
       setSharing(on)
-      // OPERATING THE SWITCH ANSWERS THE CONSENT QUESTION, so the dialog is not
-      // put again. It asks exactly what the switch sets, and somebody who has
-      // just set it deliberately does not need it put to them a second time on
-      // their next save. Without this, turning sharing ON by hand is followed
-      // by a modal asking them to turn sharing on.
-      markAskedToShare()
       track('share_toggled', { state: on ? 'on' : 'off' })
-      if (on) {
-        // Share the budget on screen right away. Turning the switch on and
-        // seeing nothing happen until the next save reads as a switch that did
-        // not work. shareNow() stamps, stores, and only then sends.
-        shareNow(scenario)
-      } else {
+      // ONLY THE OFF DIRECTION REACHES HERE. The ON press returned above, at
+      // the consent dialog, and it is the dialog's own Share button that calls
+      // shareNow(). There used to be an `if (on) shareNow(scenario)` at this
+      // point as well: unreachable, and a trap rather than merely dead, since
+      // anyone tidying the two `if (on)` tests into one would reinstate a send
+      // that runs whether or not the question was answered.
+      {
+        // The working budget's own key goes NOW, not in the `.then()` below.
+        // The stored copies have already been cleared by the time that promise
+        // resolves, and the remote half can take a while or never arrive — so
+        // waiting left this budget holding a key its saved copy no longer had,
+        // and the next save wrote it straight back. Withdrawing appeared to
+        // work and then undid itself.
+        delete scenario.shareId
+        // The records are going, so what this session remembers about sending
+        // them is not merely stale: it describes documents that will not exist.
+        shareOutcomes.clear()
         import('./share.js')
           .then((m) => m.unshareEverything())
-          .then(() => {
-            // The working copy is not in the saved list, so clearAllShareIds()
-            // cannot reach it. Without this the very next save would mint a new
-            // record for a budget the producer just withdrew.
-            delete scenario.shareId
-            // The records are gone, so what this session remembers about
-            // sending them is not just stale, it describes documents that no
-            // longer exist.
-            shareOutcomes.clear()
-            render()
-          })
-          .catch(() => render())
+          .then((r) => shareLog(`withdrawn: ${r?.deleted ?? 0} record(s) deleted`))
+          .catch((err) => shareLog(`withdrawal incomplete: ${err}`))
+          .finally(() => render())
       }
       render()
       break
@@ -2820,6 +2887,36 @@ const SHARE_STATE_TEXT = {
 }
 
 /**
+ * Delete one record, because the budget that named it has just been deleted.
+ *
+ * NOT GATED ON isSharingOn(). Every other path here checks the switch, and this
+ * one must not: a producer who turned sharing off and then deleted a budget
+ * would be relying on the "off" to have taken the record away, and if it did
+ * not — a failed delete, a device that was offline at the time — this is the
+ * last chance anything has to name it. The key existing at all is the evidence
+ * that a record was sent; the switch says nothing about the past.
+ *
+ * SHARING_AVAILABLE still applies, inside share.js, because an unconfigured
+ * build has no project to delete from.
+ */
+function markDeletedRecord(shareId) {
+  if (!SHARING_AVAILABLE) return shareLog(`not marked: sharing is unavailable — ${shareId}`)
+  import('./share.js')
+    .then((m) => m.markBudgetDeleted(shareId))
+    .then((r) => {
+      // A MARK THAT DID NOT LAND IS WORTH SAYING OUT LOUD. The record keeps
+      // whatever it last said, so the Coalition reads a budget as live when the
+      // producer has deleted it. That is a stale row rather than a lost one —
+      // the key is in the tombstone list, so the Share switch still reaches it
+      // — but nothing else will retry, and the figures are correct while only
+      // the status is wrong.
+      if (r?.ok) shareLog(`record marked deleted — ${shareId}`)
+      else console.warn('[share] record NOT marked deleted:', shareId, r?.error)
+    })
+    .catch((err) => console.warn('[share] record NOT marked deleted:', shareId, err))
+}
+
+/**
  * Send this budget's record, if the producer has asked for that.
  *
  * DELIBERATELY NOT AWAITED. The budget is already in localStorage before this
@@ -2936,7 +3033,55 @@ function shareNow(scenario) {
 }
 
 /**
- * Send a budget the producer has just opened, if sharing is on.
+ * Send every budget already in the saved list.
+ *
+ * TURNING SHARING ON IS ABOUT THE PRODUCER'S BUDGETS, NOT THE OPEN ONE. Consent
+ * used to send only what was on screen, so somebody who built a season's worth
+ * of plans and agreed to share at the end of it sent one of them and left the
+ * other nineteen to be opened one at a time, with nothing on screen saying so.
+ *
+ * KEYS FIRST, IN ONE WRITE, THEN THE SENDS. ensureAllShareIds() stamps the
+ * whole list in a single localStorage write and does not bump `updatedAt` —
+ * flipping a switch must not re-date twenty budgets and re-sort the list under
+ * the producer. If that write fails nothing is sent at all, which is the rule
+ * every path here obeys: a record whose key was never written down can never be
+ * updated or deleted.
+ *
+ * `skipId` is the budget the caller has already handled through shareNow(),
+ * which is a real save and therefore not this function's business.
+ */
+function shareAllSaved(skipId) {
+  if (!SHARING_ENABLED || !isSharingOn()) return
+  const stamped = ensureAllShareIds()
+  if (!stamped.ok) return shareLog(`not sent: keys could not be stored (${stamped.error})`)
+  const rest = stamped.scenarios.filter((s) => s.id !== skipId)
+  if (!rest.length) return
+  shareLog(`sending ${rest.length} saved budget(s)`)
+  // AS STORED, never through getScenario(). The open budget is the caller's to
+  // handle and is skipped above; every other record here is a budget nobody is
+  // editing, and what the Coalition should have is what is on disk.
+  for (const record of rest) sendSharedBudget(record)
+}
+
+/**
+ * Send a budget that arrived on screen without a save, if sharing is on.
+ *
+ * THREE CALLERS, ONE SITUATION: opening a saved budget, duplicating one, and
+ * importing a budget file. All three end with a budget in the saved list and on
+ * screen that the producer never pressed Save for, so all three would otherwise
+ * sit unsent until somebody pressed it for no reason they could see. Only the
+ * first of them started here; the other two were the same gap, one step further
+ * along.
+ *
+ * A DUPLICATE AND AN IMPORT BOTH ARRIVE WITH NO KEY, which is the difference
+ * that matters. duplicateScenario() and importScenarioJSON() strip `shareId` —
+ * see the strip table in CLAUDE.md — so the branch below mints a fresh one and
+ * each becomes its OWN record. That is the point of stripping it: a copy that
+ * kept the key would overwrite the budget it was copied from, and an imported
+ * file would overwrite whatever the device that exported it had already sent.
+ *
+ * From here they follow every other budget: the key is on disk, so each later
+ * save upserts that same record through the save path.
  *
  * WHY OPENING SENDS AT ALL. Sharing only ever fired on a save, so a budget that
  * was already finished before the switch went on sat there unsent until
@@ -3027,17 +3172,14 @@ function openShareConsent(scenario) {
     'Share this budget with the Coalition?',
     `<div class="def">
        <p>The South Dakota Soil Health Coalition would like to see the budgets built with this
-          calculator, so it can understand what production costs look like across the state.
+          calculator to gather data on real-world production costs across the state in order to better-serve producers we assist.
           This is optional and it is up to you.</p>
-       <p><b>If you say yes,</b> saving a budget sends a copy: every figure you entered, the
-          budget name, the crop names, and the planning year. Each budget sends one record, and
-          saving again updates that record instead of adding another.</p>
-       <p><b>We do not ask who you are.</b> There is no account, no email address, and no name
-          field. Your budget name is part of what is sent, so leave personal details out of it
-          if you would rather not be identifiable.</p>
+       <p><b>If you say yes,</b> saving a budget sends a copy to the South Dakota Soil Health Coalition.</p>
+       <p><b>Your information remains anonymous.</b> Leave personally identifying information out of your budget name
+          if you would like to avoid being identifiable.</p>
        <p>Shared budgets are not published, sold, or shared outside the Coalition. You can
-          change your mind at any time with the <b>Share</b> switch beside the tabs, and turning
-          it off deletes the records this device has sent.</p>
+          change your mind at any time with the <b>Share</b> switch beside the Budget and Saved tabs. Turning
+          it off deletes any records this device has sent.</p>
        <div class="share-ask-btns">
          <button type="button" class="btn-main" data-share-answer="yes">Share my budgets</button>
          <button type="button" class="btn-remove btn-quiet" data-share-answer="no">Not now</button>
@@ -3059,7 +3201,14 @@ function openShareConsent(scenario) {
       // about, so it goes now rather than waiting for another save. Through
       // shareNow(), because the save that has just finished ran BEFORE the
       // answer existed and therefore stamped no key.
-      if (yes) shareNow(scenario)
+      if (yes) {
+        shareNow(scenario)
+        // AND EVERYTHING ALREADY SAVED. Saying yes is saying yes to the budgets
+        // this producer has, not only to the one that happens to be open — and
+        // before this, agreeing at the end of a season sent exactly one of
+        // twenty and left the rest to be opened one at a time by hand.
+        shareAllSaved(scenario?.id)
+      }
       render()
     })
   }
@@ -3152,6 +3301,11 @@ function importFromFile() {
     collapseDefaultsApplied = false
     scenarioIsNew = false
     scenarioSaved = true
+    // Same reasoning as a duplicate: the budget is in the list and on screen
+    // without a save having been pressed. importScenarioJSON() strips the key,
+    // so a file that already went to the Coalition from the device it was
+    // exported on becomes a new record here rather than overwriting that one.
+    shareOnOpen(getScenario())
     render()
   })
   input.click()
@@ -3227,6 +3381,20 @@ function restoreFromFile() {
       render()
       return res
     })
+
+    // A RESTORE THAT DROPPED BUDGETS MARKS THEIR RECORDS, and keeps them. Same
+    // decision as deleting one budget, reached the same way: rolling this
+    // device's list back is not asking the Coalition to forget what was already
+    // contributed, and last year's costs are the data being gathered. What the
+    // mark says is only that the producer no longer holds that budget, so the
+    // record will not be updated again — which a reader of the workbook needs
+    // in order to know what they are averaging.
+    //
+    // replaceAll() has already tombstoned the keys, so these stay reachable and
+    // the Share switch still deletes them. That part is not optional: it is
+    // what keeps "turning it off deletes any records this device has sent"
+    // true. Marking them is the part that is a judgement call.
+    for (const key of wrote.dropped ?? []) markDeletedRecord(key)
 
     // Both alerts are raised with the veil already down, so neither is a
     // question asked over a picture of the app still working. The partial

@@ -33,15 +33,20 @@ service cloud.firestore {
 
       // One document per budget, created and then updated in place by the
       // device that owns it. hasOnly() is the important half: it pins the
-      // document to exactly the ten fields share.js writes, so the collection
+      // document to exactly the eleven fields share.js writes, so the collection
       // cannot be used as free storage and an unexpected field is a rejected
       // write rather than a surprise column in the spreadsheet.
+      //
+      // `deletedAt` is the only optional one. hasOnly() permits a subset, so
+      // records written before it existed stay valid, and a budget that is
+      // never deleted never carries it.
       allow create, update: if
            request.resource.data.shareId == shareId
         && shareId.size() == 36
         && request.resource.data.keys().hasOnly([
              'shareId', 'schemaVersion', 'appVersion', 'name', 'scenarioYear',
-             'createdAt', 'firstSentAt', 'updatedAt', 'scenario', 'results'
+             'createdAt', 'firstSentAt', 'updatedAt', 'scenario', 'results',
+             'deletedAt'
            ])
         && request.resource.data.name is string
         && request.resource.data.name.size() <= 120
@@ -59,6 +64,13 @@ service cloud.firestore {
       // The alternative, admin-only deletion, would make the app's own promise
       // ("turning sharing off deletes the records this device has sent") a
       // thing a producer has to trust rather than a thing they can do.
+      //
+      // DELETING A BUDGET DOES NOT COME THROUGH HERE. It stamps `deletedAt` and
+      // leaves the figures, because a producer clearing out last year's plans
+      // is tidying their own list rather than withdrawing what they already
+      // contributed. This path is the Share switch, which is the one control
+      // that means withdraw, and it still reaches the marked records: their
+      // keys outlive the budget in the device's own tombstone list.
       allow delete: if true;
     }
 

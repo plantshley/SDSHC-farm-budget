@@ -112,6 +112,46 @@ describe('every sheet can be joined back to its budget', () => {
     }
   })
 
+  test('every sheet carries the Deleted column, blank while the budget is live', () => {
+    // DELETING A BUDGET MARKS ITS RECORD AND KEEPS THE FIGURES, so the workbook
+    // has rows in it for plans nobody has on screen any more. A reader who
+    // cannot see which is which averages them in without knowing, and the
+    // question can be asked at any grain — so this rides with the identity
+    // block on every sheet rather than living on the summary one.
+    const { sheets } = buildWorkbook([submission(fullFarm())])
+    for (const name of SHEETS) {
+      assert.equal(headersFor(sheets[name])[2], 'Deleted', `${name} has it, third`)
+      for (const row of sheets[name]) {
+        // Blank, never "No". A column of "No" with the occasional "Yes" hides
+        // the thing being looked for.
+        assert.equal(row.Deleted, '', `${name} says nothing about a live budget`)
+      }
+    }
+  })
+
+  test('and dates it once the record is marked', () => {
+    const { sheets } = buildWorkbook([
+      submission(fullFarm(), { deletedAt: Date.UTC(2026, 4, 17, 12, 30) }),
+    ])
+    for (const name of SHEETS) {
+      for (const row of sheets[name]) {
+        assert.match(row.Deleted, /^2026-05-17 /, `${name} carries the date`)
+      }
+    }
+  })
+
+  test('a marked record keeps every figure it last sent', () => {
+    // The mark is a merge that writes two fields and omits the rest, which is
+    // what keeps the figures. A row for a deleted budget is as good as any
+    // other; what changed is that it will never be updated again.
+    const live = buildWorkbook([submission(fullFarm())]).sheets.Budgets[0]
+    const marked = buildWorkbook([submission(fullFarm(), { deletedAt: 1 })]).sheets.Budgets[0]
+    for (const key of Object.keys(live)) {
+      if (key === 'Deleted') continue
+      assert.deepEqual(marked[key], live[key], `${key} is unchanged`)
+    }
+  })
+
   test('the tabs are in a stated order, not a set', () => {
     // The order is what somebody sees along the bottom of Excel, and "All data"
     // being first is the point of it: it is the sheet most questions are
