@@ -21,7 +21,7 @@ like one family.
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 977 tests: the economic model, storage, data, exports, and a DOM smoke test
+npm test           # 980 tests: the economic model, storage, data, exports, and a DOM smoke test
 npm run build      # -> dist/
 ```
 
@@ -994,7 +994,7 @@ it.
 
 ## Tests
 
-977 tests across nine files. `npm test` runs them, and so does the deploy
+980 tests across ten files. `npm test` runs them, and so does the deploy
 workflow before it builds. *Detail in [DESIGN-NOTES.md](DESIGN-NOTES.md).*
 
 - `test/calc.test.js` — the model against real Excel output, plus the deliberate
@@ -1024,6 +1024,25 @@ workflow before it builds. *Detail in [DESIGN-NOTES.md](DESIGN-NOTES.md).*
 **The smoke test exists because a passing build proves the modules parse and
 nothing more.** It has already caught a TDZ crash on boot and a crash in the
 How-to guide, either of which would have shipped.
+
+**And `test/build.test.js` exists because the smoke test cannot see the bundle.**
+`npm run dev` serves the modules unbundled and jsdom imports them directly, so
+nothing about how Rollup groups them into chunks is exercised until a build
+runs — and a build that succeeds proves the chunks were written, not that they
+can be evaluated in an order that works. It runs one real `vite build` with
+`write: false`, walks the emitted chunk graph, and fails on a cycle.
+
+> **`manualChunks` must send a product's UMBRELLA entry to that product's
+> chunk.** `@firebase/auth` is the implementation and `firebase/auth` is a thin
+> file that re-exports it. Matching only the scoped name put the re-export in
+> `firebase-core` and the code in `firebase-auth`, so core imported auth, auth
+> imported core, and Rollup cannot order a cycle. The chunk evaluated second
+> read a `const` before it existed: *"can't access lexical declaration 'Ze'
+> before initialization"*. **It shipped, and it broke every share on the live
+> site** — locally it was perfect, since dev has no chunks; the build printed
+> nothing; and `share.js` catches its own failures by design, so the app behaved
+> exactly as it does for a producer who never opted in. Adding a Firebase
+> product means adding its pair of tests ABOVE the catch-all, never below.
 
 **The golden fixture** (`test/fixture.js`) holds a two-enterprise farm and the
 spreadsheet's own answers for it, read back from real Excel via COM automation

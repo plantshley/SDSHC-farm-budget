@@ -32,11 +32,49 @@ export default defineConfig({
         // Rollup they all come out as `index.esm-<hash>.js` and are
         // indistinguishable, so the auth bundle could not be kept out of the
         // precache without keeping Firestore out with it.
+        //
+        // THE UMBRELLA ENTRIES MUST GO WITH THEIR PRODUCT, AND THIS IS WHAT
+        // MAKES THE SPLIT SAFE. Two package layouts carry the same code:
+        // `@firebase/auth` is the implementation, and `firebase/auth` is a thin
+        // file that re-exports it. Matching only the scoped name sent that
+        // second file to `firebase-core` while its implementation went to
+        // `firebase-auth` — so core imported auth, auth imported core, and the
+        // two chunks formed a CYCLE. Rollup cannot order a cycle, so whichever
+        // was evaluated second read a `const` from the other before it had been
+        // initialised:
+        //
+        //     ReferenceError: can't access lexical declaration 'Ze'
+        //     before initialization
+        //
+        // It shipped, and it only ever appeared in a BUILD. `npm run dev`
+        // serves the modules unbundled, so there are no chunks to make a cycle
+        // out of and the whole feature works perfectly on localhost. The build
+        // reported nothing either. What it cost was every share on the live
+        // site: the send failed, was caught, and logged, and the app carried on
+        // as if a producer had simply not opted in.
+        //
+        // ORDER IS THE WHOLE MECHANISM HERE. The product tests run before the
+        // catch-all, so anything that names a product lands with that product,
+        // and only the genuinely shared packages — app, component, util,
+        // logger — reach `firebase-core`. Adding a product means adding its
+        // pair of tests ABOVE the last line, never below it.
+        //
+        // Asserted by `npm run build` plus test/build.test.js, which reads the
+        // chunks back and fails on a cycle. A comment would not have caught
+        // this one, because the config looked right.
         manualChunks(id) {
           if (!id.includes('node_modules')) return
-          if (id.includes('@firebase/auth')) return 'firebase-auth'
-          if (id.includes('@firebase/firestore')) return 'firebase-firestore'
-          if (id.includes('@firebase/') || id.includes('/firebase/')) return 'firebase-core'
+          // Rollup gives POSIX ids, but a Windows path can still reach here
+          // through a symlinked or hoisted install. Normalising costs nothing
+          // and a missed match is a silent cycle rather than an error.
+          const path = id.replace(/\\/g, '/')
+          if (path.includes('@firebase/auth') || path.includes('/firebase/auth/')) {
+            return 'firebase-auth'
+          }
+          if (path.includes('@firebase/firestore') || path.includes('/firebase/firestore/')) {
+            return 'firebase-firestore'
+          }
+          if (path.includes('@firebase/') || path.includes('/firebase/')) return 'firebase-core'
         },
       },
     },
