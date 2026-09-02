@@ -5895,4 +5895,40 @@ describe('the exporter opens on a gesture and shows nothing without a password',
     const print = css.slice(css.indexOf('@media print'))
     assert.match(print, /\.ex-panel,/)
   })
+
+  test('it is painted in tokens, so it follows the theme', () => {
+    // IT SHIPPED HARDCODED LIGHT, on the reasoning that it floats over the app
+    // in either theme and is not part of the app's own surface. That is
+    // themelab's reasoning and it does not transfer: themelab EDITS these
+    // tokens, so a panel painted in them restyles itself under the person
+    // dragging the sliders. This one edits nothing, and a dark-theme user got a
+    // white slab with a white page flashing behind it on every open.
+    //
+    // Reading the tokens also picks up a themelab theme for free, since that is
+    // all themelab writes. jsdom loads no CSS, so this is asserted against the
+    // stylesheet source, the same way every other colour rule here is.
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+    const start = css.indexOf('---- hidden data exporter')
+    const block = css.slice(start, css.indexOf('---- input frames', start))
+    assert.ok(start > -1 && block.length > 0, 'the panel has its own block')
+
+    // Any six-digit literal is one colour that cannot move with the theme. The
+    // shadow is deliberately not one: it is cast onto the page rather than
+    // drawn on the panel, so it stays black at a low alpha in both themes.
+    const literals = block.match(/#[0-9a-fA-F]{3,8}\b/g) ?? []
+    assert.deepEqual(literals, [], `hardcoded colours in the exporter panel: ${literals}`)
+
+    for (const token of ['--card', '--text', '--border', '--muted', '--cost']) {
+      assert.ok(block.includes(`var(${token})`), `it uses ${token}`)
+    }
+  })
+
+  test('and the password box tells the browser which way the panel is painted', () => {
+    // Without color-scheme the browser draws its own light chrome for a
+    // password field — the reveal eye and the autofill wash — on a dark panel.
+    // Same rule the app's number inputs already follow in the dark block.
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+    const rule = css.slice(css.indexOf('.ex-input {'))
+    assert.match(rule.slice(0, rule.indexOf('}')), /color-scheme:/)
+  })
 })

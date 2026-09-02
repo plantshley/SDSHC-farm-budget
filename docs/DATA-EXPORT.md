@@ -51,7 +51,13 @@ carries a `TODO` until it is answered.
 **Restoring a backup** behaves the same way. Budgets the backup carries keep
 their own records. Budgets on the device that the backup does not carry are
 dropped, and their records are marked deleted and kept, exactly as if each had
-been deleted by hand.
+been deleted by hand. **A later restore that brings one back clears the mark**,
+because the producer has that budget again. So does any ordinary save of it.
+
+Importing a **single budget file** is different and always creates a new record.
+The export strips the key, so the file names no existing record — which is
+deliberate: a budget file travels between devices, and a key that travelled
+would have two of them writing over each other.
 
 It also says nothing about **deleting a budget**, which now keeps the shared
 copy. Nothing there is false, but a reader would reasonably assume deleting a
@@ -182,6 +188,28 @@ Escape closes the panel.
 > enforced on Google's servers. Somebody who opens the panel without the
 > password sees an empty form and gets no data. This is on purpose, and it is
 > why a discoverable shortcut is acceptable here.
+
+### Clearing the collection
+
+```bash
+npm run clear-submissions -- --project sdshc-farm-budget
+```
+
+Prints how many records there are and **deletes nothing**. Add `--yes` to go
+ahead. It needs the same `tools/service-account.json` as the export script.
+
+**This is for clearing out test data.** It deletes every record from every
+device, not just this one, including budgets real people shared and cannot send
+again on their own. Producers withdraw with the **Share** switch, which deletes
+what their own device sent and leaves everybody else's alone.
+
+The project id has to match the key in `tools/`, so a key from another Firebase
+project stops the run instead of emptying the wrong collection. There is no flag
+to skip that check.
+
+Devices that shared still hold their keys afterwards, so those budgets send
+again the next time each is opened or saved. To stop that on your own device,
+turn the Share switch off.
 
 ### The command-line script — bulk and archival
 

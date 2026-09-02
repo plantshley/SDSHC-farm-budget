@@ -1129,6 +1129,48 @@ describe('a restore keeps the records it drops, and keeps them reachable', () =>
     assert.deepEqual(deletedShareIds(), ['key-x'])
   })
 
+  test('a restore that brings a dropped budget back lifts its tombstone', () => {
+    // A BACKUP KEEPS shareId, so a budget dropped by one restore and carried by
+    // a later one arrives holding the key to a record that says it was deleted.
+    // It is not deleted: the producer has it again, on this device, in the list.
+    replaceAll([shared('a', 'North', 'key-a'), shared('b', 'South', 'key-b')], [])
+    replaceAll([shared('a', 'North', 'key-a')], [])
+    assert.deepEqual(deletedShareIds(), ['key-b'], 'dropped by the first restore')
+
+    const back = replaceAll([shared('a', 'North', 'key-a'), shared('b', 'South', 'key-b')], [])
+    assert.deepEqual(back.revived, ['key-b'], 'and named so the caller can unmark it')
+    assert.deepEqual(deletedShareIds(), [], 'the tombstone is lifted')
+  })
+
+  test('and lifting one leaves the others alone', () => {
+    rememberDeletedShareId('key-gone')
+    rememberDeletedShareId('key-back')
+    replaceAll([shared('a', 'North', 'key-back')], [])
+    assert.deepEqual(deletedShareIds(), ['key-gone'], 'only the one that came back')
+  })
+
+  test('a restore that revives nothing says so rather than guessing', () => {
+    replaceAll([shared('a', 'North', 'key-a')], [])
+    const res = replaceAll([shared('a', 'North', 'key-a')], [])
+    assert.deepEqual(res.revived, [])
+    assert.deepEqual(res.dropped, [])
+  })
+
+  test('a budget can be dropped, brought back, and dropped again', () => {
+    // The two halves have to be able to run in either order any number of
+    // times, or a record ends up marked deleted for a budget somebody holds, or
+    // reachable-but-unmarked for one they do not.
+    replaceAll([shared('a', 'North', 'key-a')], [])
+    assert.deepEqual(replaceAll([], []).dropped, ['key-a'])
+    assert.deepEqual(deletedShareIds(), ['key-a'])
+
+    assert.deepEqual(replaceAll([shared('a', 'North', 'key-a')], []).revived, ['key-a'])
+    assert.deepEqual(deletedShareIds(), [])
+
+    assert.deepEqual(replaceAll([], []).dropped, ['key-a'])
+    assert.deepEqual(deletedShareIds(), ['key-a'])
+  })
+
   test('an unreadable tombstone list reads as empty rather than throwing', () => {
     localStorage.setItem('sdshc-fb-share-deleted', 'not json')
     assert.deepEqual(deletedShareIds(), [])

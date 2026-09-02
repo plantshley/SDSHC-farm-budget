@@ -21,7 +21,7 @@ like one family.
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 980 tests: the economic model, storage, data, exports, and a DOM smoke test
+npm test           # 986 tests: the economic model, storage, data, exports, and a DOM smoke test
 npm run build      # -> dist/
 ```
 
@@ -606,6 +606,24 @@ keeping a second copy. Differences get **their own column**, never a merged
   the sheet is taken from and the modal is part of it, so an open menu prints as
   a grey veil over the budget.
 
+### The exporter panel follows the theme; themelab does not
+
+Both float over the app and look alike, and they are opposite cases. **Themelab
+EDITS the design tokens**, so a panel painted in them restyles itself under the
+person dragging the sliders and stops being a fixed point to judge the change
+against — it declares its own colours on purpose. **The exporter panel edits
+nothing.** It shipped hardcoded light by copying themelab's reasoning, and a
+dark-theme user got a white slab with a white page flashing behind it on every
+open. It now takes `--card`, `--text`, `--border`, `--muted` and `--cost`, which
+also picks up a themelab theme for free, since tokens are all themelab writes.
+
+The shadow stays a literal: it is cast onto the page rather than drawn on the
+panel, so it is black at a low alpha in both themes. `.ex-input` needs
+`color-scheme`, or the browser draws its own light password chrome — the reveal
+eye and the autofill wash — on a dark panel. Asserted against the stylesheet
+source, since jsdom loads no CSS: **no six-digit literal may appear in the
+panel's block.**
+
 ### The PNG is drawn, not screenshotted
 
 `downloadPNG()` in `export.js` paints the Results section onto a canvas: the
@@ -994,7 +1012,7 @@ it.
 
 ## Tests
 
-980 tests across ten files. `npm test` runs them, and so does the deploy
+986 tests across ten files. `npm test` runs them, and so does the deploy
 workflow before it builds. *Detail in [DESIGN-NOTES.md](DESIGN-NOTES.md).*
 
 - `test/calc.test.js` — the model against real Excel output, plus the deliberate
@@ -1191,13 +1209,23 @@ that does not exist yet. The switch sits left of the tabs on every screen.
   budgets still in the list, and the next *stop sharing* would delete records
   the producer is still editing. It returns them as `dropped`, and `main.js`
   marks them, the same decision one budget's delete follows.
-- **A send UNMARKS.** A backup made before a delete and restored after it brings
-  the budget back with its key. Merge keeps every field a payload omits, so
-  without this the record stayed marked deleted while the producer was editing
-  the budget, and the workbook reported a live farm as gone. `shareBudget()`
-  writes `deletedAt: deleteField()` on every send — it **removes** the key
-  rather than writing a null, so `hasOnly()` sees a document that does not have
-  it and a record that was never marked is unaffected.
+- **A send UNMARKS, and so does a restore that brings a budget back.** A backup
+  keeps `shareId`, so a budget dropped by one restore and carried by a later one
+  arrives holding the key to a record that says it was deleted — and it is not:
+  the producer has it again. `replaceAll()` returns those as `revived`, lifts
+  their tombstones, and `main.js` calls `unmarkBudgetDeleted()`. **The tombstone
+  goes whether or not the network write lands**, or the next *stop sharing*
+  deletes records for budgets the producer is holding, which is the tombstone's
+  own failure pointed the other way.
+  Both paths clear the field the same way: `deletedAt: deleteField()`, which
+  **removes** the key rather than writing a null, so `hasOnly()` sees a document
+  that does not have it and a record that was never marked is unaffected. Every
+  ordinary save clears it too, so a record cannot get stuck marked through a
+  path nobody thought of.
+  **A single-budget import cannot do this and must not try.** The export strips
+  `shareId`, so the file names no record and the import becomes a NEW one —
+  which is the point: a budget file travels between devices, and a key that
+  travelled would have two of them writing to one record.
 - **Saying yes sends every budget already saved, not only the open one**
   (`shareAllSaved()`). Agreeing at the end of a season used to send one of
   twenty and leave the rest to be opened by hand. `ensureAllShareIds()` stamps

@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "node --test \"test/**/*.test.js\"",
-    "export-submissions": "node tools/export-submissions.mjs"
+    "export-submissions": "node tools/export-submissions.mjs",
+    "clear-submissions": "node tools/clear-submissions.mjs"
   },
   "devDependencies": {
     "firebase-admin": "^14.3.0",

@@ -2917,6 +2917,26 @@ function markDeletedRecord(shareId) {
 }
 
 /**
+ * Take the deleted mark off a record whose budget has come back.
+ *
+ * The mirror of markDeletedRecord(), and it fails the same way: the record
+ * keeps whatever it last said, so the Coalition reads a budget as deleted while
+ * the producer is holding it. A stale status rather than a lost row, and the
+ * next ordinary save of that budget corrects it, because every send clears the
+ * field too.
+ */
+function unmarkDeletedRecord(shareId) {
+  if (!SHARING_AVAILABLE) return shareLog(`not unmarked: sharing is unavailable — ${shareId}`)
+  import('./share.js')
+    .then((m) => m.unmarkBudgetDeleted(shareId))
+    .then((r) => {
+      if (r?.ok) shareLog(`record unmarked — ${shareId}`)
+      else console.warn('[share] record NOT unmarked:', shareId, r?.error)
+    })
+    .catch((err) => console.warn('[share] record NOT unmarked:', shareId, err))
+}
+
+/**
  * Send this budget's record, if the producer has asked for that.
  *
  * DELIBERATELY NOT AWAITED. The budget is already in localStorage before this
@@ -3395,6 +3415,12 @@ function restoreFromFile() {
     // what keeps "turning it off deletes any records this device has sent"
     // true. Marking them is the part that is a judgement call.
     for (const key of wrote.dropped ?? []) markDeletedRecord(key)
+    // AND THE OTHER DIRECTION. A backup keeps shareId, so this restore can also
+    // bring BACK a budget an earlier one dropped — arriving with the key to a
+    // record that says it was deleted, which it is not: the producer has it
+    // again. replaceAll() has already lifted the tombstone; this is the half
+    // that tells the Coalition.
+    for (const key of wrote.revived ?? []) unmarkDeletedRecord(key)
 
     // Both alerts are raised with the veil already down, so neither is a
     // question asked over a picture of the app still working. The partial

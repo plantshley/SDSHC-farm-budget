@@ -377,6 +377,46 @@ export async function markBudgetDeleted(shareId) {
   }
 }
 
+/**
+ * Take the deleted mark off the record named by `shareId`.
+ *
+ * A BUDGET CAN COME BACK. A backup keeps `shareId`, so one dropped by an
+ * earlier restore and carried by a later one arrives holding the key to a
+ * record that says it was deleted — and it is not deleted, the producer has it
+ * again. Left marked, the workbook reports a live farm as gone and nothing ever
+ * corrects it except a save the producer has no reason to make.
+ *
+ * A SEND ALREADY UNMARKS, and this exists because a restore is not a send. Both
+ * clear the field the same way, and every ordinary save keeps clearing it, so a
+ * record cannot get stuck marked through some path nobody thought of.
+ *
+ * deleteField() REMOVES THE KEY rather than writing a null. firestore.rules
+ * checks `hasOnly()`, which a document simply lacking the field satisfies, and
+ * the exporter reads a blank rather than a date it has to interpret. It is also
+ * a no-op on a record that was never marked, so this is safe to call on a whole
+ * restored list without first working out which ones need it.
+ *
+ * `updatedAt` moves, because this IS a change to the record. It is not a change
+ * to the farm, which is why nothing here touches the scenario's own dates.
+ */
+export async function unmarkBudgetDeleted(shareId) {
+  if (!SHARING_AVAILABLE) return { ok: false, error: 'Unavailable' }
+  if (typeof shareId !== 'string' || !shareId) return { ok: false, error: 'NoKey' }
+  if (!canConnect()) return { ok: false, error: 'NoStorage' }
+  try {
+    const { db, firestore } = await getDb()
+    return await settleWrite(
+      firestore.setDoc(
+        firestore.doc(db, SUBMISSIONS, shareId),
+        { deletedAt: firestore.deleteField(), updatedAt: Date.now() },
+        { merge: true }
+      )
+    )
+  } catch (error) {
+    return { ok: false, error }
+  }
+}
+
 export async function unshareEverything() {
   // The local half runs FIRST and runs even where the remote half cannot, which
   // is the right way round: an environment that could not connect never sent

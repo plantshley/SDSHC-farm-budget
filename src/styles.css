@@ -1314,12 +1314,25 @@ input.invalid {
 /* Author and Coalition tool, opened on a gesture and linked to from nowhere.
    See exporter.js.
 
-   Like themelab's panel it declares its own colours rather than reading the
-   page's tokens, for a plainer version of the same reason: this floats over a
-   budget in either theme and has to stay readable in both, and it is not part
-   of the app's own surface. It is fixed and scrollable because a batch of
-   twenty budgets lists seven sheets and their row counts on a laptop that may
-   be showing the Saved tab behind it. */
+   IT READS THE PAGE'S TOKENS, unlike themelab's panel, and the two are not the
+   same case however alike they look. Themelab is the control that EDITS those
+   tokens, so a panel painted in them restyles itself under the person dragging
+   the sliders and stops being a fixed point to judge the change against. This
+   panel edits nothing. It is a screen somebody works in for as long as it takes
+   to download a workbook, floating over the app in whatever theme they chose —
+   and hardcoded light meant a dark-theme user got a white slab, with a white
+   page flashing behind it on every open.
+
+   Following the tokens also picks up a themelab theme for free, because that is
+   all themelab writes.
+
+   The one thing NOT taken from a token is the shadow: it is cast onto the page
+   rather than drawn on the panel, so it stays a black shadow at a low alpha in
+   both themes, and --shadow is pitched for a card sitting in the flow rather
+   than a layer floating over one.
+
+   Fixed and scrollable because a batch of twenty budgets lists seven sheets and
+   their row counts on a laptop that may be showing the Saved tab behind it. */
 .ex-panel {
   position: fixed;
   z-index: 60;
@@ -1328,9 +1341,9 @@ input.invalid {
   width: min(360px, calc(100vw - 32px));
   max-height: min(560px, calc(100vh - 32px));
   overflow: auto;
-  background: #ffffff;
-  color: #23282a;
-  border: 1px solid #c8d0c8;
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--border);
   border-radius: 12px;
   box-shadow: 0 10px 32px rgba(0, 0, 0, 0.28);
   font-size: 13px;
@@ -1342,10 +1355,11 @@ input.invalid {
   justify-content: space-between;
   gap: 8px;
   padding: 10px 12px;
-  border-bottom: 1px solid #e2e7e2;
+  border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
-  background: #ffffff;
+  /* Opaque, and the same fill as the panel. The body scrolls under it. */
+  background: var(--card);
 }
 
 .ex-close {
@@ -1354,7 +1368,7 @@ input.invalid {
   font-size: 20px;
   line-height: 1;
   cursor: pointer;
-  color: #5a625a;
+  color: var(--muted);
   padding: 0 4px;
   min-height: 32px;
 }
@@ -1367,14 +1381,20 @@ input.invalid {
   display: block;
   margin-bottom: 4px;
   font-size: 12px;
-  color: #5a625a;
+  color: var(--muted);
 }
 
 .ex-input {
   width: 100%;
   padding: 8px 10px;
-  border: 1px solid #c8d0c8;
+  border: 1px solid var(--border);
   border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  /* The password box is the one field here, and a browser draws its own dark
+     UI for it only when told the surface is dark. Without this the reveal eye
+     and the autofill wash stay light on a dark panel. */
+  color-scheme: light dark;
   /* 16px, and not for looks. Under it, iOS Safari zooms the page when the field
      takes focus and does not zoom back out — the same cliff the app's own
      `input, select` rule is wrapped in a hover query to avoid. */
@@ -1394,13 +1414,16 @@ input.invalid {
 .ex-note {
   margin: 14px 0 6px;
   font-size: 12px;
-  color: #5a625a;
+  color: var(--muted);
 }
 
 .ex-err {
   margin: 8px 0 0;
   font-size: 12px;
-  color: #b3261e;
+  /* --cost, because it is the page's own "this went wrong" red and moves with
+     the theme. The literal it replaced stayed put while everything around it
+     darkened. */
+  color: var(--cost);
 }
 
 .ex-csvs {
@@ -1418,7 +1441,7 @@ input.invalid {
 }
 
 .ex-dim {
-  color: #5a625a;
+  color: var(--muted);
   font-size: 11px;
 }
 

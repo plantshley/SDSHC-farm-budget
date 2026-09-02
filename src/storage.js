@@ -1026,11 +1026,28 @@ export function replaceAll(scenarios, folders) {
   // sharing" would delete records the producer is still editing.
   for (const id of dropped) rememberDeletedShareId(id)
 
+  // AND A RESTORE CAN BRING ONE BACK. A backup keeps `shareId`, so a budget
+  // dropped by an earlier restore and carried by this one arrives holding the
+  // key to a record that says it was deleted. It is not deleted: the producer
+  // has it again, on this device, in the list. So the tombstone is lifted and
+  // the caller is told which ones to unmark.
+  //
+  // The tombstone has to go whether or not the unmark reaches the network. It
+  // names records this device can no longer see as gone, and leaving it would
+  // have the next "stop sharing" delete budgets the producer is holding — which
+  // is the exact failure the tombstone was added to prevent, pointed the other
+  // way.
+  const revived = deletedShareIds().filter((id) => keeping.has(id))
+  if (revived.length) {
+    const left = deletedShareIds().filter((id) => !keeping.has(id))
+    writeKey(KEY_SHARE_GONE, left)
+  }
+
   const wroteFolders = writeFolders(folders)
   if (!wroteFolders.ok) {
-    return { ok: false, error: wroteFolders.error, budgetsRestored: true, dropped }
+    return { ok: false, error: wroteFolders.error, budgetsRestored: true, dropped, revived }
   }
-  return { ok: true, dropped }
+  return { ok: true, dropped, revived }
 }
 
 /**
