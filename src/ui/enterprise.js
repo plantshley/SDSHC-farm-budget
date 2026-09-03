@@ -131,7 +131,7 @@ function renderEnterprise(e, i, collapsed, notice) {
           ${sectionInfo(['totalVariableExpenses', 'grossMargin'], 'Variable expenses')}
         </h3>
         <p class="hint">Enter a cost per unit and units per acre, or switch a line to a straight cost per acre.
-          On a $/unit line <b>both boxes are needed</b>: leave either one blank and the line counts as $0.</p>
+          On a $/unit line <b>both boxes are needed.</b> If you leave either one blank, the line counts as $0.</p>
         ${VARIABLE_LINES.map((def) => renderLine(def, e, p, seedNote(e, p))).join('')}
         ${renderPreharvest(e, p)}
 

@@ -57,7 +57,7 @@ export const BASELINE_NOTE_ID = 'baseline'
  */
 export function scenarioHint(shown, total, filtering, terms = 1) {
   if (!filtering) {
-    return 'Saved on this device only. Tap a name to rename it. Reorder the list with the ▲▼ arrows, or by dragging the handle, and organize your budgets into folders.'
+    return 'Your saved list of budget scenarios to compare, edit, and view. You can organize them into folders, tap a name to rename, and reorder the list with the ▲▼ arrows, or by dragging the handle.'
   }
   // The offer is made only while ONE term is running, which is the moment it is
   // worth making: the producer has filtered and can now see whether what came

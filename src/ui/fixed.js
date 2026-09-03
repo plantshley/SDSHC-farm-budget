@@ -59,8 +59,7 @@ export function renderFixed(scenario, collapsed = false, notice = null) {
 
       <div class="fixed-body">
       <p class="hint">
-        Costs you pay whether or not you plant: land, labor, machinery, buildings, overhead.
-        They are spread across the total acres of every enterprise above.
+        These costs are spread across the total acres of every enterprise above and include land, labor, machinery, buildings, and overhead.
       </p>
       ${unitNotice(notice)}
 
