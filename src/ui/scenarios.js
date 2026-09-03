@@ -412,7 +412,7 @@ export function openExportDialog(scenario) {
         scenario.id,
         'save-as-csv',
         'Spreadsheet',
-        'Every number entered and result calculated worked out as a CSV  you can open in Excel.'
+        'Every number entered and calculated results, as a CSV you can open in Excel.'
       )}
       ${exportItem(
         scenario.id,

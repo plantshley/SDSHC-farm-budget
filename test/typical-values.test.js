@@ -210,7 +210,9 @@ describe('South Dakota overhead, from FINBIN crop enterprise records', () => {
 
   test('the note tells the producer these are a check, not a substitute', () => {
     for (const key of KEYS) {
-      assert.match(TYPICAL_VALUES[key].note, /eight farms/i)
+      // The sample size is carried by the citation, asserted above. The note's
+      // job is the caveat that goes with it.
+      assert.match(TYPICAL_VALUES[key].note, /check your own bills rather than in place of them/i)
     }
   })
 })
@@ -720,7 +722,7 @@ describe('the three nutrients are offered on the same terms', () => {
       /application only/i.test(g.label)
     )
     assert.equal(application.length, 1)
-    assert.match(TYPICAL_VALUES.nitrogen.note, /separate/i)
+    assert.match(TYPICAL_VALUES.nitrogen.note, /material figure plus an application figure/i)
 
     // Spreading is quoted ONCE per pass. Offering it under all three nutrients
     // would have it entered three times.

@@ -1663,7 +1663,7 @@ describe('filtering the saved list', () => {
     assert.deepEqual(visible(), ['Home place', 'North quarter'], 'nothing was filtered')
     assert.match(
       textOf('[data-scn-hint-text]'),
-      /Reorder the list/,
+      /reorder the list/,
       'and the list still says the arrows work'
     )
 
@@ -1809,7 +1809,7 @@ describe('filtering the saved list', () => {
     assert.equal(up[1].disabled, false, 'but the second one can')
     assert.equal(down[down.length - 1].disabled, true, 'the last row still cannot go down')
     assert.equal(down[0].disabled, false)
-    assert.match(textOf('[data-scn-hint]'), /Reorder the list with the ▲▼ arrows/)
+    assert.match(textOf('[data-scn-hint]'), /reorder the list with the ▲▼ arrows/)
   })
 
   test('Clear puts every budget back and keeps the ticks', async () => {
@@ -3987,7 +3987,7 @@ describe('the offer to upload a budget file rides with the hint', () => {
   test('it reads on from the end of the sentence, and is not a separate action', async () => {
     await withOneBudget()
     const hint = doc.querySelector('[data-scn-hint]')
-    assert.match(hint.textContent, /organize your budgets into folders\.\s*You can also/)
+    assert.match(hint.textContent, /dragging the handle\.\s*You can also/)
     assert.ok(
       hint.querySelector('[data-action="import-scenario"]'),
       'the control itself is in the hint'
