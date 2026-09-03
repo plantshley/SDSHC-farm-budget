@@ -468,7 +468,7 @@ export function openFolderEditor(folder, onDone) {
     // cannot tell from the next one. Asked for rather than filled in, because
     // nothing in this app auto-fills.
     if (!name) {
-      showError(body, 'Give the folder a name, so you can tell it from the others.')
+      showError(body, 'Give the folder a name.')
       body.querySelector('#fldName').focus()
       return
     }

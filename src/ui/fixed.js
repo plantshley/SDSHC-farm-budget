@@ -153,7 +153,7 @@ export function renderFixed(scenario, collapsed = false, notice = null) {
         Buildings &amp; improvements
         ${infoButton('equipmentVsBuilding', 'buildings')}
       </h3>
-      <p class="hint">Permanent structures: sheds, bins, shops, fencing, water systems. No salvage value.</p>
+      <p class="hint">Permanent structures with no salvage value, such as sheds, bins, shops, fencing, water systems, etc.</p>
       <div class="item-list">
         ${(f.buildings ?? []).map((item, i) => renderBuilding(item, i)).join('')}
       </div>

@@ -32,7 +32,7 @@ function baselineNote() {
   return `
     <p class="hint baseline-note">
       <span>
-        Select two or more to compare them. <b>The first one you select becomes the
+        Select two or more to compare scenarios. <b>The first one you select becomes the
         baseline.</b> Every other budget is shown as a difference from it.
       </span>
       <button type="button" class="note-dismiss" data-action="dismiss-note"
@@ -406,13 +406,13 @@ export function openExportDialog(scenario) {
         scenario.id,
         'save-as-json',
         'Budget file',
-        'The budget itself, to move to another device or give to somebody else. Bring it back to the saved list with "Upload a budget file".'
+        'The budget itself, to move to another device or to share. Add back to the saved list with "Upload a budget file".'
       )}
       ${exportItem(
         scenario.id,
         'save-as-csv',
         'Spreadsheet',
-        'Every figure entered and every figure worked out, as a CSV. Opens in Excel.'
+        'Every number entered and result calculated worked out as a CSV  you can open in Excel.'
       )}
       ${exportItem(
         scenario.id,

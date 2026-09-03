@@ -424,7 +424,7 @@ export function calcEnterprise(ent, index, warnings) {
 
   if (acres < 0) {
     own.push(
-      `"${named}" has negative acres. Check for a stray minus sign — it turns every per-acre figure upside down.`
+      `"${named}" has negative acres. Check for a stray minus sign.`
     )
   }
 
@@ -546,7 +546,7 @@ function calcEquipment(item, totalAcres, warnings) {
   }
   if (salvageValue > initialCost && initialCost > 0) {
     warnings.push(
-      `"${item?.name || 'Equipment'}" has a salvage value above its initial cost, which makes its depreciation negative.`
+      `"${item?.name || 'Equipment'}" has a salvage value above its initial cost. Check the figure.`
     )
   }
 

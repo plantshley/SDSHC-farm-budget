@@ -89,7 +89,7 @@ const FINBIN_2025 =
   'FINBIN, Center for Farm Financial Management, University of Minnesota. Crop Enterprise Analysis, South Dakota, 2025 (reports 972802 and 972803, retrieved 4 August 2026). Eight farms: five from the South Dakota Center for Farm/Ranch Management, three from the Southwest Minnesota Farm Business Management Association.'
 
 const FINBIN_NOTE =
-  'Overhead the whole farm carries, spread across its crop acres, taken from farm business records. Choosing a figure multiplies it by the acres you have entered and fills in a yearly total. This is eight farms, so use it to check your own bills rather than in place of them.'
+  'Overhead the whole farm carries, spread across its crop acres, based on farm business records. Choosing a figure multiplies it by the acres you have entered and fills in a yearly total. Use it to check your own bills rather than in place of them.'
 
 /**
  * One overhead picker.
@@ -153,7 +153,7 @@ const SDSU_2026 =
   'SDSU Extension, 2026 Crop Production Budgets (P-00138-2026), Sarah Sellars, Assistant Professor and SDSU Extension Sustainable Farm and Food Systems Specialist. Retrieved 6 August 2026. Cost estimates are built on FINBIN trends for similar farms and crops, adjusted for expected costs.'
 
 const SDSU_NOTE =
-  'South Dakota figures, from budgets built on farm business records. The three zones are about yield potential rather than location, so pick the one your ground behaves like. These are a starting point to check your own records against, not a replacement for them.'
+  'South Dakota figures, from budgets built on farm business records. The three zones indicate yield potential, not location, so pick what matches your production. These are a starting point to check your own records against, not a replacement for them.'
 
 /** SDSU's three production zones, in the order the workbook lists them. */
 const SDSU_ZONES = ['East and Central, high production', 'East and Central, mid production', 'Central and West, low production']
@@ -260,7 +260,7 @@ export const TYPICAL_VALUES = {
 
   herbicide: {
     title: 'Herbicide application',
-    unit: '$/acre (application only — materials not included)',
+    unit: '$/acre (application only; materials not included)',
     appliesTo: 'perAcre',
     source: IOWA_2026,
     note: `${IOWA_NOTE} These cover the APPLICATION only; the chemical itself is extra.`,
@@ -299,7 +299,7 @@ export const TYPICAL_VALUES = {
     unit: '$/lb of N',
     appliesTo: 'unit',
     source: `${SDSU_2026} Anhydrous ammonia: ${FARMDOC_N_2026} Application rates: ${IOWA_2026}`,
-    note: 'Material and application are two separate costs. If someone else applies your fertilizer, your total for this line is a material figure plus an application figure. Picking an application rate on its own books a nitrogen line with no nitrogen in it. Every price below is South Dakota except anhydrous ammonia, which is an Illinois figure and is marked as one.',
+    note: 'The total for this line is a material figure plus an application figure.',
     groups: [
       // One entry per N source. Three of the four are priced off the same SDSU
       // $/ton table; anhydrous is not in it, or in any South Dakota source, and
@@ -391,7 +391,7 @@ export const TYPICAL_VALUES = {
     unit: '$/lb of P2O5',
     appliesTo: 'unit',
     source: SDSU_2026,
-    note: 'The pounds per acre are your soil test, not ours, so the cost per pound leaves that box to you. The per-acre figures below use the rate the South Dakota budgets assume for that zone. Spreading is charged once per pass and is offered on the nitrogen line.',
+    note: 'The per-acre figures below use the rate the South Dakota budgets assume for that zone. Spreading (application) is charged once per pass and is offered on the nitrogen line.',
     groups: [
       {
         label: 'Cost per pound of phosphate',
@@ -438,7 +438,7 @@ export const TYPICAL_VALUES = {
     unit: '$/lb of K2O',
     appliesTo: 'unit',
     source: SDSU_2026,
-    note: 'The pounds per acre are your soil test, so the cost per pound leaves that box to you. The per-acre figures below use the rate the South Dakota budgets assume for that zone. Spreading is charged once per pass and is offered on the nitrogen line.',
+    note: 'The per-acre figures below use the rate the South Dakota budgets assume for that zone. Spreading (application) is charged once per pass and is offered on the nitrogen line.',
     groups: [
       {
         label: 'Cost per pound of potash',
@@ -549,7 +549,7 @@ export const TYPICAL_VALUES = {
       [29, 27, 20, 20],
     ],
     {
-      note: `${SDSU_NOTE} This covers a season of field operations for the crop: tillage, planting, spraying, and harvest. Trucking beyond the farm is on the hauling line.`,
+      note: `${SDSU_NOTE} This covers a season of field operations for the crop: tillage, planting, spraying, and harvest. Use the hauling line to include trucking beyond the farm.`,
     }
   ),
 
@@ -562,7 +562,7 @@ export const TYPICAL_VALUES = {
       [64, 36, 33, 34],
     ],
     {
-      note: `${SDSU_NOTE} Machinery repairs and maintenance for the crop's field operations. What you paid to own the machine is a fixed cost and belongs in the equipment block below.`,
+      note: `${SDSU_NOTE} Machinery repairs and maintenance for the crop's field operations. What you paid to own the machine is a fixed cost and should be entered in the equipment block in the Shared Fixed Costs section.`,
     }
   ),
 
@@ -619,7 +619,7 @@ export const TYPICAL_VALUES = {
     unit: '$/unit of seed',
     appliesTo: 'unit',
     source: SDSU_2026,
-    note: 'Corn and soybeans are priced per bag, wheat by weight. Switch the line to "seeds/ac" if you would rather enter the population you plant at.',
+    note: 'Corn and soybeans are priced per bag, and wheat by weight. Switch the line to "seeds/ac" if you would rather enter the population you plant at.',
     groups: [
       {
         // Corn is published per THOUSAND seeds ($3.80) and is converted here to
@@ -751,7 +751,7 @@ export const TYPICAL_VALUES = {
     source:
       'USDA National Agricultural Statistics Service, 2025 Cash Rent Paid Per Acre, South Dakota county estimates, released 23 August 2025.',
     note:
-      'County averages of what was paid for rented ground in 2025. Use your own lease rate where you have one. These are for budgeting ground you have not rented yet, or for checking whether an asking rate is in line.',
+      'County averages of what was paid for rented ground in 2025.',
     groups: [
       {
         label: 'Cropland, non-irrigated',
@@ -919,7 +919,7 @@ export const TYPICAL_VALUES = {
     unit: 'share of what you paid',
     source:
       'Iowa State University Extension and Outreach, Ag Decision Maker File A3-29 / PM 710, "Estimating Farm Machinery Costs", revised March 2026. Table 1a (tractors, combines) was developed from published reports of used equipment auction values; Table 1b (everything else) is credited to the American Society of Agricultural and Biological Engineers. Tractor and combine percentages are at moderate annual use — 400 hours a year for tractors, 300 for combines.',
-    note: 'These percentages are shares of the NEW LIST PRICE. On a machine bought new they are also shares of what you paid. On a machine bought used at a discount they understate what it is worth, so choose a higher share. Where you know what the machine would actually trade for, enter that instead.',
+    note: 'These percentages are shares of the NEW LIST PRICE. On a machine bought new they are also shares of what you paid. On a machine bought used at a discount they may underestimate the worth, so choose a higher share. Where you know what the machine would actually trade for, enter that instead.',
     requires: {
       field: 'initialCost',
       message: 'Enter the initial cost first, then pick a share of it.',
@@ -1029,7 +1029,7 @@ export const TYPICAL_VALUES = {
     unit: 'years',
     source:
       'Iowa State University Extension and Outreach, Ag Decision Maker File A3-29 / PM 710, "Estimating Farm Machinery Costs", revised March 2026.',
-    note: 'This is ECONOMIC life: how long you expect to own the machine, not how long it would last. If you know you will trade sooner, enter that number.',
+    note: 'This is ECONOMIC life (how long you expect to own the machine) not how long it would last. If you know you will trade sooner, enter that number.',
     byCategory: true,
     groups: [
       {
@@ -1076,7 +1076,7 @@ export const TYPICAL_VALUES = {
     status: 'provisional',
     source:
       'Conventional depreciation periods for farm structures. No published survey covers these.',
-    note: 'Buildings depreciate to zero in this calculator, so there is no salvage value to enter. These are ordinary depreciation periods rather than measured service lives. A well-kept machine shed could outlast thirty years, while a bin you plan to replace in fifteen years should say fifteen.',
+    note: 'Buildings depreciate to zero in this calculator, so there is no salvage value to enter. These are normal depreciation periods rather than measured service lives. A well-kept machine shed could outlast thirty years, while a bin you plan to replace in fifteen years should be entered as fifteen.',
     groups: [
       {
         label: 'Common service lives',
