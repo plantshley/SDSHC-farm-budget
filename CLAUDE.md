@@ -21,7 +21,7 @@ like one family.
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 986 tests: the economic model, storage, data, exports, and a DOM smoke test
+npm test           # 1,018 tests: the economic model, storage, data, exports, and a DOM smoke test
 npm run build      # -> dist/
 ```
 
@@ -809,6 +809,49 @@ header, year and save-state rules, in [DESIGN-NOTES.md](DESIGN-NOTES.md).*
   wrap. A mono stack resolves to whatever the device has and Consolas, Menlo and
   JetBrains Mono do not share an advance, so **no width is right everywhere and
   the failure has to be a wrapped line, never a clipped dollar amount.**
+- **One open card can be WIDENED to the width a single enterprise gets**, and
+  only one at a time. `wideEnterprise` in `main.js` is an id, not a set; the
+  width is `calc(100% - var(--add-w) - 14px)` on `.ent.wide:not(.collapsed)`,
+  with `--add-w` read by the Add tile too so the two cannot disagree. It
+  **neither grows nor shrinks**: grow is a different width from the one promised,
+  shrink hands the room back exactly when it was asked for. The state is dropped
+  by a fold, by Add, by Remove, and wherever a different budget takes the screen,
+  and `setWideCard()` works **in place** for the reason `toggle-enterprise` does.
+  The button is not rendered on a one-enterprise budget and is `display: none`
+  below 900px.
+- **A card's right edge can be DRAGGED to any width in between.** `.ent-resize`
+  is a 10px strip, a real `<button>` so the arrow keys work (Home and End are the
+  limits, Shift is four steps). The floor is `.ent`'s own `min-width` read
+  through `getComputedStyle`; the ceiling is the row's width, which is the width
+  of the fixed-cost and results sections below — **a different number from
+  Widen's**, which leaves room for the Add tile. Both limits are enforced in the
+  stylesheet too (`max-width: 100%` on `.ent.sized`). `startW` is measured once
+  at pointerdown, `pointercancel` ends the drag as well as `pointerup`,
+  `touch-action: none` is declared up front on the strip, and `user-select` and
+  the cursor go on the **grid** so a drag past the 10px target does not select
+  card text. **A dragged width and the Widen preset are never both on one card**,
+  in both directions, and a **fold gives either of them back**.
+- **The row's horizontal scrollbar is the LAST thing in the wrapper and
+  STICKY**, riding just above the sticky bar for as long as any part of the row
+  is on screen. Above the cards it went off the top the moment the producer
+  scrolled into the card they were filling in; under them it was a screen and a
+  half down. Scrollbar position is not stylable, so `.ent-scroll-top` is a second
+  scroller holding a 1px strip as wide as the grid, kept in step by
+  `syncEntScrollbar()` and a **capturing** scroll listener (scroll does not
+  bubble). **`bottom` is measured** — `sizeStickyBar()` writes `--sticky-h` from
+  the bar's real height, which moves with the type size and a phone's safe area,
+  and the CSS fallback is a plausible bar rather than 0. It is **wide-screen
+  only** — below 900px the scroller has no `overflow-x`, so a bar there would
+  hide the real one to scroll nothing — and carries **`tabindex="-1"`**, since a
+  scrollable box with no focusable children is a tab stop of its own and this one
+  is `aria-hidden`. **The real scroller keeps its native
+  bar until the proxy is installed** — `scrollbar-width: none` hangs off an
+  attribute the same code writes — so a failure leaves the app as it was rather
+  than the far cards unreachable. The strip's **17px height is declared, not
+  derived**: a bar is drawn inside the padding box and would be squeezed into
+  1px. A `ResizeObserver` on the scroller and the grid covers folds, widens and
+  resizes, none of which is a render; **every write is compared first**, or
+  hiding the native bar resizes the scroller and starts it round again.
 - **A folded card is `align-self: flex-start`, never `stretch`**, or it grows to
   match the tallest open column beside it.
 - **A shut card carries its gross margin per acre and in total**
@@ -1012,7 +1055,7 @@ it.
 
 ## Tests
 
-986 tests across ten files. `npm test` runs them, and so does the deploy
+1,018 tests across ten files. `npm test` runs them, and so does the deploy
 workflow before it builds. *Detail in [DESIGN-NOTES.md](DESIGN-NOTES.md).*
 
 - `test/calc.test.js` — the model against real Excel output, plus the deliberate

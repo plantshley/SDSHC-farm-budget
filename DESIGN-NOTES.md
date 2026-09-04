@@ -1107,6 +1107,185 @@ cards and the sticky bar alike. Those two show the same figures and are styled b
 one shared rule: they must never disagree about a colour any more than about a
 number.
 
+### Widen: the layout for comparing is not the layout for filling in
+
+Four columns at 310px is the arrangement the spreadsheet had and the one this
+app is for: enterprises side by side, read across. It is not the arrangement for
+*entering* one. A card is fifteen expense lines, each with a label, a mode pill,
+a `?`, a *use typical value* link and two boxes, and at a third of the screen
+every one of those rows wraps. A producer working down one crop wants the room a
+one-enterprise budget already gets, and up to now the only way to have it was to
+delete the other enterprises.
+
+**Widen gives one open card exactly that width** — the row, minus the Add tile
+and the single gap between them — and pushes the rest of the row out to scroll.
+
+- **`--add-w` is declared on `.ent-grid` and read by both rules.** The Add tile's
+  width and the width a widened card subtracts are the same number; two literals
+  that have to agree is how they stop agreeing.
+- **`flex-grow` and `flex-shrink` are both 0.** Grow would let the card swallow
+  the leftover space when the rest of the row is short, which is a *different*
+  width from the one the button promises. Shrink would give the room straight
+  back the moment the row overflowed, which is precisely when it was asked for.
+- **The rule is `.ent.wide:not(.collapsed)`**, so folding wins without depending
+  on which rule is written last. A shut card is a fixed tile at every width.
+- **One card at a time.** `wideEnterprise` is an id, not a set: widening means
+  "give this the width a single enterprise gets", and two cards cannot both have
+  it. Widening a second narrows the first, which is what working down one crop at
+  a time actually looks like.
+- **The state is dropped by a fold, by Add, by Remove, and by every path where a
+  different budget becomes the one on screen.** A fold, because a shut card is a
+  fixed tile and the width would then be invisible until the card was next
+  opened, a page and a press later, arriving unexplained. Add, because Add shuts
+  every card already. A different budget, because an id from the last farm either
+  matches nothing or matches by coincidence.
+- **`setWideCard()` works in place, like `toggle-enterprise`.** A width is not
+  structural, and a `render()` would replace the button under the finger that
+  pressed it and take the focus ring with it.
+- **The word on the button changes as well as `aria-pressed`.** On a row that has
+  scrolled sideways the card the button belongs to may be the only one on screen,
+  and its neighbours' widths are then no clue at all.
+- **Widening scrolls the card's left edge to the left edge of the row.** A card
+  that had scrolled off to the right is now wider than the viewport *and* still
+  off the side of it, so the press reads as having done nothing. Measured off the
+  two boxes rather than `scrollIntoView`, which would scroll the page as well and
+  move the card's top edge somewhere nobody asked for.
+- **The button is not rendered at all on a budget with one enterprise**, which
+  already has the whole row. An inert control is worse than no control.
+- **It is `display: none` below 900px**, where every card is a full-width
+  accordion. Same reasoning as "Open Budget" becoming "Open": `display: none`
+  takes it out of the accessible name as well as off the page, so a phone is
+  never offered a control that would do nothing.
+
+### An edge that can be taken hold of
+
+Widen is one press and one width. A producer who wants a card *slightly* wider —
+enough for the mode pill and the "use typical value" link to stop wrapping, and
+no more — has no way to ask for it. So the card's right edge is a 10px strip that
+can be dragged.
+
+- **The floor is `.ent`'s own `min-width`, read through `getComputedStyle`.** It
+  is the narrowest the row makes a card anyway, once four or more are on the
+  page, so a dragged card can never be narrower than one the layout produced by
+  itself. The literal in `main.js` is a fallback for a page with no computed
+  style to ask, not a second copy of the rule.
+- **The ceiling is the row's own width**, which is the width of the fixed-cost
+  and results sections below it — those are full-width blocks in the same
+  container, so a card dragged to the ceiling lines up with them exactly. This is
+  a *different* number from Widen's, deliberately: Widen leaves room for the Add
+  tile because it is the width one enterprise gets, and the ceiling is the width
+  the page gets.
+- **Both limits are enforced in the stylesheet as well as in the drag**, and that
+  is the half that cannot go wrong. `min-width` is inherited from `.ent` and
+  `max-width: 100%` is declared on `.ent.sized`.
+- **A hand-set width and the Widen preset are never both on one card.** Dragging
+  drops the preset, because the preset is one particular width and stops
+  describing the card the moment the edge moves — the button would offer to
+  "Narrow" a card the producer had just narrowed by hand. Pressing Widen drops
+  the hand-set width, the same rule pointed the other way. Widening one card
+  leaves every other card's edge where it was.
+- **A fold gives the width back**, whichever of the two it was. On a row of
+  columns, folding *is* how room is made, so a fold that kept a hand-set width
+  would be giving with one hand and taking with the other.
+- **`startW` is measured once, at pointerdown.** Every move is that plus the
+  distance travelled, never the card's current width plus a delta, which
+  accumulates its own rounding and drifts away from the pointer over a long drag.
+- **This drag does its work in the move handler, unlike the saved list's.** That
+  one needs a frame loop because a finger held still fires no events and its
+  edge-scroll has to keep going without one. Nothing here has to happen while the
+  pointer is still, and the handler reads no layout — the new width is arithmetic
+  on two numbers taken at pointerdown — so there is nothing to batch.
+- **`pointercancel` ends the drag as well as `pointerup`.** The browser can take
+  a gesture away, and a card left carrying `.resizing` would hold the whole grid
+  in `user-select: none` under a resize cursor until the next render.
+- **`touch-action: none` is declared up front and scoped to the strip**, the same
+  rule `.scn-grip` follows and for the same reason.
+- **The strip is a real `<button>`, and the arrow keys move the edge**; Home and
+  End are the two limits, Shift multiplies the step by four. Widen is still the
+  quickest way to the one big width, but it is one width, and this is what makes
+  the ones in between reachable without a pointer. `preventDefault()` on the
+  arrows, or they scroll the row underneath the card being sized.
+- **The current width is measured rather than read from `entWidths`**, because a
+  card that has never been dragged has no entry and the row's own width for it is
+  the only honest starting point.
+- **`user-select: none` and the cursor go on the GRID, not the strip.** The
+  pointer leaves a 10px target on the first move of any speed; without it the
+  cursor flickers back to a caret and the drag selects card text as it goes. The
+  class is written by `main.js` rather than matched with `:has()`, which this app
+  cannot assume.
+
+### The row's scrollbar rides above the sticky bar
+
+Once enough enterprises are on the page the row scrolls sideways, and the
+scrollbar the browser draws for it sits at the bottom of the scroller — which is
+the bottom of the tallest card. Next to one open enterprise that is a screen and
+a half below the thing it scrolls.
+
+Moving it above the cards fixed that and broke the other half: it went off the
+top of the screen the moment the producer scrolled into the card they were
+filling in, which is exactly when the row needs scrolling.
+
+So it is neither. It is the **last** thing in the wrapper and **sticky**, riding
+just above the sticky bar for as long as any part of the row is on screen, and
+scrolling away with the wrapper once the producer has moved on to the fixed
+costs.
+
+- **`bottom` is measured, not guessed.** `sizeStickyBar()` writes `--sticky-h`
+  from the bar's real height, which moves with the type size, the font choice and
+  a phone's safe-area inset. The stylesheet's fallback is a plausible bar rather
+  than 0, so a browser that never reaches the measurement still clears it. It is
+  written only when there is a bar to measure and only when the value changed —
+  the same ResizeObserver sees both, and an unconditional write would set them
+  going round.
+- **z-index 30** sits under the sticky bar's 40 and the overlay's 100, and over
+  the cards, which claim none.
+- **Stuck, it is over card text**, so it carries the page's own background and a
+  soft shadow above it. A strip of page colour with no edge reads as a slice cut
+  out of the card rather than something floating in front of it. The shadow is a
+  literal at a low alpha, the same decision the exporter panel makes: it is cast
+  onto the page, so it is black in both themes.
+
+**Scrollbar position is not stylable**, so this is a second scroller: a strip
+holding nothing but a 1px filler as wide as the grid, with `main.js` keeping the
+two scroll positions in step.
+
+- **The real scroller keeps its own native bar until this one is installed.**
+  `scrollbar-width: none` is written by an attribute selector, and the attribute
+  is set by the same code that has just sized the strip — so anything failing
+  leaves the app exactly as it was, rather than leaving the far cards
+  unreachable. The proxy is the improvement; the native bar is the floor.
+- **The strip's height is declared, not derived.** A scrollbar is drawn *inside*
+  the padding box, so a box with `height: auto` around a 1px filler would squeeze
+  the bar into 1px. 22px holds the tallest classic bar on the platforms this runs
+  on and leaves a few pixels of page colour above it, which is what separates a
+  bar floating over a card from the card's own contents.
+- **The scroll listener is capturing, and there is one of it.** Scroll events do
+  not bubble, so a delegated listener has to capture; capturing on `app` means it
+  survives every render rather than being re-attached with the new DOM. The
+  echo stops on its own after one hop, because assigning a `scrollLeft` that is
+  already there fires nothing.
+- **A `ResizeObserver` watches the scroller and the grid.** Folding a card,
+  widening one, and resizing the window all change whether the row overflows, and
+  none of them is a render. The folds call `syncEntScrollbar()` directly as well,
+  for a browser that has no observer.
+- **Every write is compared first.** Hiding the scroller's own bar changes its
+  height, which the observer sees; writing unconditionally would set that going
+  round again.
+- **It carries `tabindex="-1"`.** A browser makes a scrollable box with no
+  focusable children a tab stop of its own, so without it this is a tab stop
+  that announces nothing — `aria-hidden` has taken it out of the tree, and
+  `aria-hidden` over tabbable content is a fault in itself.
+- **It is wide-screen only, and that is not tidiness.** Below 900px the cards
+  stack and the scroller has no `overflow-x` at all, so a bar installed there
+  would take the real scrollbar away to scroll something that does not scroll.
+  `syncEntScrollbar()` checks `isNarrow()`, not just the measurement.
+- **It does not print.** Paper has no overflow to scroll, and `@media print`
+  already lays the cards down the page.
+- **jsdom reports every measurement as 0**, so the row never overflows there and
+  the bar never appears. That is the correct resting state to assert, not a gap:
+  the width rules are asserted against the stylesheet source instead, the way
+  every other layout rule here is.
+
 ### The header, the year, and the save state
 
 **`scenarioYear` lives in the header with the budget name** because it is the

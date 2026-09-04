@@ -42,32 +42,125 @@ export const YIELD_UNITS = ['bu', 'ton', 'cwt', 'lb', 'bale', 'AUM']
  * @param {Map<number,{text:string,paths:string[]}>} [notices]  one-shot messages
  *   by enterprise index, saying why a figure was just cleared, with the fields
  *   they are about. Owned by main.js and dropped after the render that shows it.
+ * @param {string} [wideId]  the one card blown up to the width it would have if
+ *   it were the only enterprise. At most one, and only while more than one
+ *   enterprise exists — see the Widen button below.
+ * @param {Map<string,number>} [widths]  a width in px per enterprise id, for
+ *   cards whose right edge has been dragged. Owned by main.js, and exclusive
+ *   with wideId on any one card: a dragged width replaces the preset.
  */
-export function renderEnterprises(scenario, collapsed = new Set(), notices = new Map()) {
+export function renderEnterprises(
+  scenario,
+  collapsed = new Set(),
+  notices = new Map(),
+  wideId = '',
+  widths = new Map(),
+) {
+  // Widen is meaningless on a budget with one enterprise, which already has the
+  // whole row, so the button is not rendered at all rather than rendered inert.
+  const many = scenario.enterprises.length > 1
+
   return `
-    <div class="ent-scroller">
-      <div class="ent-grid">
-        ${scenario.enterprises
-          .map((e, i) => renderEnterprise(e, i, collapsed, notices.get(i)))
-          .join('')}
-        <div class="ent-add">
-          <button type="button" class="btn-add" data-action="add-enterprise">
-            + Add enterprise
-          </button>
-          <p class="hint">One crop or activity to budget on its own (corn, silage, soybeans, grazing, etc.)</p>
+    <div class="ent-scroll-wrap">
+      <div class="ent-scroller" data-ent-scroller>
+        <div class="ent-grid">
+          ${scenario.enterprises
+            .map((e, i) =>
+              renderEnterprise(
+                e,
+                i,
+                collapsed,
+                notices.get(i),
+                many && e.id === wideId,
+                many,
+                widths.get(e.id),
+              ),
+            )
+            .join('')}
+          <div class="ent-add">
+            <button type="button" class="btn-add" data-action="add-enterprise">
+              + Add enterprise
+            </button>
+            <p class="hint">One crop or activity to budget on its own (corn, silage, soybeans, grazing, etc.)</p>
+          </div>
         </div>
+      </div>
+      <!-- The horizontal scrollbar for the row of cards.
+           Empty on purpose: main.js gives the strip inside it the width of the
+           grid and keeps the two scroll positions in step, so this scrolls the
+           real thing. It stays hidden until the row actually overflows, and the
+           scroller keeps its own native bar until this one is installed.
+
+           LAST in the wrapper and stuck to the bottom of the screen, so it rides
+           just above the sticky bar for as long as any part of the row is in
+           view. Above the cards it went off the top the moment the producer
+           scrolled into the card they were filling in, which is exactly when it
+           is wanted; under the cards it was a screen and a half below them.
+
+           tabindex=-1 because a browser makes a scrollable box with no focusable
+           children a tab stop of its own. Left alone that is a tab stop which
+           announces nothing, since aria-hidden has taken it out of the tree, and
+           aria-hidden over tabbable content is a fault in itself. The cards
+           above are the real control and are reached the ordinary way. -->
+      <div class="ent-scroll-top" data-ent-scrollbar aria-hidden="true" tabindex="-1">
+        <div class="ent-scroll-fill"></div>
       </div>
     </div>`
 }
 
-function renderEnterprise(e, i, collapsed, notice) {
+/**
+ * Blow one open card up to the width it would have if it were the only
+ * enterprise, and put it back.
+ *
+ * Desktop only, and hidden by CSS below 900px, where the cards are already
+ * full-width accordions and there is nothing to widen. It wears .btn-remove for
+ * its box and .btn-quiet to cancel that box's red hover, the same pairing "Save
+ * results as image" uses: widening destroys nothing.
+ *
+ * The word changes with the state as well as aria-pressed, because the control
+ * sits in a row of cards whose widths are the only other clue, and on a row that
+ * has scrolled sideways the card it belongs to may be the only one on screen.
+ */
+function wideButton(isWide, heading) {
+  const word = isWide ? 'Narrow' : 'Widen'
+  return `
+    <button type="button" class="btn-remove btn-quiet ent-wide-btn"
+      data-action="toggle-ent-width" aria-pressed="${isWide}"
+      aria-label="${word} ${esc(heading)}">${word}</button>`
+}
+
+/**
+ * The grab strip down a card's right edge.
+ *
+ * Widen is one press and one width. This is the same idea by hand: any width
+ * between the narrowest a card is allowed to be and the width of the fixed-cost
+ * and results sections below it. Wide screens only, where a card is a column
+ * with an edge to take hold of.
+ *
+ * A button, not a bare div. It is a real control and it is operable from the
+ * keyboard — the arrow keys move the edge, Home and End take it to either
+ * limit — and it needs a name for anyone who cannot see the cursor change. The
+ * pointer gesture is the shortcut, the same division the saved list's arrows and
+ * drag handle already follow.
+ */
+function resizeHandle(heading) {
+  return `
+    <button type="button" class="ent-resize" data-ent-resize
+      aria-label="Resize ${esc(heading)}"
+      title="Drag to resize, or use the arrow keys"></button>`
+}
+
+function renderEnterprise(e, i, collapsed, notice, isWide = false, many = false, width) {
   const p = `enterprises.${i}`
   const heading = enterpriseLabel(e, i)
   const isShut = collapsed.has(e.id)
+  // A dragged width beats the preset, and main.js never sets both on one card.
+  const sized = Number.isFinite(width) && width > 0
 
   return `
-    <section class="box ent ${isShut ? 'collapsed' : ''}" data-ent-index="${i}"
-      data-ent-id="${esc(e.id ?? '')}">
+    <section class="box ent ${isShut ? 'collapsed' : ''} ${isWide ? 'wide' : ''} ${sized ? 'sized' : ''}"
+      data-ent-index="${i}" data-ent-id="${esc(e.id ?? '')}"
+      ${sized ? `style="--ent-w: ${Math.round(width)}px"` : ''}>
       <header class="ent-head">
         <button type="button" class="ent-toggle" data-action="toggle-enterprise"
           aria-expanded="${!isShut}"
@@ -93,6 +186,7 @@ function renderEnterprise(e, i, collapsed, notice) {
             </span>
           </span>
         </button>
+        ${many ? wideButton(isWide, heading) : ''}
         <button type="button" class="btn-remove" data-action="remove-enterprise"
           data-index="${i}" aria-label="Remove ${esc(heading)}">Remove</button>
       </header>
@@ -154,6 +248,7 @@ function renderEnterprise(e, i, collapsed, notice) {
              runs on a keystroke. data-warnings-for says whose list to draw. -->
         <div data-warnings data-warnings-for="${i}"></div>
       </div>
+      ${resizeHandle(heading)}
     </section>`
 }
 

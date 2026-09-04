@@ -1217,6 +1217,496 @@ describe('folding cards away', () => {
   })
 })
 
+/**
+ * Widen: one open card taking the width a single enterprise gets.
+ *
+ * The width itself is CSS and jsdom loads none, so the arrangement is asserted
+ * against the stylesheet source at the foot of this block. What is driveable
+ * here is the state: which card carries the class, what the button says, and
+ * the things that have to take the width back.
+ */
+describe('widening one enterprise to the full row', () => {
+  beforeEach(async () => {
+    await boot()
+  })
+
+  const wideBtns = () => [...doc.querySelectorAll('.ent-wide-btn')]
+  const wideCards = () => [...doc.querySelectorAll('.ent.wide')]
+
+  test('a budget with one enterprise is not offered it', async () => {
+    // The only card already has the whole row. An inert control is worse than
+    // no control, so it is not rendered rather than rendered and ignored.
+    assert.equal(doc.querySelectorAll('.ent').length, 1)
+    assert.equal(wideBtns().length, 0)
+
+    click('[data-action="add-enterprise"]')
+    assert.equal(wideBtns().length, 2)
+  })
+
+  test('widening is exclusive, so a second press moves it rather than adding one', async () => {
+    click('[data-action="add-enterprise"]')
+    click('[data-action="add-enterprise"]')
+    const cards = doc.querySelectorAll('.ent')
+    assert.equal(cards.length, 3)
+
+    cards[0].querySelector('.ent-wide-btn').click()
+    assert.deepEqual(wideCards(), [cards[0]])
+
+    cards[2].querySelector('.ent-wide-btn').click()
+    assert.deepEqual(wideCards(), [cards[2]], 'the first card gave the width back')
+  })
+
+  test('pressing it again narrows the card', async () => {
+    click('[data-action="add-enterprise"]')
+    const btn = doc.querySelector('.ent .ent-wide-btn')
+    btn.click()
+    assert.equal(wideCards().length, 1)
+    btn.click()
+    assert.equal(wideCards().length, 0)
+  })
+
+  test('the button says which way it goes, and says it to a screen reader too', async () => {
+    click('[data-action="add-enterprise"]')
+    const btn = doc.querySelector('.ent .ent-wide-btn')
+    assert.equal(btn.textContent.trim(), 'Widen')
+    assert.equal(btn.getAttribute('aria-pressed'), 'false')
+
+    btn.click()
+    assert.equal(btn.textContent.trim(), 'Narrow')
+    assert.equal(btn.getAttribute('aria-pressed'), 'true')
+    assert.match(btn.getAttribute('aria-label'), /^Narrow /)
+  })
+
+  test('folding the widened card gives the width back', async () => {
+    // A shut card is a fixed tile, so the state would be invisible until the
+    // card was next opened, a page and a press later, and arrive unexplained.
+    click('[data-action="add-enterprise"]')
+    const card = doc.querySelectorAll('.ent')[1]
+    card.querySelector('.ent-wide-btn').click()
+    assert.equal(card.classList.contains('wide'), true)
+
+    card.querySelector('[data-action="toggle-enterprise"]').click()
+    assert.equal(card.classList.contains('wide'), false)
+    assert.equal(card.querySelector('.ent-wide-btn').textContent.trim(), 'Widen')
+  })
+
+  test('adding an enterprise takes the width back, because it shuts every card', async () => {
+    click('[data-action="add-enterprise"]')
+    doc.querySelector('.ent .ent-wide-btn').click()
+    assert.equal(wideCards().length, 1)
+
+    click('[data-action="add-enterprise"]')
+    assert.equal(wideCards().length, 0)
+  })
+
+  test('the state survives a re-render', async () => {
+    // Adding rebuilds the whole page, so this proves the width is passed into
+    // the render rather than living only as a class somebody set by hand.
+    click('[data-action="add-enterprise"]')
+    click('[data-action="add-enterprise"]')
+    doc.querySelectorAll('.ent')[0].querySelector('.ent-wide-btn').click()
+
+    doc.querySelectorAll('.ent')[1].querySelector('[data-action="toggle-enterprise"]').click()
+    assert.equal(doc.querySelectorAll('.ent')[0].classList.contains('wide'), true)
+  })
+
+  test('a width is not an edit, so it never marks the budget unsaved', async () => {
+    click('[data-action="add-enterprise"]')
+    click('[data-action="save-scenario"]')
+    assert.equal(textOf('#saveState'), SAVED_LABEL)
+
+    doc.querySelector('.ent .ent-wide-btn').click()
+    assert.equal(textOf('#saveState'), SAVED_LABEL)
+  })
+
+  test('a new budget starts with every card its own width', async () => {
+    click('[data-action="add-enterprise"]')
+    doc.querySelector('.ent .ent-wide-btn').click()
+    assert.equal(wideCards().length, 1)
+
+    click('[data-action="go-scenarios"]')
+    click('[data-action="new-scenario"]') // only exists on the saved tab
+    assert.equal(wideCards().length, 0)
+  })
+
+  test('the stylesheet gives a wide card the width one enterprise gets', async () => {
+    // jsdom loads no CSS, so the arrangement is only provable here. A widened
+    // card is the row minus the Add tile and the single gap between them, and
+    // it neither grows nor shrinks: growing would swallow the leftover space
+    // when the rest of the row is short, and shrinking would hand the room
+    // straight back the moment the row overflowed, which is when it was asked
+    // for.
+    const css = sheet()
+    const rule = css.match(/\n {2}\.ent\.wide:not\(\.collapsed\) \{([^}]*)\}/)
+    assert.ok(rule, 'the rule is scoped :not(.collapsed), so folding always wins')
+    assert.match(rule[1], /flex: 0 0 calc\(100% - var\(--add-w\) - 14px\);/)
+
+    // The Add tile's width is read from the same custom property the rule
+    // subtracts, or the two literals stop agreeing the first time one moves.
+    assert.match(css, /\n {4}--add-w: 220px;/)
+    assert.match(css, /\n {2}\.ent-add \{\n {4}flex: 0 0 var\(--add-w\);/)
+  })
+
+  test('the stylesheet offers the control on a wide screen only', async () => {
+    const css = sheet()
+    // display: none takes it out of the accessible name as well as off the
+    // page, so a phone — where every card is already full width — is never
+    // offered a control that would do nothing.
+    // The drag strip follows the same rule and is hidden by the same block.
+    assert.match(css, /\n\.ent-wide-btn,\n\.ent-resize \{\n {2}display: none;\n\}/)
+    const shown = css.indexOf('.ent:not(.collapsed) .ent-wide-btn')
+    assert.ok(shown > -1, 'shown again on an open card')
+    assert.ok(
+      css.lastIndexOf('@media (min-width: 900px)', shown) > -1,
+      'and only inside the desktop block',
+    )
+  })
+})
+
+/**
+ * Dragging a card's right edge.
+ *
+ * jsdom has no layout, so every measurement it is asked for is 0. The bounds
+ * are therefore stubbed: `getBoundingClientRect` on the card gives the width the
+ * drag starts from, `clientWidth` on the grid gives the ceiling, and the floor
+ * comes from the stylesheet through `getComputedStyle`, which jsdom does
+ * implement. What is being proved is the arithmetic and the state, not the
+ * pixels — the pixels are asserted against the stylesheet at the foot.
+ */
+describe('dragging a card wider', () => {
+  beforeEach(async () => {
+    await boot()
+  })
+
+  const card = (i = 0) => doc.querySelectorAll('.ent')[i]
+  const handle = (i = 0) => card(i).querySelector('[data-ent-resize]')
+  const widthOf = (i = 0) => card(i).style.getPropertyValue('--ent-w')
+
+  /**
+   * Give the row a layout: `start` px per card, `max` px of row.
+   *
+   * Returned as a teardown so the stubs never leak into the next test — jsdom
+   * shares one window across this file.
+   */
+  function layout({ start = 310, max = 1200 } = {}) {
+    const realRect = win.Element.prototype.getBoundingClientRect
+    const grid = doc.querySelector('.ent-grid')
+    win.Element.prototype.getBoundingClientRect = function () {
+      if (this.classList?.contains('ent')) {
+        const w = parseFloat(this.style.getPropertyValue('--ent-w')) || start
+        return { width: w, height: 0, top: 0, left: 0, right: w, bottom: 0, x: 0, y: 0 }
+      }
+      return realRect.call(this)
+    }
+    Object.defineProperty(grid, 'clientWidth', { value: max, configurable: true })
+    return () => {
+      win.Element.prototype.getBoundingClientRect = realRect
+    }
+  }
+
+  /** One complete pointer gesture on a card's edge, from x to x. */
+  function drag(i, fromX, toX, opts) {
+    const undo = layout(opts)
+    try {
+      handle(i).dispatchEvent(
+        new win.PointerEvent('pointerdown', { bubbles: true, clientX: fromX }),
+      )
+      handle(i).dispatchEvent(new win.PointerEvent('pointermove', { bubbles: true, clientX: toX }))
+      handle(i).dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true }))
+    } finally {
+      undo()
+    }
+  }
+
+  test('every open card has an edge to take hold of, and shut ones do not offer it', async () => {
+    // The strip is display: none on a shut card in the stylesheet, but it is
+    // also rendered on every card: it is the OPEN state that can be resized, and
+    // a card is opened and shut without a render.
+    assert.ok(handle(0), 'the open card has one')
+    click('[data-action="add-enterprise"]')
+    assert.equal(doc.querySelectorAll('[data-ent-resize]').length, 2)
+  })
+
+  test('the edge follows the pointer', async () => {
+    click('[data-action="add-enterprise"]')
+    drag(1, 500, 700)
+    assert.equal(widthOf(1), '510px', '310 to start, plus 200 travelled')
+    assert.equal(card(1).classList.contains('sized'), true)
+  })
+
+  test('it stops at the width of the sections below, and no wider', async () => {
+    // The ceiling is the row's own width, which is the width of the fixed-cost
+    // and results blocks: they are full-width children of the same container.
+    click('[data-action="add-enterprise"]')
+    drag(1, 500, 5000, { max: 900 })
+    assert.equal(widthOf(1), '900px')
+  })
+
+  test('it stops at the narrowest a card is allowed to be', async () => {
+    // Not zero, and not negative: the floor is .ent's own min-width, which is
+    // the width the row gives a card once four or more are on the page.
+    click('[data-action="add-enterprise"]')
+    drag(1, 500, -5000)
+    assert.equal(widthOf(1), '310px')
+  })
+
+  test('a drag is not an edit, so it never marks the budget unsaved', async () => {
+    // A column width is not a fact about the farm. It is the same rule the folds
+    // and the Widen preset follow.
+    click('[data-action="add-enterprise"]')
+    click('[data-action="save-scenario"]')
+    assert.equal(textOf('#saveState'), SAVED_LABEL)
+
+    drag(1, 500, 700)
+    assert.equal(textOf('#saveState'), SAVED_LABEL)
+  })
+
+  test('the width survives a re-render', async () => {
+    click('[data-action="add-enterprise"]')
+    drag(1, 500, 640)
+    assert.equal(widthOf(1), '450px')
+
+    // The event the typical-value picker raises when a choice changes which
+    // boxes exist. It is a full structural render, so a width kept only as an
+    // inline style on the old DOM would go with it.
+    doc.dispatchEvent(new win.CustomEvent('fb:rerender'))
+    assert.equal(widthOf(1), '450px')
+    assert.equal(card(1).classList.contains('sized'), true)
+  })
+
+  test('a dragged width and the Widen preset are never both on one card', async () => {
+    click('[data-action="add-enterprise"]')
+    card(1).querySelector('.ent-wide-btn').click()
+    assert.equal(card(1).classList.contains('wide'), true)
+
+    // Dragging takes the preset off: it is one particular width, and the moment
+    // the edge moves it stops describing the card.
+    drag(1, 500, 700)
+    assert.equal(card(1).classList.contains('wide'), false)
+    assert.equal(card(1).classList.contains('sized'), true)
+    assert.equal(card(1).querySelector('.ent-wide-btn').textContent.trim(), 'Widen')
+
+    // And Widen takes the dragged width off, the same rule pointed the other way.
+    card(1).querySelector('.ent-wide-btn').click()
+    assert.equal(card(1).classList.contains('sized'), false)
+    assert.equal(card(1).style.getPropertyValue('--ent-w'), '')
+    assert.equal(card(1).classList.contains('wide'), true)
+  })
+
+  test('widening one card leaves the other cards their own widths', async () => {
+    click('[data-action="add-enterprise"]')
+    // Add shuts every other card, and a shut card is a fixed tile.
+    card(0).querySelector('[data-action="toggle-enterprise"]').click()
+    drag(0, 500, 700)
+    card(1).querySelector('.ent-wide-btn').click()
+    assert.equal(widthOf(0), '510px', 'the card nobody pressed Widen on kept its edge')
+  })
+
+  test('folding a card gives its width back', async () => {
+    // On a row of columns, folding IS how room is made — so a fold that kept a
+    // hand-set width would be giving with one hand and taking with the other.
+    click('[data-action="add-enterprise"]')
+    drag(1, 500, 700)
+    card(1).querySelector('[data-action="toggle-enterprise"]').click()
+    assert.equal(card(1).classList.contains('sized'), false)
+    assert.equal(card(1).style.getPropertyValue('--ent-w'), '')
+  })
+
+  test('the arrow keys move the same edge', async () => {
+    // Widen is one press and one width. This is what makes every width in
+    // between reachable without a pointer.
+    click('[data-action="add-enterprise"]')
+    const undo = layout()
+    try {
+      handle(1).dispatchEvent(new win.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+      assert.equal(widthOf(1), '350px', 'one step of 40')
+
+      handle(1).dispatchEvent(
+        new win.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, shiftKey: true }),
+      )
+      assert.equal(widthOf(1), '510px', 'shift is four steps')
+
+      handle(1).dispatchEvent(new win.KeyboardEvent('keydown', { key: 'End', bubbles: true }))
+      assert.equal(widthOf(1), '1200px', 'End is the ceiling')
+
+      handle(1).dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Home', bubbles: true }))
+      assert.equal(widthOf(1), '310px', 'Home is the floor')
+    } finally {
+      undo()
+    }
+  })
+
+  test('a key the strip does not use is left to the page', async () => {
+    click('[data-action="add-enterprise"]')
+    const undo = layout()
+    try {
+      const e = new win.KeyboardEvent('keydown', {
+        key: 'Tab',
+        bubbles: true,
+        cancelable: true,
+      })
+      handle(1).dispatchEvent(e)
+      assert.equal(e.defaultPrevented, false)
+      assert.equal(widthOf(1), '')
+    } finally {
+      undo()
+    }
+  })
+
+  test('a cancelled gesture does not leave the grid held', async () => {
+    // The browser can take a gesture away. A card left carrying .resizing would
+    // hold the whole row in user-select: none under a resize cursor until the
+    // next render.
+    click('[data-action="add-enterprise"]')
+    const undo = layout()
+    try {
+      handle(1).dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, clientX: 500 }))
+      assert.equal(card(1).classList.contains('resizing'), true)
+      assert.equal(doc.querySelector('.ent-grid').classList.contains('resizing'), true)
+
+      handle(1).dispatchEvent(new win.PointerEvent('pointercancel', { bubbles: true }))
+      assert.equal(card(1).classList.contains('resizing'), false)
+      assert.equal(doc.querySelector('.ent-grid').classList.contains('resizing'), false)
+    } finally {
+      undo()
+    }
+  })
+
+  test('a new budget starts with every card at the row’s own width', async () => {
+    click('[data-action="add-enterprise"]')
+    drag(1, 500, 700)
+    click('[data-action="go-scenarios"]')
+    click('[data-action="new-scenario"]')
+    assert.equal(doc.querySelectorAll('.ent.sized').length, 0)
+  })
+
+  test('the stylesheet clamps the width at both ends, whatever the drag says', async () => {
+    // The half that cannot go wrong. The floor is .ent's own min-width and the
+    // ceiling is 100% of the row, which is the width of the fixed-cost and
+    // results sections below it.
+    const css = sheet()
+    const rule = css.match(/\n {2}\.ent\.sized:not\(\.collapsed\) \{([^}]*)\}/)
+    assert.ok(rule, 'scoped :not(.collapsed), so folding still wins')
+    assert.match(rule[1], /flex: 0 0 var\(--ent-w\);/)
+    assert.match(rule[1], /max-width: 100%;/)
+
+    // Written after the preset, so it wins on equal specificity.
+    assert.ok(
+      css.indexOf('.ent.sized:not(.collapsed)') > css.indexOf('.ent.wide:not(.collapsed)'),
+    )
+  })
+
+  test('the stylesheet declares the strip touch-action: none, up front', async () => {
+    // The rule .scn-grip already follows: a gesture the browser decides is a
+    // scroll fires pointercancel and cannot be claimed back afterwards.
+    const css = sheet()
+    const rule = css.match(/\n {2}\.ent:not\(\.collapsed\) \.ent-resize \{([^}]*)\}/)
+    assert.ok(rule)
+    assert.match(rule[1], /touch-action: none;/)
+    assert.match(rule[1], /cursor: col-resize;/)
+  })
+})
+
+/**
+ * The row's horizontal scrollbar, moved above the cards.
+ *
+ * Scrollbar position is not stylable, so this is a second scroller kept in step
+ * with the real one. jsdom reports every measurement as 0, so the row never
+ * overflows there — what can be proved is the markup, the stylesheet, and that
+ * the two scroll positions follow each other.
+ */
+describe('the scrollbar for the row of cards sits above it', () => {
+  beforeEach(async () => {
+    await boot()
+  })
+
+  test('the bar is the last thing in the wrapper, and is not read out', async () => {
+    // Last, because it is stuck to the bottom of the screen: in flow it belongs
+    // at the foot of the row it scrolls, and sticky lifts it from there.
+    const wrap = doc.querySelector('.ent-scroll-wrap')
+    assert.ok(wrap)
+    const kids = [...wrap.children]
+    assert.equal(kids[0].getAttribute('data-ent-scroller'), '')
+    assert.equal(kids[1].getAttribute('data-ent-scrollbar'), '')
+    assert.equal(kids[1].getAttribute('aria-hidden'), 'true', 'it duplicates a control')
+    // A browser makes a scrollable box with no focusable children a tab stop of
+    // its own, and a tab stop inside aria-hidden announces nothing when it is
+    // reached. The cards above it are the control, reached the ordinary way.
+    assert.equal(kids[1].getAttribute('tabindex'), '-1')
+  })
+
+  test('it is stuck clear of the sticky bar, by a height that is measured', async () => {
+    // Above the cards it went off the top of the screen the moment the producer
+    // scrolled into the card they were filling in. Stuck, it rides above the
+    // sticky bar for as long as any part of the row is in view.
+    //
+    // The offset cannot be a literal: the bar holds two lines of figures beside
+    // a button, and its height moves with the type size, the font choice and a
+    // phone's safe-area inset. The fallback is a plausible bar rather than 0, so
+    // a browser that never runs the measurement still clears it.
+    const css = sheet()
+    const rule = css.match(/\n\.ent-scroll-top\[data-overflowing\] \{([^}]*)\}/)
+    assert.ok(rule)
+    assert.match(rule[1], /position: sticky;/)
+    assert.match(rule[1], /bottom: calc\(var\(--sticky-h, 66px\) \+ 6px\);/)
+    // Under the sticky bar's 40 and the overlay's 100, over the cards' none.
+    assert.match(rule[1], /z-index: 30;/)
+    // Stuck, it floats over card text, so it carries the page's own ground.
+    assert.match(rule[1], /background: var\(--bg\);/)
+  })
+
+  test('scrolling either one carries the other with it', async () => {
+    const bar = doc.querySelector('[data-ent-scrollbar]')
+    const scroller = doc.querySelector('[data-ent-scroller]')
+
+    scroller.scrollLeft = 240
+    scroller.dispatchEvent(new win.Event('scroll'))
+    assert.equal(bar.scrollLeft, 240)
+
+    bar.scrollLeft = 80
+    bar.dispatchEvent(new win.Event('scroll'))
+    assert.equal(scroller.scrollLeft, 80)
+  })
+
+  test('a row that fits shows no bar and keeps its own', async () => {
+    // Nothing measures in jsdom, so the row never overflows: this is the
+    // resting state, and it is the one that must not paint a control over
+    // nothing or take the real scrollbar away.
+    const bar = doc.querySelector('[data-ent-scrollbar]')
+    const scroller = doc.querySelector('[data-ent-scroller]')
+    assert.equal(bar.hasAttribute('data-overflowing'), false)
+    assert.equal(scroller.hasAttribute('data-top-scrollbar'), false)
+  })
+
+  test('the stylesheet hides the native bar only once this one is installed', async () => {
+    // The attribute is written by main.js after it has sized the strip, so
+    // anything failing there leaves the app exactly as it was rather than
+    // leaving the far cards unreachable.
+    const css = sheet()
+    assert.match(css, /\n\.ent-scroll-top \{\n {2}display: none;\n\}/)
+    assert.match(css, /\n\.ent-scroll-top\[data-overflowing\] \{[^}]*display: block;/)
+    assert.match(css, /\n\.ent-scroller\[data-top-scrollbar\] \{\n {2}scrollbar-width: none;\n\}/)
+    assert.match(
+      css,
+      /\n\.ent-scroller\[data-top-scrollbar\]::-webkit-scrollbar \{\n {2}display: none;\n\}/,
+    )
+    // A scrollbar is drawn inside the padding box, so an auto height would
+    // squeeze it into the 1px strip it is scrolling. The few px above the bar
+    // are what separate it from the card text it is stuck over.
+    assert.match(css, /\n\.ent-scroll-top\[data-overflowing\] \{[^}]*height: 22px;/)
+  })
+
+  test('it does not print', async () => {
+    // Paper has no overflow to scroll: the cards run down the page.
+    const css = sheet()
+    const print = css.slice(css.lastIndexOf('@media print'))
+    assert.match(
+      print,
+      /\n {2}\.ent-scroll-top,\n {2}\.ent-resize \{\n {4}display: none !important;\n {2}\}/,
+    )
+  })
+})
+
 describe('only a real change marks a budget unsaved', () => {
   beforeEach(async () => {
     await boot()

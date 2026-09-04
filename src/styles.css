@@ -1491,8 +1491,85 @@ input.invalid {
   margin-top: 14px;
 }
 
-.ent-scroller {
+.ent-scroll-wrap {
   margin-bottom: 16px;
+}
+
+/* The row's horizontal scrollbar, stuck above the sticky bar.
+   ----------------------------------------------------------
+   The browser draws it at the bottom of the scroller, which is the bottom of
+   the tallest card — a screen and a half below the row on a card that is open.
+   Moving it above the cards fixed that and broke the other half: it went off
+   the top of the screen the moment the producer scrolled into the card they
+   were filling in, which is exactly when the row needs scrolling.
+
+   So it is neither. It is the last thing in the wrapper and STICKY, riding just
+   above the sticky bar for as long as any part of the row is on screen, and
+   scrolling away with the wrapper once the producer has moved on to the fixed
+   costs. `bottom` is measured rather than guessed: main.js writes --sticky-h
+   from the bar's real height, which moves with the type size, the font choice
+   and the phone's safe area. The fallback is a plausible bar, never 0, so a
+   browser that never runs the measurement still clears it.
+
+   Scrollbar position is not stylable, so this is a second scroller holding
+   nothing but a strip as wide as the grid. main.js sizes the strip and keeps the
+   two scroll positions in step; the real scroller keeps its own native bar until
+   that has actually happened, so a failure leaves the app exactly as it was
+   rather than leaving the far cards unreachable.
+
+   An explicit height rather than none: a scrollbar is drawn INSIDE the padding
+   box, so an auto-height box holding a 1px strip would squeeze the bar into 1px.
+   22px holds the tallest classic bar on the platforms this runs on and leaves a
+   few pixels of page colour above it, which is what separates a bar floating
+   over a card from the card's own contents. The background is the page's, for
+   the same reason: stuck, it is over the cards.
+
+   z-index 30 sits under the sticky bar's 40 and the overlay's 100, and over the
+   cards, which claim none. */
+.ent-scroll-top {
+  display: none;
+}
+
+.ent-scroll-top[data-overflowing] {
+  display: block;
+  position: sticky;
+  bottom: calc(var(--sticky-h, 66px) + 6px);
+  z-index: 30;
+  height: 22px;
+  overflow-x: scroll;
+  overflow-y: hidden;
+  background: var(--bg);
+  /* Stuck, the band is over card text, and a strip of page colour with no edge
+     to it reads as a slice cut out of the card rather than something floating
+     in front of it. A literal at a low alpha, the same decision the exporter
+     panel makes and for the same reason: the shadow is cast ONTO the page, so
+     it is black in both themes. */
+  box-shadow: 0 -4px 6px -4px rgba(0, 0, 0, 0.18);
+}
+
+.ent-scroll-fill {
+  height: 1px;
+}
+
+.ent-scroller[data-top-scrollbar] {
+  scrollbar-width: none;
+}
+
+.ent-scroller[data-top-scrollbar]::-webkit-scrollbar {
+  display: none;
+}
+
+/* Widen is a desktop control: below 900px the cards are full-width accordions
+   already. display: none takes it out of the accessible name as well as off the
+   page, so a phone is never offered a control that would do nothing. It is also
+   hidden on a shut card, which is a fixed tile.
+
+   The drag strip down the card's right edge is the same control by hand and
+   follows the same rule. Both are display: none here and shown again inside the
+   >=900px block. */
+.ent-wide-btn,
+.ent-resize {
+  display: none;
 }
 
 /* `minmax(0, 1fr)`, not the `1fr` this had.
@@ -3780,6 +3857,107 @@ body.modal-open {
        12px text plus their leading is about 34px, and the tile clips rather
        than growing — so this is set with a little room to spare. */
     --fold-h: 138px;
+    /* The Add tile's width, declared here because .ent.wide has to subtract it.
+       A widened card is the width the row gives one enterprise, and one
+       enterprise shares the row with the Add tile and a single gap. Two
+       literals that had to agree is how they stop agreeing. */
+    --add-w: 220px;
+  }
+
+  /* Widen: one open card taking the width it would have if it were the only
+     enterprise, with the rest of the row pushed out to scroll.
+     -----------------------------------------------------------------------
+     Four columns at 310px is the layout for comparing enterprises. It is not
+     the layout for filling one in, where fifteen expense lines, a mode pill and
+     a "use typical value" link are all sharing a third of the screen — and a
+     producer working down one crop wants the room a one-enterprise budget gets.
+
+     flex-grow AND flex-shrink are 0. Grow would let it swallow the leftover
+     space when the rest of the row is short, which is a different width from
+     the one this promises; shrink would give the room straight back the moment
+     the row overflowed, which is exactly when it was asked for.
+
+     :not(.collapsed) so folding wins without depending on which rule is written
+     last — a shut card is a fixed tile at every width, whatever else is set on
+     it. main.js drops the state on a fold anyway; this is the belt. */
+  .ent.wide:not(.collapsed) {
+    flex: 0 0 calc(100% - var(--add-w) - 14px);
+  }
+
+  /* A width dragged out by hand, written as --ent-w by main.js.
+     ---------------------------------------------------------
+     Written AFTER .ent.wide so it wins on equal specificity, though main.js
+     never sets both on one card: a hand-set width replaces the preset, which
+     was one particular width and no longer describes the card.
+
+     Both limits are enforced here as well as in the drag, and that is the half
+     that cannot go wrong. The floor is .ent's own min-width, so the narrowest a
+     dragged card can be is the narrowest the row makes one anyway. The ceiling
+     is 100% — the width of the fixed-cost and results sections below, since
+     those are full-width blocks in the same container — so a card can be
+     dragged out to match them and no further. */
+  .ent.sized:not(.collapsed) {
+    flex: 0 0 var(--ent-w);
+    max-width: 100%;
+  }
+
+  .ent:not(.collapsed) .ent-wide-btn {
+    display: block;
+  }
+
+  /* The strip itself is invisible and 10px wide: a target, not a decoration.
+     What is drawn is the ::after pill, on hover, on keyboard focus, and for the
+     whole of a drag — an edge that says it can be taken hold of only while
+     somebody is reaching for it. */
+  .ent:not(.collapsed) .ent-resize {
+    display: block;
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 10px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    cursor: col-resize;
+    border-radius: 0 var(--radius) var(--radius) 0;
+    /* Declared up front and scoped to the strip, the same rule .scn-grip
+       follows: a gesture the browser may decide is a scroll fires pointercancel
+       and cannot be claimed back afterwards. */
+    touch-action: none;
+  }
+
+  .ent:not(.collapsed) .ent-resize::after {
+    content: '';
+    position: absolute;
+    top: 14px;
+    bottom: 14px;
+    right: 3px;
+    width: 3px;
+    border-radius: 2px;
+    background: var(--border);
+    opacity: 0;
+    transition: opacity 0.12s ease;
+  }
+
+  .ent:not(.collapsed) .ent-resize:hover::after,
+  .ent:not(.collapsed) .ent-resize:focus-visible::after,
+  .ent.resizing .ent-resize::after {
+    opacity: 1;
+  }
+
+  .ent:not(.collapsed) .ent-resize:focus-visible {
+    outline: 2px solid var(--brand-ink);
+    outline-offset: -2px;
+  }
+
+  /* While an edge is being dragged the pointer is over card text, and a drag
+     across text selects it. The cursor is set on the whole grid so it does not
+     flicker back to a caret the moment the pointer leaves the 10px strip.
+     A class written by main.js rather than :has(), which this app cannot assume. */
+  .ent-grid.resizing {
+    user-select: none;
+    cursor: col-resize;
   }
 
   .ent.collapsed {
@@ -3830,8 +4008,8 @@ body.modal-open {
   }
 
   .ent-add {
-    flex: 0 0 220px;
-    min-width: 220px;
+    flex: 0 0 var(--add-w);
+    min-width: var(--add-w);
   }
 
   .fixed-grid,
@@ -4710,6 +4888,14 @@ body.modal-open {
   .modal-body {
     overflow: visible !important;
     max-height: none !important;
+  }
+
+  /* The row's scrollbar and the drag strip are controls, and controls do not
+     print. Paper has no overflow to scroll: the cards run down the page, at
+     whatever width the sheet is, so a hand-set width does not travel either. */
+  .ent-scroll-top,
+  .ent-resize {
+    display: none !important;
   }
 
   /* One enterprise per block, down the page. Four columns across a sheet of

@@ -98,6 +98,47 @@ let fixedCollapsed = false
 let collapseDefaultsApplied = false
 
 /**
+ * Which card, if any, is blown up to full width, by enterprise id.
+ *
+ * One id rather than a set: widening means "give this card the width a single
+ * enterprise gets", and two cards cannot both have that. Widening a second
+ * narrows the first, which is what a producer working down one crop at a time
+ * is asking for.
+ *
+ * UI state for the same reason the folds above are, and dropped wherever a
+ * different budget becomes the one on screen: an id from the last farm would
+ * match nothing, or match by coincidence.
+ */
+let wideEnterprise = ''
+
+/**
+ * A width in px per enterprise id, for cards whose right edge has been dragged.
+ *
+ * Exclusive with `wideEnterprise` on any one card, in both directions: a hand-set
+ * width replaces the preset, because the preset is one particular width and
+ * stops describing the card the moment the edge moves, and pressing Widen drops
+ * the hand-set width for the same reason pointed the other way.
+ *
+ * UI state, like the folds and the preset above. A column width is not a fact
+ * about the farm, it does not travel into an exported budget, and it must never
+ * mark one unsaved.
+ */
+const entWidths = new Map()
+
+/**
+ * The narrowest a card may be dragged, if the stylesheet cannot be read.
+ *
+ * The real floor is `.ent`'s own `min-width`, which the browser enforces on the
+ * flex basis whatever this says — so this is only the number the drag clamps
+ * against, and it is the same one, kept here for a page with no computed style
+ * to ask.
+ */
+const ENT_MIN_W = 310
+
+/** How far one arrow press moves a card's edge. Shift multiplies it by four. */
+const ENT_RESIZE_STEP = 40
+
+/**
  * What is typed in the Saved tab's filter box.
  *
  * UI state for the same reason the folds above are: which budgets a producer is
@@ -351,7 +392,7 @@ function render() {
     applyCollapseDefaults(scenario)
     app.innerHTML =
       header() +
-      renderEnterprises(scenario, collapsedEnterprises, unitNotices) +
+      renderEnterprises(scenario, collapsedEnterprises, unitNotices, wideEnterprise, entWidths) +
       renderFixed(scenario, fixedCollapsed, fixedNotice) +
       renderResults(calcScenario(scenario)) +
       footer() +
@@ -362,6 +403,12 @@ function render() {
   updateStatus()
   sizeNameInputs()
   sizeEntNames()
+  // The row of cards is new DOM, so its scrollbar and the observer watching it
+  // are re-established here rather than surviving the render. The bar is stuck
+  // above the sticky bar, so it has to know how tall that is.
+  watchEntScrollbar()
+  sizeStickyBar()
+  syncEntScrollbar()
   // A no-op on every screen but the saved list. The filter survives a render,
   // so a list rebuilt underneath it has to be re-filtered to match the box.
   applyScenarioFilter()
@@ -601,6 +648,353 @@ function sizeEntNames() {
   // on the name the column was sized FOR.
   const w = Math.min(Math.max(widest + 1, ENT_NAME_MIN), ENT_NAME_MAX)
   grid.style.setProperty('--ent-name-w', `${w}px`)
+}
+
+/* ───────────────── the row of cards: width and its scrollbar ───────────── */
+
+/**
+ * Write the sticky bar's real height, so the scrollbar can sit clear of it.
+ *
+ * A literal would be wrong on somebody else's screen: the bar holds two lines of
+ * figures beside a button, and its height moves with the type size, the font
+ * choice, and a phone's safe-area inset. The stylesheet carries a plausible
+ * fallback rather than 0, so a browser that never reaches this still clears the
+ * bar instead of hiding the scrollbar behind it.
+ *
+ * No bar on this screen means no write: the saved list and the compare view have
+ * none, and the fallback is the right answer there anyway.
+ *
+ * Compared before it is written, for the reason syncEntScrollbar() is: the same
+ * observer sees both, and an unconditional write would set them going round.
+ */
+function sizeStickyBar() {
+  const bar = app.querySelector('.sticky-bar')
+  if (!bar?.getBoundingClientRect) return
+
+  const h = Math.round(bar.getBoundingClientRect().height)
+  // jsdom measures everything as 0. No layout available means no write, and the
+  // stylesheet's fallback stands — the same rule sizeEntNames() follows.
+  if (!h) return
+
+  const px = `${h}px`
+  if (app.style.getPropertyValue('--sticky-h') !== px) app.style.setProperty('--sticky-h', px)
+}
+
+/**
+ * Give the strip above the cards the width of the row, and keep the two scroll
+ * positions in step.
+ *
+ * The bar and the real scroller are two elements, so the browser scrolls
+ * whichever one the producer used and this carries it to the other. It appears
+ * only while the row actually overflows — a bar that scrolls nothing is a
+ * control that does nothing — and the real scroller keeps its own native bar
+ * until this one is in place, so nothing here failing can leave the far cards
+ * unreachable.
+ *
+ * Every write is compared first. A ResizeObserver watches both elements, and
+ * hiding the scroller's own bar changes its height, which the observer sees:
+ * writing unconditionally would set that going round again.
+ *
+ * jsdom reports every measurement as 0, so the row never overflows there and
+ * this does nothing. That is correct, not a gap — it is cosmetic in every case.
+ */
+function syncEntScrollbar() {
+  const bar = app.querySelector('[data-ent-scrollbar]')
+  const scroller = app.querySelector('[data-ent-scroller]')
+  if (!bar || !scroller) return
+
+  // A pixel of slack: a fractional layout can report a scrollWidth a hair over
+  // clientWidth on a row that fits, and a scrollbar over nothing would flicker.
+  //
+  // Wide screens only, and that is not tidiness. Below 900px the cards stack and
+  // the scroller has no overflow-x at all, so a bar installed there would hide
+  // the real one to scroll something that does not scroll.
+  const width = scroller.scrollWidth
+  const need = !isNarrow() && width > scroller.clientWidth + 1
+
+  const fill = bar.firstElementChild
+  const px = `${width}px`
+  if (fill && fill.style.width !== px) fill.style.width = px
+
+  if (bar.hasAttribute('data-overflowing') !== need) bar.toggleAttribute('data-overflowing', need)
+  if (scroller.hasAttribute('data-top-scrollbar') !== need) {
+    scroller.toggleAttribute('data-top-scrollbar', need)
+  }
+  if (need && bar.scrollLeft !== scroller.scrollLeft) bar.scrollLeft = scroller.scrollLeft
+}
+
+/**
+ * Re-point the observer at the row of cards this render just built.
+ *
+ * Folding a card, widening one, and resizing the window all change whether the
+ * row overflows, and none of them is a render. An observer on both boxes covers
+ * every one of them, including the ones nobody has thought of yet — the folds
+ * call syncEntScrollbar() directly as well, for a browser that has none.
+ *
+ * The observer is kept and re-targeted rather than replaced: it goes on
+ * observing detached nodes otherwise, one row of cards per render.
+ */
+let entResizeObserver = null
+
+function watchEntScrollbar() {
+  const view = app.ownerDocument?.defaultView
+  if (typeof view?.ResizeObserver !== 'function') return
+
+  entResizeObserver?.disconnect()
+
+  const scroller = app.querySelector('[data-ent-scroller]')
+  const grid = scroller?.querySelector('.ent-grid')
+  if (!scroller || !grid) return
+
+  entResizeObserver ??= new view.ResizeObserver(() => {
+    // Order matters by one frame, not by correctness: the bar's height decides
+    // where the scrollbar sits, so it is measured before the scrollbar is asked
+    // whether it should be on screen at all.
+    sizeStickyBar()
+    syncEntScrollbar()
+  })
+  entResizeObserver.observe(scroller)
+  entResizeObserver.observe(grid)
+  // The sticky bar grows and shrinks with the type size and the window, and the
+  // scrollbar's `bottom` is measured off it.
+  const sticky = app.querySelector('.sticky-bar')
+  if (sticky) entResizeObserver.observe(sticky)
+}
+
+/**
+ * Scroll events do not bubble, so this is a capturing listener on the app
+ * rather than a pair re-attached on every render.
+ *
+ * The guard is for the synchronous case only. Assigning a scrollLeft that is
+ * already there fires nothing, so the echo stops on its own after one hop.
+ */
+let syncingEntScroll = false
+
+app.addEventListener(
+  'scroll',
+  (e) => {
+    if (syncingEntScroll) return
+
+    // The target is tested before anything is looked up: this fires for every
+    // scroll anywhere in the app — a modal body, a wide results table — and all
+    // but two of them have nothing to do here.
+    const from = e.target
+    const isBar = from?.hasAttribute?.('data-ent-scrollbar')
+    if (!isBar && !from?.hasAttribute?.('data-ent-scroller')) return
+
+    const to = app.querySelector(isBar ? '[data-ent-scroller]' : '[data-ent-scrollbar]')
+    if (!to) return
+
+    syncingEntScroll = true
+    to.scrollLeft = from.scrollLeft
+    syncingEntScroll = false
+  },
+  true,
+)
+
+/**
+ * Put a card's left edge at the left edge of the row.
+ *
+ * Widening a card that had scrolled off to the right leaves it wider than the
+ * viewport and still off the side, so the press reads as having done nothing.
+ * Measured off the two boxes rather than scrollIntoView, which would scroll the
+ * PAGE as well and take the card's top edge somewhere nobody asked for.
+ */
+function scrollCardToRowStart(card) {
+  const scroller = card?.closest?.('[data-ent-scroller]')
+  if (!scroller?.getBoundingClientRect) return
+  scroller.scrollLeft += card.getBoundingClientRect().left - scroller.getBoundingClientRect().left
+}
+
+/**
+ * Where a card's right edge may be dragged to.
+ *
+ * The floor is the card's own `min-width`, read off the stylesheet rather than
+ * repeated here — it is the narrowest the row makes a card anyway, which is what
+ * the request asked for and what the browser will enforce on the flex basis
+ * whatever this returns.
+ *
+ * The ceiling is the row's own width, which is the width of the fixed-cost and
+ * results sections below it: those are full-width blocks in the same container,
+ * so a card dragged to the ceiling lines up with them exactly.
+ */
+function entWidthBounds(card, grid) {
+  const win = view()
+  const min = parseFloat(win.getComputedStyle?.(card)?.minWidth) || ENT_MIN_W
+  const max = grid.clientWidth || min
+  return { min, max: Math.max(min, max) }
+}
+
+/**
+ * Give one card an explicit width, in place.
+ *
+ * A custom property rather than a class per width, and in place rather than
+ * through render(): this runs on every pointermove of a drag, and a render there
+ * would replace the card under the pointer holding its edge.
+ *
+ * Writing a width DROPS the preset on that card. Widen means one particular
+ * width, and the moment the edge moves it is describing something that is no
+ * longer true — the button would offer to "Narrow" a card the producer had just
+ * narrowed by hand.
+ */
+function setEntWidth(card, w) {
+  const id = card.getAttribute('data-ent-id')
+  const px = Math.round(w)
+  entWidths.set(id, px)
+  card.style.setProperty('--ent-w', `${px}px`)
+  card.classList.add('sized')
+  if (wideEnterprise === id) setWideCard('')
+}
+
+/**
+ * Put a card back to the width the row gives it.
+ *
+ * Both halves, because they are two ways of saying one thing and a card must
+ * never carry both. Used by the fold, by Widen, and by Remove.
+ */
+function clearEntWidth(card) {
+  if (!card) return
+  entWidths.delete(card.getAttribute('data-ent-id'))
+  card.classList.remove('sized')
+  card.style.removeProperty('--ent-w')
+}
+
+/**
+ * The edge being dragged, or null.
+ *
+ * `startW` is measured once, at pointerdown, and every move is that plus the
+ * distance travelled — never the card's current width plus a delta, which
+ * accumulates its own rounding and drifts away from the pointer over a long
+ * drag.
+ */
+let entResize = null
+
+/**
+ * Unlike the saved list's row drag, this does its work IN the move handler
+ * rather than in a frame loop.
+ *
+ * That drag needed a loop because a finger held still fires no events and the
+ * edge-scroll had to keep going without one. Nothing here has to happen while
+ * the pointer is still, and the handler reads no layout — the new width is
+ * arithmetic on two numbers taken at pointerdown — so there is nothing to batch.
+ * The ResizeObserver picks the scrollbar up a frame later, once per frame.
+ */
+app.addEventListener('pointerdown', (e) => {
+  const handle = e.target.closest?.('[data-ent-resize]')
+  if (!handle) return
+
+  const card = handle.closest('.ent')
+  const grid = card?.closest('.ent-grid')
+  // Below 900px the cards stack full width and the strip is display: none, so
+  // this cannot be reached by a pointer. It is checked anyway, because a card
+  // that is shut is a fixed tile at every width and must not be dragged.
+  if (!card || !grid || card.classList.contains('collapsed') || isNarrow()) return
+
+  e.preventDefault()
+  const { min, max } = entWidthBounds(card, grid)
+  entResize = { card, grid, min, max, startX: e.clientX, startW: card.getBoundingClientRect().width }
+
+  card.classList.add('resizing')
+  grid.classList.add('resizing')
+  // The pointer leaves the 10px strip on the first move of any speed. Capture
+  // keeps the events coming to the handle, so the drag survives crossing the
+  // card's own text and the gap to the next card.
+  handle.setPointerCapture?.(e.pointerId)
+})
+
+app.addEventListener('pointermove', (e) => {
+  if (!entResize) return
+  const { card, min, max, startX, startW } = entResize
+  setEntWidth(card, Math.min(Math.max(startW + (e.clientX - startX), min), max))
+})
+
+/**
+ * End the drag.
+ *
+ * `pointercancel` as well as `pointerup`: the browser can take a gesture away —
+ * a system gesture, a window losing focus — and a card left carrying `.resizing`
+ * would hold the whole grid in `user-select: none` with a resize cursor over it
+ * until the next render.
+ */
+function endEntResize() {
+  if (!entResize) return
+  entResize.card.classList.remove('resizing')
+  entResize.grid.classList.remove('resizing')
+  entResize = null
+  syncEntScrollbar()
+}
+
+app.addEventListener('pointerup', endEntResize)
+app.addEventListener('pointercancel', endEntResize)
+
+/**
+ * The same edge, from the keyboard.
+ *
+ * The strip is a real button and this is what makes it one. Widen gives the one
+ * width in a single press and is still the quickest way there; the arrows are
+ * what make every width in between reachable without a pointer, and Home and End
+ * are the two limits.
+ *
+ * The current width is measured rather than read from `entWidths`, because a
+ * card that has never been dragged has no entry and the row's own width for it
+ * is the only honest starting point.
+ */
+app.addEventListener('keydown', (e) => {
+  const handle = e.target.closest?.('[data-ent-resize]')
+  if (!handle) return
+
+  const card = handle.closest('.ent')
+  const grid = card?.closest('.ent-grid')
+  if (!card || !grid || card.classList.contains('collapsed')) return
+
+  const { min, max } = entWidthBounds(card, grid)
+  const step = e.shiftKey ? ENT_RESIZE_STEP * 4 : ENT_RESIZE_STEP
+  const now = card.getBoundingClientRect().width || min
+
+  let next = null
+  if (e.key === 'ArrowRight') next = now + step
+  else if (e.key === 'ArrowLeft') next = now - step
+  else if (e.key === 'Home') next = min
+  else if (e.key === 'End') next = max
+  if (next === null) return
+
+  // Or ArrowLeft and ArrowRight scroll the row underneath the card being sized.
+  e.preventDefault()
+  setEntWidth(card, Math.min(Math.max(next, min), max))
+  syncEntScrollbar()
+})
+
+/**
+ * Mark one card wide and every other one narrow, in place.
+ *
+ * In place rather than through render(), for the reason toggle-enterprise is:
+ * a render would replace the button under the finger that pressed it and take
+ * the focus ring with it, and nothing about a width is structural.
+ *
+ * The word on the button changes as well as aria-pressed, because on a row that
+ * has scrolled sideways the card it belongs to may be the only one on screen,
+ * and the widths of its neighbours are then no clue at all.
+ *
+ * @param {string} id  the card to widen, or '' to narrow them all
+ */
+function setWideCard(id) {
+  wideEnterprise = id
+  for (const el of app.querySelectorAll('.ent[data-ent-id]')) {
+    const on = Boolean(id) && el.getAttribute('data-ent-id') === id
+    // The preset and a hand-set width are two ways of saying one thing, and the
+    // one being asked for wins. Cleared on the card being widened only: the
+    // others keep whatever their edges were dragged to.
+    if (on) clearEntWidth(el)
+    el.classList.toggle('wide', on)
+
+    const btn = el.querySelector('.ent-wide-btn')
+    if (!btn) continue
+    const word = on ? 'Narrow' : 'Widen'
+    btn.textContent = word
+    btn.setAttribute('aria-pressed', String(on))
+    btn.setAttribute('aria-label', `${word} ${el.querySelector('.ent-name')?.textContent.trim() ?? ''}`)
+  }
+  syncEntScrollbar()
 }
 
 function footer() {
@@ -2106,6 +2500,11 @@ function handleAction(action, btn) {
       // Shut them BEFORE pushing, or the new enterprise — not yet in
       // collapsedEnterprises, so counted as open — is shut along with them.
       scenario.enterprises.forEach((e) => collapsedEnterprises.add(e.id))
+      // Whatever was blown up to full width has just been shut, and a shut card
+      // is a fixed tile. Carrying the state would widen it again the moment it
+      // was reopened, a page and a press later, with nothing to explain it.
+      wideEnterprise = ''
+      entWidths.clear()
       const added = newEnterprise()
       scenario.enterprises.push(added)
       notify()
@@ -2119,6 +2518,8 @@ function handleAction(action, btn) {
       const removed = scenario.enterprises[i]
       if (!confirm(`Remove ${enterpriseLabel(removed, i)} and everything entered for it?`)) return
       collapsedEnterprises.delete(removed?.id)
+      if (wideEnterprise === removed?.id) wideEnterprise = ''
+      entWidths.delete(removed?.id)
       scenario.enterprises.splice(i, 1)
       if (!scenario.enterprises.length) scenario.enterprises.push(newEnterprise())
       notify()
@@ -2135,6 +2536,35 @@ function handleAction(action, btn) {
       btn.setAttribute('aria-expanded', String(!shut))
       const label = card.querySelector('.ent-name')?.textContent ?? ''
       btn.setAttribute('aria-label', `${shut ? 'Expand' : 'Collapse'} ${label}`)
+      // Shutting a card gives its width back, whether it was the preset or an
+      // edge dragged out by hand. A shut card is a fixed tile, so the state
+      // would be invisible until the card was next opened and arrive
+      // unexplained — and on a row of columns, folding IS how room is made.
+      if (shut) {
+        clearEntWidth(card)
+        if (wideEnterprise === id) setWideCard('')
+      }
+      // Folding changes how much room the row wants, which decides whether the
+      // bar above it is there at all. A fold is not a render, so nothing else
+      // would notice.
+      else syncEntScrollbar()
+      break
+    }
+
+    /**
+     * Widen: the width a single enterprise gets, for the card being worked on.
+     *
+     * Exclusive, so widening a second card narrows the first — setWideCard()
+     * sweeps every card rather than toggling the one that was pressed.
+     */
+    case 'toggle-ent-width': {
+      const card = btn.closest('.ent')
+      const id = card.getAttribute('data-ent-id')
+      const next = wideEnterprise === id ? '' : id
+      setWideCard(next)
+      // A card that had scrolled off to the right is now wider than the screen
+      // and still off it, so the press would read as having done nothing.
+      if (next) scrollCardToRowStart(card)
       break
     }
 
@@ -2302,6 +2732,8 @@ function handleAction(action, btn) {
       screen = 'build'
       collapsedEnterprises.clear()
       collapseDefaultsApplied = false
+      wideEnterprise = ''
+      entWidths.clear()
       scenarioIsNew = true
       scenarioSaved = false
       render()
@@ -2318,6 +2750,8 @@ function handleAction(action, btn) {
         screen = 'build'
         collapsedEnterprises.clear()
         collapseDefaultsApplied = false
+        wideEnterprise = ''
+        entWidths.clear()
         scenarioIsNew = false
         scenarioSaved = true
         // getScenario(), NOT the `scenario` this handler captured on entry:
@@ -2351,6 +2785,8 @@ function handleAction(action, btn) {
       screen = 'build'
       collapsedEnterprises.clear()
       collapseDefaultsApplied = false
+      wideEnterprise = ''
+      entWidths.clear()
       scenarioIsNew = false
       scenarioSaved = true
       // A copy is a budget that arrived in the list without a save being
@@ -3319,6 +3755,8 @@ function importFromFile() {
     screen = 'build'
     collapsedEnterprises.clear()
     collapseDefaultsApplied = false
+    wideEnterprise = ''
+    entWidths.clear()
     scenarioIsNew = false
     scenarioSaved = true
     // Same reasoning as a duplicate: the budget is in the list and on screen
@@ -3467,6 +3905,8 @@ document.addEventListener('fb:rerender', (e) => {
 document.addEventListener('fb:fontchange', () => {
   sizeNameInputs()
   sizeEntNames()
+  // A mono card is wider, so a row that fitted may not any more.
+  syncEntScrollbar()
 })
 
 /** Last line of defence against losing a budget by closing the tab. */
