@@ -923,7 +923,7 @@ export function importBackupJSON(text) {
     return {
       ok: false,
       error: Array.isArray(parsed.enterprises)
-        ? 'That file holds one budget, not a backup. Use "upload a budget file" to bring it in alongside what you already have.'
+        ? 'That file holds one budget, not a backup. Use "upload a budget file" to add italongside what you already have.'
         : 'That file is not a backup of your saved budgets.',
     }
   }
@@ -1068,7 +1068,7 @@ export function importScenarioJSON(text) {
     return {
       ok: false,
       error:
-        'That file is a backup of a whole Saved tab, not one budget. Use "Restore backup" to bring it in.',
+        'That file is a backup of a whole Saved tab, not one budget. Use "Restore backup" to add it.',
     }
   }
   if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.enterprises)) {

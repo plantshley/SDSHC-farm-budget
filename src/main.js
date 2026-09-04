@@ -482,7 +482,7 @@ function shareToggle() {
     <button type="button" class="share-toggle" role="switch"
       aria-checked="${on}" data-action="toggle-share"
       aria-label="Share my budgets with the South Dakota Soil Health Coalition"
-      title="${on ? 'Sharing is on. Saved budgets are sent to the Coalition.' : 'Sharing is off. Nothing is sent.'}">
+      title="${on ? 'Sharing is on. Saved budgets are sent to the Coalition.' : 'Sharing is off. No data is sent.'}">
       <span class="share-dot" aria-hidden="true"></span>Share
     </button>`
 }
