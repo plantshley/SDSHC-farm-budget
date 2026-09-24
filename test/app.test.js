@@ -969,6 +969,14 @@ describe('saving, duplicating and comparing', () => {
     assert.equal(doc.querySelectorAll('.scn').length, 0)
   })
 
+  test('a new budget has no scenario year, and says so rather than suggesting one', () => {
+    // The current year as a placeholder read as a year the app had picked, and
+    // a 2027 plan is routinely built in 2026.
+    const year = doc.getElementById('scenarioYear')
+    assert.equal(year.value, '')
+    assert.equal(year.placeholder, '(none)')
+  })
+
   test('a new budget has no name, and the box asks for one', () => {
     // Every field starts blank. A default name was a value nobody chose, and
     // most shared budgets arrived carrying it, indistinguishable by name.

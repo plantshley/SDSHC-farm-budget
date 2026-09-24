@@ -478,7 +478,7 @@ function header() {
              <input id="scenarioYear" class="scenario-year" type="number"
                inputmode="numeric" step="1" data-path="scenarioYear"
                value="${esc(scenario.scenarioYear ?? '')}"
-               placeholder="${new Date().getFullYear()}" />
+               placeholder="(none)" />
            </span>
          </div>`
       : ''

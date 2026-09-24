@@ -955,11 +955,12 @@ input.invalid {
   white-space: nowrap;
 }
 
-/* Wide enough for four bold digits AND the padding and border, because `*` sets
-   box-sizing: border-box and the width therefore has to cover all three. At
-   5.5ch it covered about thirty pixels of content and cut the year off. */
+/* Wide enough for the "(none)" placeholder, six characters, AND the padding
+   and border, because `*` sets box-sizing: border-box and the width therefore
+   has to cover all three. A bare 6ch held four digits and would cut the
+   placeholder off, the same way 5.5ch once cut off the year. */
 .scenario-year {
-  width: 6ch;
+  width: calc(6ch + 14px);
   min-width: 0;
   min-height: 0;
   padding: 4px 6px;

@@ -21,7 +21,7 @@ like one family.
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 1,039 tests: the economic model, storage, data, exports, and a DOM smoke test
+npm test           # 1,040 tests: the economic model, storage, data, exports, and a DOM smoke test
 npm run build      # -> dist/
 ```
 
@@ -333,14 +333,15 @@ The crop year a budget is for is a fact about the plan, and **nothing derives it
 from a timestamp** — a 2027 budget is routinely built in 2026, so `createdAt` is
 evidence of when someone was at the keyboard and none at all of what they were
 planning for. It starts blank like every other field (see *Nothing auto-fills*),
-with the current year as a placeholder only, and the **v3 → v4 migration
+with `(none)` as its placeholder (never the current year, which reads as a year
+the app picked), and the **v3 → v4 migration
 deliberately writes nothing**: backfilling would put a year on the budget the
 producer never chose and then let the filter find it under that year. Asserted in
 `test/storage.test.js`.
 
 It lives in the header with the budget name because it is the same kind of thing:
 a label for the whole budget rather than a figure in it. `calc.js` ignores it
-entirely. The layout rules that follow — `.name-wrap`, `.scenario-year` at `8ch`,
+entirely. The layout rules that follow — `.name-wrap`, `.scenario-year` at `calc(6ch + 14px)`,
 `.year-edit`'s 9px, and the save state's move into the sticky bar — are in
 [DESIGN-NOTES.md](DESIGN-NOTES.md).
 
@@ -1076,7 +1077,7 @@ it.
 
 ## Tests
 
-1,039 tests across ten files. `npm test` runs them, and so does the deploy
+1,040 tests across ten files. `npm test` runs them, and so does the deploy
 workflow before it builds. *Detail in [DESIGN-NOTES.md](DESIGN-NOTES.md).*
 
 - `test/calc.test.js` — the model against real Excel output, plus the deliberate
