@@ -200,7 +200,7 @@ function renderEnterprise(e, i, collapsed, notice, isWide = false, many = false,
           info: 'enterpriseName',
         })}
         <div class="row-2">
-          ${field({ label: 'Crop', path: `${p}.crop`, value: e.crop, placeholder: 'Corn' })}
+          ${field({ label: 'Crop', path: `${p}.crop`, value: e.crop, placeholder: 'Enter crop type' })}
           ${moneyField({ label: 'Acres', path: `${p}.acres`, value: e.acres, placeholder: '0' })}
         </div>
 
