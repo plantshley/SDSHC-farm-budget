@@ -896,6 +896,12 @@ input.invalid {
   flex: 0 1 auto;
 }
 
+/* The budget name as it prints. See header() in main.js: an input cannot wrap,
+   so on paper this takes the box's place. */
+.print-title {
+  display: none;
+}
+
 /* Sized to its own text by sizeNameInput() in main.js — a title you may rename,
    not a form field demanding to be filled in. field-sizing does this natively
    where it exists and the JS then agrees with it rather than fighting. */
@@ -1392,15 +1398,51 @@ input.invalid {
   background: var(--bg);
   color: var(--text);
   /* The password box is the one field here, and a browser draws its own dark
-     UI for it only when told the surface is dark. Without this the reveal eye
-     and the autofill wash stay light on a dark panel. */
+     UI for it only when told the surface is dark. Without this the autofill
+     wash stays light on a dark panel. */
   color-scheme: light dark;
   /* 16px, and not for looks. Under it, iOS Safari zooms the page when the field
      takes focus and does not zoom back out — the same cliff the app's own
      `input, select` rule is wrapped in a hover query to avoid. */
   font-size: 16px;
-  margin-bottom: 10px;
+  /* Room for .ex-eye, so a long password does not run under it. */
+  padding-right: 40px;
   box-sizing: border-box;
+}
+
+/* The box and its eye. The margin moved here from the input so the eye can be
+   sized to the input's full height. */
+.ex-pass {
+  position: relative;
+  margin-bottom: 10px;
+}
+
+/* Edge draws its own reveal eye in a password box, which would put two eyes
+   side by side. Ours works in every browser, so Edge's goes. */
+.ex-input::-ms-reveal {
+  display: none;
+}
+
+.ex-eye {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-radius: 0 8px 8px 0;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0;
+}
+
+.ex-eye:hover,
+.ex-eye[aria-pressed='true'] {
+  color: var(--text);
 }
 
 .ex-go {
@@ -1443,6 +1485,83 @@ input.invalid {
 .ex-dim {
   color: var(--muted);
   font-size: 11px;
+}
+
+/* Choosing which budgets go into the export. Shut by default: exporting
+   everything is still the one-button case. */
+.ex-pick {
+  margin: 0 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+
+.ex-pick summary {
+  cursor: pointer;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ex-pick[open] summary {
+  margin-bottom: 8px;
+}
+
+/* The filter shares .ex-input's box and 16px, but has no eye to make room for. */
+.ex-input.ex-filter {
+  padding-right: 10px;
+  margin-bottom: 4px;
+}
+
+.ex-pick-btns {
+  display: flex;
+  gap: 14px;
+  margin: 0 0 6px;
+}
+
+/* Its own scroller, so twenty budgets do not push the download button a
+   screen away from the list that decides what it downloads. */
+.ex-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.ex-list li + li {
+  border-top: 1px solid var(--border);
+}
+
+.ex-list label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 0;
+  cursor: pointer;
+}
+
+/* The global input rule is for text boxes: full width and 44px tall. A tick
+   under it took the whole row and pushed its label out of sight. Sized as the
+   Saved tab's tick is. */
+.ex-list input {
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  padding: 0;
+  margin: 1px 0 0;
+  flex: 0 0 auto;
+}
+
+.ex-list label > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ex-sub {
+  display: block;
+  margin-top: 2px;
 }
 
 /* ---- input frames ------------------------------------------------------ */
@@ -3099,6 +3218,12 @@ input.invalid {
 [data-scn-hint] .tip,
 [data-scn-hint] .help-btn {
   vertical-align: middle;
+}
+
+/* The first thing under the header now, above the filter, so it needs room
+   from the header's rule rather than the 4px a hint takes under a field. */
+[data-scn-hint] {
+  margin-top: 14px;
 }
 
 .baseline-note {
@@ -4861,6 +4986,19 @@ body.modal-open {
     filter: none !important;
   }
 
+  /* The full lockup on paper, whatever the page width. A printed sheet is
+     narrower than 900px, so without this the square mark stood in for the
+     wordmark, which is the one place there is room for it. */
+  .toplogo-wide {
+    display: block !important;
+    max-height: 48px;
+    max-width: 300px;
+  }
+
+  .toplogo-mark {
+    display: none !important;
+  }
+
   .app-head {
     border-bottom: none;
     margin-bottom: 8px;
@@ -4873,6 +5011,115 @@ body.modal-open {
     background: transparent !important;
     width: auto !important;
     font-size: 15pt;
+  }
+
+  /* The title of the document, as text rather than the name box, so a long
+     name wraps onto a second line instead of ending in an ellipsis. An unnamed
+     budget prints no title at all: the h1 is empty and takes no room. */
+  .title-row {
+    display: none !important;
+  }
+
+  .print-title {
+    display: block;
+    width: 100%;
+    margin: 0;
+    font-size: 24pt;
+    line-height: 1.2;
+    text-align: center;
+    color: var(--brand-ink);
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .print-title:empty {
+    display: none;
+  }
+
+  /* A blank box does not print, and nor does its label. A field or expense
+     line with nothing filled in is left off the page, and so is a scenario
+     year nobody chose, which would otherwise print its placeholder (this
+     year) as if it had been. A line with ANY box filled stays, including a
+     half-filled $/unit line, which is the case the warnings exist for.
+     :placeholder-shown is what tells blank from filled, so every box that can
+     be left blank carries a placeholder; a test holds that. */
+  .field:has(input:placeholder-shown):not(:has(input:not(:placeholder-shown))),
+  .line:has(input:placeholder-shown):not(:has(input:not(:placeholder-shown))),
+  .year-edit:has(input:placeholder-shown) {
+    display: none !important;
+  }
+
+  /* Two fields to a row on paper as on screen, but when one of them is blank
+     and left off, the other takes the row rather than half of it. */
+  .row-2 {
+    display: flex !important;
+    gap: 10px;
+  }
+
+  .row-2 > .field {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  /* A control, and its caption with it. */
+  .ent-add {
+    display: none !important;
+  }
+
+  /* Tighter rows on paper, so one enterprise fits on two pages. The screen's
+     44px boxes are a touch target, and paper has nothing to tap. Scoped to the
+     two blocks of fields so the selector outranks .line-input's own padding. */
+  .ent input,
+  .ent select,
+  .fixed-block input,
+  .fixed-block select {
+    min-height: 30px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+  }
+
+  .field {
+    margin: 5px 0;
+  }
+
+  .field-label {
+    min-height: 18px;
+    margin-bottom: 2px;
+  }
+
+  .line {
+    padding: 4px 0;
+  }
+
+  /* The interest block is a filled panel, not a ruled row, so it keeps room
+     either side of its text. The rule above took that to 0 and left the words
+     against the edge of the blue. */
+  .line.preharvest {
+    padding: 6px 12px;
+  }
+
+  /* A label never ends a page with its box on the next one. */
+  .line,
+  .field {
+    break-inside: avoid;
+  }
+
+  .line-head {
+    margin-bottom: 2px;
+  }
+
+  .sub-title {
+    margin-top: 12px;
+  }
+
+  .readout {
+    padding: 5px 0;
+  }
+
+  /* An unnamed budget prints with no name, not with "Name this budget", which
+     is an instruction for the screen. */
+  .scenario-name::placeholder {
+    color: transparent;
   }
 
   .box {
@@ -4916,6 +5163,12 @@ body.modal-open {
   .ent.collapsed .ent-body,
   .fixed-block.collapsed .fixed-body {
     display: block !important;
+  }
+
+  /* The shut card's summary line. The card prints open, where both figures
+     are readout rows at its foot, so this would put them on the page twice. */
+  .ent.collapsed .ent-fold-sub {
+    display: none !important;
   }
 
   /* A folded card is a fixed-width box on screen. On paper it is a full-width

@@ -46,6 +46,7 @@
  */
 
 import { buildWorkbook, headersFor, toCSV, exportStem, SHEETS } from './export-workbook.js'
+import { enterpriseLabel, scenarioLabel } from './calc.js'
 import {
   firebaseConfig,
   EXPORT_EMAIL,
@@ -59,6 +60,12 @@ const SHEETJS_URL = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.
 
 let panel = null
 let docs = []
+// Which of `docs` go into the export, by index. All of them until somebody
+// unticks one; reset with `docs`, so a new sign-in starts from the whole batch.
+let chosen = new Set()
+// The sheets built from the current choice. The download buttons read this at
+// the moment they are pressed, never a copy taken when the panel was drawn.
+let sheets = null
 
 /* ──────────────────────────────── opening ──────────────────────────────── */
 
@@ -96,6 +103,8 @@ function close() {
   panel?.remove()
   panel = null
   docs = []
+  chosen = new Set()
+  sheets = null
 }
 
 /* ──────────────────────────────── the panel ────────────────────────────── */
@@ -123,11 +132,30 @@ function signInView() {
   return shell(`
     <form data-ex-form>
       <label class="ex-label" for="exPassword">Password</label>
-      <input id="exPassword" type="password" class="ex-input" data-ex-password
-        autocomplete="current-password" />
+      <div class="ex-pass">
+        <input id="exPassword" type="password" class="ex-input" data-ex-password
+          autocomplete="current-password" />
+        <button type="button" class="ex-eye" data-ex-eye aria-controls="exPassword"
+          aria-label="Show password" aria-pressed="false">${eyeIcon(false)}</button>
+      </div>
       <button type="submit" class="btn-main ex-go">Sign in</button>
       <p class="ex-err" data-ex-err hidden></p>
     </form>`)
+}
+
+/**
+ * The eye on the password box. Open while the password is hidden, struck
+ * through while it is showing, so the icon is the thing a press will do.
+ *
+ * The label stays "Show password" in both states and aria-pressed carries the
+ * state, which is how a toggle button is announced.
+ */
+function eyeIcon(showing) {
+  const eye =
+    '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>'
+  const slash = showing ? '<path d="M4 4l16 16"/>' : ''
+  return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${eye}${slash}</svg>`
 }
 
 function shell(inner) {
@@ -146,6 +174,17 @@ function setBody(html) {
 
 function wireSignIn() {
   panel.querySelector('[data-ex-close]')?.addEventListener('click', close)
+  const eye = panel.querySelector('[data-ex-eye]')
+  // Keep focus in the box on a mouse press, so the caret stays where it was.
+  eye?.addEventListener('mousedown', (e) => e.preventDefault())
+  eye?.addEventListener('click', () => {
+    const input = panel.querySelector('[data-ex-password]')
+    if (!input) return
+    const showing = input.type === 'password'
+    input.type = showing ? 'text' : 'password'
+    eye.setAttribute('aria-pressed', String(showing))
+    eye.innerHTML = eyeIcon(showing)
+  })
   panel.querySelector('[data-ex-form]')?.addEventListener('submit', async (e) => {
     e.preventDefault()
     const password = panel.querySelector('[data-ex-password]')?.value ?? ''
@@ -155,7 +194,12 @@ function wireSignIn() {
       btn.disabled = true
       btn.textContent = 'Signing in…'
     }
+    // The panel this sign-in belongs to. Closing and reopening makes a new
+    // one, and a request still in flight for the old one must not draw its
+    // batch over whatever the new one is showing.
+    const mine = panel
     const result = await signInAndLoad(password)
+    if (panel !== mine) return
     if (!result.ok) {
       if (err) {
         // The message names the setup step to go and fix and carries the raw
@@ -171,7 +215,7 @@ function wireSignIn() {
       }
       return
     }
-    renderReady()
+    showBatch(result.docs)
   })
 }
 
@@ -209,8 +253,7 @@ async function signInAndLoad(password) {
 
     const db = firestore.getFirestore(app)
     const snap = await firestore.getDocs(firestore.collection(db, SUBMISSIONS))
-    docs = snap.docs.map((d) => d.data())
-    return { ok: true }
+    return { ok: true, docs: snap.docs.map((d) => d.data()) }
   } catch (error) {
     return { ok: false, message: signInMessage(error) }
   }
@@ -297,32 +340,43 @@ function signInMessage(error) {
 
 /* ──────────────────────────────── the exports ──────────────────────────── */
 
-function renderReady() {
-  const { sheets, count, skipped } = buildWorkbook(docs)
+/**
+ * Draw the ready view for a batch of documents.
+ *
+ * Exported so the tests can hand it a batch. Signing in needs the live project,
+ * which the test suite must never reach (see app.test.js), and everything below
+ * the sign-in is this function.
+ */
+export function showBatch(list) {
+  if (!panel) return
+  docs = list
+  chosen = new Set(list.map((_, i) => i))
   const range = dateRange(docs)
 
   setBody(`
-    <p class="ex-count"><b>${count}</b> shared budget${count === 1 ? '' : 's'}${
-      range ? `, ${range}` : ''
-    }.</p>
-    ${skipped.length ? `<p class="ex-err">${skipped.length} record(s) could not be read and are not in the export.</p>` : ''}
+    <p class="ex-count"><span data-ex-count></span>${range ? `, ${range}` : ''}.</p>
+    <p class="ex-err" data-ex-skipped hidden></p>
+    ${docs.length > 1 ? pickerView() : ''}
     <button type="button" class="btn-main ex-go" data-ex-xlsx>Download Excel workbook</button>
     <p class="ex-note">Or one sheet at a time, as CSV:</p>
     <ul class="ex-csvs">
       ${SHEETS.map(
         (name) =>
-          `<li><button type="button" class="tip" data-ex-csv="${name}">${name}</button>
-             <span class="ex-dim">${sheets[name].length} row${sheets[name].length === 1 ? '' : 's'}</span></li>`
+          `<li><button type="button" class="tip" data-ex-csv="${esc(name)}">${esc(name)}</button>
+             <span class="ex-dim" data-ex-rows="${esc(name)}"></span></li>`
       ).join('')}
     </ul>
     <p class="ex-err" data-ex-err hidden></p>`)
+
+  wirePicker()
+  refresh()
 
   panel.querySelector('[data-ex-xlsx]')?.addEventListener('click', async (e) => {
     const btn = e.currentTarget
     btn.disabled = true
     btn.textContent = 'Building…'
     try {
-      await downloadXLSX(sheets)
+      await downloadXLSX(sheets, fileStem())
       btn.textContent = 'Download Excel workbook'
     } catch {
       const err = panel.querySelector('[data-ex-err]')
@@ -332,15 +386,172 @@ function renderReady() {
       }
       btn.textContent = 'Download Excel workbook'
     }
-    btn.disabled = false
+    btn.disabled = chosen.size === 0
   })
 
   for (const btn of panel.querySelectorAll('[data-ex-csv]')) {
     btn.addEventListener('click', () => {
       const name = btn.getAttribute('data-ex-csv')
-      download(`${exportStem()} ${name}.csv`, toCSV(sheets[name]), 'text/csv;charset=utf-8')
+      download(`${fileStem()} ${name}.csv`, toCSV(sheets[name]), 'text/csv;charset=utf-8')
     })
   }
+}
+
+/* ──────────────────────────── choosing budgets ─────────────────────────── */
+
+/**
+ * The list of budgets to tick, shut by default so the common case (export
+ * everything) is one button, as it was before the list existed. Not drawn for
+ * a batch of one, where there is nothing to choose between.
+ *
+ * Newest first. A row says more than the name, because most budgets are still
+ * called "My Budget Scenario": the date it was last sent and its enterprises
+ * are what tell two of them apart.
+ */
+function pickerView() {
+  const order = docs
+    .map((d, i) => ({ d, i }))
+    .sort((a, b) => (Number(b.d?.updatedAt) || 0) - (Number(a.d?.updatedAt) || 0))
+  return `
+    <details class="ex-pick" data-ex-pick>
+      <summary>Choose budgets <span class="ex-dim" data-ex-pick-count></span></summary>
+      <input type="search" class="ex-input ex-filter" data-ex-filter
+        placeholder="Filter by name, enterprise, or crop" aria-label="Filter budgets" />
+      <p class="ex-pick-btns">
+        <button type="button" class="tip" data-ex-all>Select all</button>
+        <button type="button" class="tip" data-ex-none>Clear</button>
+      </p>
+      <ul class="ex-list">
+        ${order.map(({ d, i }) => pickRow(d, i)).join('')}
+      </ul>
+    </details>`
+}
+
+function pickRow(doc, i) {
+  const ents = Array.isArray(doc?.scenario?.enterprises) ? doc.scenario.enterprises : []
+  const acres = ents.reduce((a, e) => a + (Number(e?.acres) || 0), 0)
+  const labels = ents.map((e, n) => enterpriseLabel(e, n))
+  const when = Number.isFinite(Number(doc?.updatedAt))
+    ? new Date(Number(doc.updatedAt)).toLocaleDateString()
+    : ''
+  const detail = [when && `Updated ${when}`, labels.join(', '), acres ? `${acres} ac` : '']
+    .filter(Boolean)
+    .join(' · ')
+  return `
+    <li data-ex-item="${i}" data-ex-search="${esc(searchText(doc))}">
+      <label>
+        <input type="checkbox" data-ex-pick-id="${i}" ${chosen.has(i) ? 'checked' : ''} />
+        <span>
+          <b>${esc(scenarioLabel(doc))}</b>${doc?.deletedAt ? ' <span class="ex-dim">(deleted)</span>' : ''}
+          <span class="ex-dim ex-sub">${esc(detail)}</span>
+        </span>
+      </label>
+    </li>`
+}
+
+/** What the filter matches: the budget name, enterprise names, crops, and year. */
+function searchText(doc) {
+  const ents = Array.isArray(doc?.scenario?.enterprises) ? doc.scenario.enterprises : []
+  return [doc?.name, doc?.scenarioYear, ...ents.flatMap((e) => [e?.name, e?.crop])]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase()
+}
+
+function wirePicker() {
+  const pick = panel.querySelector('[data-ex-pick]')
+  if (!pick) return
+
+  pick.addEventListener('change', (e) => {
+    const id = e.target?.getAttribute?.('data-ex-pick-id')
+    if (id === null || id === undefined) return
+    if (e.target.checked) chosen.add(Number(id))
+    else chosen.delete(Number(id))
+    refresh()
+  })
+
+  // A comma splits the box into terms, and a row matching ANY of them stays:
+  // the same rule as the filter on the Saved tab, so "corn, soybeans" is both.
+  pick.querySelector('[data-ex-filter]')?.addEventListener('input', (e) => {
+    const terms = e.target.value
+      .toLowerCase()
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean)
+    for (const row of pick.querySelectorAll('[data-ex-item]')) {
+      const text = row.getAttribute('data-ex-search') || ''
+      row.hidden = terms.length > 0 && !terms.some((t) => text.includes(t))
+    }
+  })
+
+  // Both act on the rows on screen, so a filter then Select all picks exactly
+  // what the filter found. A tick on a row filtered out of sight is left alone.
+  const setVisible = (on) => {
+    for (const box of pick.querySelectorAll('[data-ex-pick-id]')) {
+      if (box.closest('[data-ex-item]')?.hidden) continue
+      box.checked = on
+      const i = Number(box.getAttribute('data-ex-pick-id'))
+      if (on) chosen.add(i)
+      else chosen.delete(i)
+    }
+    refresh()
+  }
+  pick.querySelector('[data-ex-all]')?.addEventListener('click', () => setVisible(true))
+  pick.querySelector('[data-ex-none]')?.addEventListener('click', () => setVisible(false))
+}
+
+/** Rebuild the sheets from the ticked budgets and rewrite every figure that says so. */
+function refresh() {
+  const picked = docs.filter((_, i) => chosen.has(i))
+  const built = buildWorkbook(picked)
+  sheets = built.sheets
+  const total = docs.length
+  const all = picked.length === total
+
+  const count = panel.querySelector('[data-ex-count]')
+  if (count) {
+    count.innerHTML = all
+      ? `<b>${total}</b> shared budget${total === 1 ? '' : 's'}`
+      : `<b>${picked.length}</b> of ${total} shared budgets selected`
+  }
+  const pickCount = panel.querySelector('[data-ex-pick-count]')
+  if (pickCount) pickCount.textContent = all ? '(all)' : `(${picked.length} of ${total})`
+
+  const skipped = panel.querySelector('[data-ex-skipped]')
+  if (skipped) {
+    skipped.textContent = `${built.skipped.length} record(s) could not be read and are not in the export.`
+    skipped.hidden = built.skipped.length === 0
+  }
+
+  for (const name of SHEETS) {
+    const n = sheets[name].length
+    const cell = panel.querySelector(`[data-ex-rows="${name}"]`)
+    if (cell) cell.textContent = `${n} row${n === 1 ? '' : 's'}`
+  }
+
+  // Nothing ticked is not an export of nothing: a workbook of empty sheets
+  // looks exactly like a broken one once it is on somebody's desktop.
+  const none = picked.length === 0
+  for (const btn of panel.querySelectorAll('[data-ex-xlsx], [data-ex-csv]')) btn.disabled = none
+}
+
+/**
+ * The file name. A subset says so, because two files called
+ * submissions-2026-09-24 holding different budgets is one of them being
+ * mistaken for the other.
+ */
+function fileStem() {
+  const total = docs.length
+  return chosen.size === total ? exportStem() : `${exportStem()} (${chosen.size} of ${total})`
+}
+
+function esc(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
 }
 
 /** First-sent to last-updated across the batch, for the count line. */
@@ -353,7 +564,7 @@ function dateRange(list) {
   return lo === hi ? `sent ${lo}` : `${lo} to ${hi}`
 }
 
-async function downloadXLSX(sheets) {
+async function downloadXLSX(sheets, stem) {
   const XLSX = await loadSheetJS()
   const wb = XLSX.utils.book_new()
   for (const name of SHEETS) {
@@ -367,7 +578,7 @@ async function downloadXLSX(sheets) {
     // created with an invalid name rather than an error if one ever is not.
     XLSX.utils.book_append_sheet(wb, ws, name.slice(0, 31))
   }
-  XLSX.writeFile(wb, `${exportStem()}.xlsx`)
+  XLSX.writeFile(wb, `${stem}.xlsx`)
 }
 
 let sheetJSPromise = null
@@ -391,14 +602,16 @@ function loadSheetJS() {
 
 function download(filename, text, type) {
   const blob = new Blob([text], { type })
-  const url = URL.createObjectURL(blob)
+  // Revoked through the same object that minted it, a second later.
+  const urls = URL
+  const url = urls.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
   a.download = filename
   document.body.appendChild(a)
   a.click()
   a.remove()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
+  setTimeout(() => urls.revokeObjectURL(url), 1000)
 }
 
 /* ─────────────────────────────────── boot ──────────────────────────────── */

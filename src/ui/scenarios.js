@@ -8,7 +8,7 @@
  */
 
 import { usd, usdCents, esc, signClass } from './format.js'
-import { calcScenario } from '../calc.js'
+import { calcScenario, scenarioLabel, UNNAMED } from '../calc.js'
 import { listScenarios, listFolders } from '../storage.js'
 import { infoButton } from './fields.js'
 import { renderFolderSection } from './folders.js'
@@ -162,10 +162,10 @@ export function renderScenarioList(currentId, filterQuery = '', expandedFolders 
 
       ${
         all.length
-          ? `${filter}
-             <p class="hint" data-scn-hint><span data-scn-hint-text>${esc(
+          ? `<p class="hint" data-scn-hint><span data-scn-hint-text>${esc(
                scenarioHint(all.length, all.length, false)
              )}</span>${openFileClause}</p>
+             ${filter}
              <div class="scn-sections" data-scn-sections>
                ${renderSections(all, folders, currentId, expandedFolders)}
              </div>
@@ -298,15 +298,15 @@ function renderScenarioRow(s, currentId, index, total, hasFolders) {
              these budgets are mostly reordered on a phone. -->
         <button type="button" class="scn-move" data-action="move-scenario-up"
           data-id="${esc(s.id)}" ${index === 0 ? 'disabled' : ''}
-          aria-label="Move ${esc(s.name)} up">▲</button>
+          aria-label="Move ${esc(scenarioLabel(s))} up">▲</button>
         <span class="scn-grip" draggable="true" title="Drag to reorder"
           aria-hidden="true">⠿</span>
         <button type="button" class="scn-move" data-action="move-scenario-down"
           data-id="${esc(s.id)}" ${index === total - 1 ? 'disabled' : ''}
-          aria-label="Move ${esc(s.name)} down">▼</button>
+          aria-label="Move ${esc(scenarioLabel(s))} down">▼</button>
       </div>
       <label class="scn-pick">
-        <input type="checkbox" data-compare-id="${esc(s.id)}" aria-label="Select ${esc(s.name)} to compare" />
+        <input type="checkbox" data-compare-id="${esc(s.id)}" aria-label="Select ${esc(scenarioLabel(s))} to compare" />
       </label>
       <div class="scn-main">
         <div class="scn-name-row">
@@ -315,7 +315,7 @@ function renderScenarioRow(s, currentId, index, total, hasFolders) {
                not a control of its own — the input is what you click. -->
           <span class="name-edit">
             <input class="scn-name-input" value="${esc(s.name)}" data-scn-name="${esc(s.id)}"
-              aria-label="Budget name" />
+              placeholder="${UNNAMED}" aria-label="Budget name" />
             <span class="edit-icon" aria-hidden="true">&#9998;</span>
           </span>
           ${isCurrent ? '<em class="scn-open-flag">open</em>' : ''}
@@ -400,7 +400,7 @@ function renderScenarioRow(s, currentId, index, total, hasFolders) {
  */
 export function openExportDialog(scenario) {
   openModal(
-    `Save "${scenario.name || 'Untitled'}" as`,
+    `Save "${scenarioLabel(scenario)}" as`,
     `<div class="save-as">
       ${exportItem(
         scenario.id,
@@ -485,7 +485,8 @@ export function searchText(s) {
 
   return [
     ...(s.enterprises ?? []).flatMap((e) => [e?.name, e?.crop]),
-    s.name,
+    // The label, so "unnamed" finds the budgets nobody has named yet.
+    scenarioLabel(s),
     s.scenarioYear,
     ...saved,
   ]
@@ -545,7 +546,7 @@ export function renderCompare(scenarios) {
       </header>
 
       <p class="hint">
-        Differences are measured against <b>${esc(base.scenario.name)}</b>, the first budget selected.
+        Differences are measured against <b>${esc(scenarioLabel(base.scenario))}</b>, the first budget selected.
       </p>
 
       <div class="tbl-scroll">
@@ -556,7 +557,7 @@ export function renderCompare(scenarios) {
               ${results
                 .map(
                   (x, i) =>
-                    `<th>${esc(x.scenario.name)}${i === 0 ? '<br><small>baseline</small>' : ''}</th>`
+                    `<th>${esc(scenarioLabel(x.scenario))}${i === 0 ? '<br><small>baseline</small>' : ''}</th>`
                 )
                 .join('')}
             </tr>
@@ -579,7 +580,7 @@ export function renderCompare(scenarios) {
                 x.r.enterprises.map(
                   (e) => `
                 <tr>
-                  <td>${esc(x.scenario.name)}</td>
+                  <td>${esc(scenarioLabel(x.scenario))}</td>
                   <td>${esc(e.label)}</td>
                   <td>${esc(e.crop || '—')}</td>
                   <td>${e.acres}</td>

@@ -21,7 +21,7 @@ like one family.
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 1,018 tests: the economic model, storage, data, exports, and a DOM smoke test
+npm test           # 1,039 tests: the economic model, storage, data, exports, and a DOM smoke test
 npm run build      # -> dist/
 ```
 
@@ -30,8 +30,12 @@ Pushing to `main` builds and deploys to GitHub Pages via
 so a broken model blocks the deploy.
 
 `vite.config.js` sets `base: '/SDSHC-farm-budget/'`. Hardcoded absolute asset
-paths like `/assets/x.png` will 404 in production — reference `public/` files
-relatively (`./sdshc-logo.png`) or through Vite's asset handling.
+paths like `/assets/x.png` **in JS strings** will 404 in production — reference
+`public/` files relatively (`./sdshc-logo.png`) or through Vite's asset
+handling. **`index.html` is the exception**: there a `public/` file is named
+root-absolute (`/sdshc-logo.png`), which Vite prefixes with the base in dev and
+build alike. `%BASE_URL%` there had the dev server add the base twice, so both
+logos were broken images under `npm run dev` while the live site was fine.
 
 `styles.css` is linked from `index.html`, **not** imported by `main.js`. That
 keeps the entry module plain JS so the Node smoke tests can import it. Don't
@@ -147,6 +151,18 @@ N"`. They are separate because comparing tillage systems means two enterprises
 both growing corn, and "Corn" twice tells a producer nothing. The crop is the
 fallback, so a v1 budget reads exactly as it did — `migrate()` sets `name` to
 `''`, never copying the crop into it.
+
+### A budget's name starts blank, and `(unnamed)` is a label, never a value
+
+`newScenario()` gives a new budget no name; the header box shows the placeholder
+*Name this budget*. Everywhere else a name is shown (Saved rows, aria-labels,
+the delete confirm, the comparison and its CSV, the exporter's picker) goes
+through **`scenarioLabel()`** in `calc.js`, which prints `(unnamed)` for a blank.
+**The label is never written into the budget**: the Saved row's inline-rename
+box carries it as a placeholder, a duplicate or an import of an unnamed budget
+stays unnamed rather than storing `" (copy)"`, and the data export keeps the
+name blank under *A blank must never export as 0*. Old budgets keep the
+`My Budget Scenario` they were saved with; nothing migrates them.
 
 ### `schemaVersion` and migrations
 
@@ -637,6 +653,11 @@ a page that reflows at every width.
   to guess, and reading the tokens off the page would hand a dark-theme producer
   a white-on-white PNG. Colour still follows the **sign**, same rule as the
   screen.
+- **The typeface is NOT hard-coded; the palette's reasoning does not transfer.**
+  The theme is the reader's to choose, the font is the author's.
+  `imageFontFamily()` reads `--font` off the page at export time, so the image
+  is drawn in whatever the font toggle is set to. Same in the grazing
+  calculator.
 - **The height is measured from the content before anything is drawn**
   (`imageModel()` then `imageHeight()`). A canvas has no overflow: a budget with
   nine enterprises has to make the picture taller, not run off the bottom of it.
@@ -1055,7 +1076,7 @@ it.
 
 ## Tests
 
-1,018 tests across ten files. `npm test` runs them, and so does the deploy
+1,039 tests across ten files. `npm test` runs them, and so does the deploy
 workflow before it builds. *Detail in [DESIGN-NOTES.md](DESIGN-NOTES.md).*
 
 - `test/calc.test.js` — the model against real Excel output, plus the deliberate

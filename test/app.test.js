@@ -969,6 +969,46 @@ describe('saving, duplicating and comparing', () => {
     assert.equal(doc.querySelectorAll('.scn').length, 0)
   })
 
+  test('a new budget has no name, and the box asks for one', () => {
+    // Every field starts blank. A default name was a value nobody chose, and
+    // most shared budgets arrived carrying it, indistinguishable by name.
+    const input = doc.getElementById('scenarioName')
+    assert.equal(input.value, '')
+    assert.equal(input.placeholder, 'Name this budget')
+  })
+
+  test('an unnamed budget saves unnamed and reads "(unnamed)" on the Saved tab', () => {
+    click('[data-action="save-scenario"]')
+    click('[data-action="go-scenarios"]')
+    const row = doc.querySelector('.scn')
+    const name = row.querySelector('.scn-name-input')
+    assert.equal(name.value, '', 'the label is not written into the budget')
+    assert.equal(name.placeholder, '(unnamed)')
+    assert.match(row.querySelector('[data-compare-id]').getAttribute('aria-label'), /\(unnamed\)/)
+    assert.match(row.getAttribute('data-scn-search'), /unnamed/, 'and the filter can find it')
+
+    let asked = ''
+    globalThis.confirm = win.confirm = (text) => ((asked = text), true)
+    click('[data-action="delete-scenario"]')
+    assert.match(asked, /^Delete "\(unnamed\)"\?/)
+  })
+
+  test('a copy of an unnamed budget is unnamed too, and compares under the label', () => {
+    click('[data-action="save-scenario"]')
+    click('[data-action="go-scenarios"]')
+    click('[data-action="duplicate-scenario"]')
+    assert.equal(doc.getElementById('scenarioName').value, '', 'not " (copy)"')
+    click('[data-action="save-scenario"]')
+    click('[data-action="go-scenarios"]')
+    for (const box of doc.querySelectorAll('[data-compare-id]')) {
+      box.checked = true
+      box.dispatchEvent(new win.Event('change', { bubbles: true }))
+    }
+    click('[data-action="compare-selected"]')
+    const heads = [...doc.querySelector('.compare-tbl').querySelectorAll('thead th')].map((th) => th.textContent)
+    assert.ok(heads.slice(1).every((h) => h.startsWith('(unnamed)')), heads.join(' | '))
+  })
+
   test('removing the last enterprise leaves a blank one, never zero', async () => {
     click('[data-action="remove-enterprise"]')
     assert.equal(doc.querySelectorAll('.ent').length, 1)
@@ -1019,6 +1059,61 @@ describe('exports', () => {
     // the formula guard applies to text cells only.
     assert.match(csv, /Total profit,-19140\.83/)
     assert.ok(!csv.includes("'-19140"), 'a negative figure was not turned into text')
+  })
+
+  test('the enterprise block labels its income and variable expense columns', async () => {
+    const { scenarioToCSV } = await import('../src/export.js')
+    const { scenario } = await import('./fixture.js')
+    const lines = scenarioToCSV(scenario).replace(/^﻿/, '').split(/\r?\n/)
+    const at = lines.findIndex((l) => l.startsWith('ENTERPRISES'))
+    const bands = lines[at].split(',')
+    const header = lines[at + 1].split(',')
+    assert.equal(header[0], 'Enterprise', 'the column names follow the labels')
+    assert.equal(bands.length, header.length, 'one cell per column')
+    const over = (label) => header[bands.indexOf(label)]
+    assert.equal(over('INCOME'), 'Acres')
+    assert.equal(over('VARIABLE EXPENSES'), 'Seed $/acre')
+    assert.equal(over('GROSS MARGIN'), 'Gross margin/acre')
+  })
+
+  test('the image is drawn in the typeface chosen on the font toggle', async () => {
+    // jsdom loads no stylesheet, so the page's own --font rules are lifted out
+    // of styles.css and put into the document: the test then runs the real
+    // stacks through the real toggle.
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+    const root = css.match(/\n  --font:[^;]+;/)[0]
+    const choices = css.match(/\[data-font="(classic|mono)"\] \{\s*--font:[^;]+;\s*\}/g)
+    assert.equal(choices.length, 2)
+    const style = doc.createElement('style')
+    style.textContent = `:root {${root}}\n${choices.join('\n')}`
+    doc.head.appendChild(style)
+
+    const { imageFontFamily } = await import('../src/export.js')
+    click('[data-font-choice="mono"]')
+    assert.match(imageFontFamily(), /JetBrains Mono/)
+    click('[data-font-choice="classic"]')
+    assert.match(imageFontFamily(), /^Arial/)
+    click('[data-font-choice="browser"]')
+    assert.match(imageFontFamily(), /^system-ui/)
+  })
+
+  test('a saved PDF is named for the budget and the day', async () => {
+    const { pdfTitle } = await import('../src/export.js')
+    const day = new Date(2026, 8, 4, 22, 30) // late evening: a UTC date would say the 5th
+    assert.equal(pdfTitle('Manbull Farming LLC', day), 'Manbull-Farming-LLC-2026-09-04')
+    assert.equal(pdfTitle('', day), 'farm-budget-2026-09-04', 'an unnamed budget still gets a name')
+  })
+
+  test('printing sets that name as the page title, and puts the title back after', async () => {
+    const original = doc.title
+    let during = null
+    win.print = () => (during = doc.title)
+    type('name', 'North quarter')
+    click('[data-action="print"]')
+    assert.match(during, /^North-quarter-\d{4}-\d{2}-\d{2}$/)
+    assert.equal(doc.title, during, 'held for as long as the dialog is up')
+    win.dispatchEvent(new win.Event('afterprint'))
+    assert.equal(doc.title, original)
   })
 
   test('a budget name with a comma does not break the CSV', async () => {
@@ -4265,6 +4360,65 @@ describe('where the data lives is said, not only linked', () => {
     assert.doesNotMatch(print, /\.footer button/, 'not just the buttons in it')
   })
 
+  test('paper gets the full logo, a title-sized name, and no Add tile', async () => {
+    // A printed sheet is narrower than 900px, so the phone rules apply and the
+    // square mark would stand in for the lockup unless print says otherwise.
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+    const print = css.slice(css.indexOf('@media print'))
+    const rule = (sel) => print.match(new RegExp(`\\n  ${sel} \\{([^}]*)\\}`))?.[1] ?? ''
+    assert.match(rule('\\.toplogo-wide'), /display: block !important/)
+    assert.match(rule('\\.toplogo-mark'), /display: none !important/)
+    assert.match(rule('\\.print-title'), /font-size: 24pt/)
+    assert.match(rule('\\.print-title'), /white-space: normal/, 'a long name wraps')
+    assert.match(rule('\\.title-row'), /display: none !important/, 'the box does not print')
+    assert.match(rule('\\.ent-add'), /display: none !important/, 'a control and its caption')
+    assert.match(rule('\\.ent\\.collapsed \\.ent-fold-sub'), /display: none/, 'no figure twice')
+    // The tightened .line padding must not reach the filled interest panel.
+    assert.match(rule('\\.line\\.preharvest'), /padding: \d+px [1-9]\d*px/, 'room either side')
+  })
+
+  test('the printed title follows the name box as it is typed', async () => {
+    const title = () => doc.querySelector('[data-print-title]').textContent
+    assert.equal(title(), '', 'a new budget prints no title')
+    type('name', 'North quarter, a name long enough to need a second line on paper')
+    assert.equal(title(), 'North quarter, a name long enough to need a second line on paper')
+  })
+
+  test('every box that can be left blank has a placeholder, so a blank one does not print', async () => {
+    // The print sheet leaves off a field or line whose boxes are all blank,
+    // and it can only tell blank from filled through :placeholder-shown. A box
+    // with no placeholder would print empty, label and all.
+    click('[data-action="add-equipment"]')
+    click('[data-action="add-building"]')
+    const seen = new Set()
+    const check = () => {
+      for (const input of doc.querySelectorAll('.ent input, .fixed-block input, .year-edit input')) {
+        if (['checkbox', 'radio', 'hidden'].includes(input.type)) continue
+        const key = input.getAttribute('data-path') || input.id || input.outerHTML
+        seen.add(key)
+        assert.ok(input.getAttribute('placeholder'), `no placeholder on ${key}`)
+      }
+    }
+    check()
+    // Every entry mode, since the mode decides which boxes exist.
+    for (const [line, mode] of [
+      ['seed', 'population'],
+      ['seed', 'perAcre'],
+      ['cropInsurance', 'total'],
+      ['fuelOil', 'unit'],
+    ]) {
+      click(`[data-path="enterprises.0.variable.${line}.mode"][data-mode="${mode}"]`)
+      check()
+    }
+    assert.ok(seen.size > 30, `walked ${seen.size} boxes`)
+
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+    const print = css.slice(css.indexOf('@media print'))
+    const blank = ':has(input:placeholder-shown):not(:has(input:not(:placeholder-shown)))'
+    assert.ok(print.includes(`.field${blank}`), 'a blank field does not print')
+    assert.ok(print.includes(`.line${blank}`), 'nor a blank expense line')
+  })
+
   test('a page printed in dark mode comes out light', async () => {
     const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
 
@@ -6313,11 +6467,12 @@ describe('a record is never created before the key that names it is stored', () 
    ══════════════════════════════════════════════════════════════════════════ */
 
 describe('the exporter opens on a gesture and shows nothing without a password', () => {
+  let exporter
   beforeEach(async () => {
     await boot()
     // index.html loads it beside themelab. The smoke boot only imports main.js,
     // so it is brought in here.
-    await import(`../src/exporter.js?bust=${Math.random()}`)
+    exporter = await import(`../src/exporter.js?bust=${Math.random()}`)
   })
 
   const panel = () => doc.querySelector('[data-exporter]')
@@ -6376,6 +6531,158 @@ describe('the exporter opens on a gesture and shows nothing without a password',
     assert.equal(p.querySelector('[data-ex-xlsx]'), null, 'no download button')
     assert.equal(p.querySelector('[data-ex-csv]'), null, 'no CSV buttons')
     assert.equal(p.textContent.includes('Budget name'), false, 'and no rows')
+  })
+
+  test('the eye shows and hides the password, and never submits', () => {
+    press('e', { ctrlKey: true, altKey: true })
+    const p = panel()
+    const input = p.querySelector('[data-ex-password]')
+    const eye = p.querySelector('[data-ex-eye]')
+    assert.ok(eye, 'the password box has an eye')
+    assert.equal(eye.type, 'button', 'a submit button here would sign in on a peek')
+    assert.equal(input.type, 'password')
+    assert.equal(eye.getAttribute('aria-pressed'), 'false')
+
+    eye.click()
+    assert.equal(input.type, 'text')
+    assert.equal(eye.getAttribute('aria-pressed'), 'true')
+    assert.equal(p.querySelector('[data-ex-err]').hidden, true, 'nothing was submitted')
+
+    eye.click()
+    assert.equal(input.type, 'password')
+    assert.equal(eye.getAttribute('aria-pressed'), 'false')
+
+    // Edge draws its own eye in a password box; two side by side is the bug.
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+    assert.match(css, /\.ex-input::-ms-reveal\s*\{\s*display:\s*none/)
+  })
+
+  /** A shared-budget document, the shape share.js sends. */
+  const shared = (name, crop, acres, updatedAt) => ({
+    shareId: `id-${name}`,
+    name,
+    updatedAt,
+    firstSentAt: updatedAt,
+    schemaVersion: 7,
+    scenario: {
+      name,
+      enterprises: [{ name: '', crop, acres: String(acres), variable: {} }],
+      fixed: {},
+    },
+  })
+
+  const batch = () => [
+    shared('North quarter', 'Corn', 160, Date.UTC(2026, 8, 1)),
+    shared('Home place', 'Soybeans', 80, Date.UTC(2026, 8, 20)),
+    shared('River field', 'Corn', 40, Date.UTC(2026, 8, 10)),
+  ]
+
+  const signedIn = () => {
+    press('e', { ctrlKey: true, altKey: true })
+    exporter.showBatch(batch())
+    return panel()
+  }
+
+  const tick = (p, name, on) => {
+    const row = [...p.querySelectorAll('[data-ex-item]')].find((r) => r.textContent.includes(name))
+    const box = row.querySelector('[data-ex-pick-id]')
+    box.checked = on
+    box.dispatchEvent(new win.Event('change', { bubbles: true }))
+  }
+
+  const rows = (p, sheet) => p.querySelector(`[data-ex-rows="${sheet}"]`).textContent
+
+  test('every budget starts ticked, so the default export is the whole batch', () => {
+    const p = signedIn()
+    assert.equal(p.querySelectorAll('[data-ex-pick-id]').length, 3)
+    assert.equal(p.querySelectorAll('[data-ex-pick-id]:checked').length, 3)
+    assert.equal(p.querySelector('[data-ex-pick]').open, false, 'the list starts shut')
+    assert.match(p.querySelector('[data-ex-count]').textContent, /^3 shared budgets$/)
+    assert.equal(rows(p, 'Budgets'), '3 rows')
+  })
+
+  test('the list is newest first and says more than the name', () => {
+    const p = signedIn()
+    const names = [...p.querySelectorAll('[data-ex-item] b')].map((b) => b.textContent)
+    assert.deepEqual(names, ['Home place', 'River field', 'North quarter'])
+    const first = p.querySelector('[data-ex-item]').textContent
+    assert.match(first, /Soybeans/, 'the enterprise, through enterpriseLabel')
+    assert.match(first, /80 ac/)
+  })
+
+  test('unticking a budget takes it out of every sheet and says how many are left', () => {
+    const p = signedIn()
+    tick(p, 'North quarter', false)
+    assert.equal(rows(p, 'Budgets'), '2 rows')
+    assert.equal(rows(p, 'Enterprises'), '2 rows')
+    assert.match(p.querySelector('[data-ex-count]').textContent, /2 of 3 shared budgets selected/)
+    assert.match(p.querySelector('[data-ex-pick-count]').textContent, /2 of 3/)
+  })
+
+  test('a subset download is named as one', async () => {
+    const p = signedIn()
+    tick(p, 'North quarter', false)
+    let saved = null
+    const create = doc.createElement.bind(doc)
+    doc.createElement = (tag) => {
+      const el = create(tag)
+      if (tag === 'a') el.click = () => (saved = el.download)
+      return el
+    }
+    win.URL.createObjectURL = () => 'blob:x'
+    win.URL.revokeObjectURL = () => {}
+    p.querySelector('[data-ex-csv="Budgets"]').click()
+    doc.createElement = create
+    assert.match(saved ?? '', /^submissions-\d{4}-\d{2}-\d{2} \(2 of 3\) Budgets\.csv$/)
+  })
+
+  test('nothing ticked disables every download rather than writing empty sheets', () => {
+    const p = signedIn()
+    p.querySelector('[data-ex-none]').click()
+    assert.equal(p.querySelectorAll('[data-ex-pick-id]:checked').length, 0)
+    for (const btn of p.querySelectorAll('[data-ex-xlsx], [data-ex-csv]')) {
+      assert.equal(btn.disabled, true, btn.textContent)
+    }
+    p.querySelector('[data-ex-all]').click()
+    assert.equal(p.querySelector('[data-ex-xlsx]').disabled, false)
+  })
+
+  test('the filter hides rows, a comma means OR, and Select all takes only what it found', () => {
+    const p = signedIn()
+    const filter = p.querySelector('[data-ex-filter]')
+    const visible = () =>
+      [...p.querySelectorAll('[data-ex-item]')].filter((r) => !r.hidden).map((r) => r.querySelector('b').textContent)
+
+    p.querySelector('[data-ex-none]').click()
+    filter.value = 'corn'
+    filter.dispatchEvent(new win.Event('input', { bubbles: true }))
+    assert.deepEqual(visible(), ['River field', 'North quarter'])
+
+    p.querySelector('[data-ex-all]').click()
+    assert.equal(rows(p, 'Budgets'), '2 rows', 'the soybean budget stayed unticked')
+
+    filter.value = 'home, river'
+    filter.dispatchEvent(new win.Event('input', { bubbles: true }))
+    assert.deepEqual(visible(), ['Home place', 'River field'])
+
+    filter.value = ' , '
+    filter.dispatchEvent(new win.Event('input', { bubbles: true }))
+    assert.equal(visible().length, 3, 'stray commas are not a filter')
+  })
+
+  test('a batch of one has nothing to choose between', () => {
+    press('e', { ctrlKey: true, altKey: true })
+    exporter.showBatch(batch().slice(0, 1))
+    assert.equal(panel().querySelector('[data-ex-pick]'), null)
+    assert.equal(panel().querySelector('[data-ex-xlsx]').disabled, false)
+  })
+
+  test('a budget name is text, never markup', () => {
+    press('e', { ctrlKey: true, altKey: true })
+    const list = batch()
+    list[0].name = '<img src=x onerror=alert(1)>'
+    exporter.showBatch(list)
+    assert.equal(panel().querySelector('.ex-list img'), null)
   })
 
   test('it is hidden when printing', () => {

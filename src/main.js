@@ -76,7 +76,7 @@ import {
   downloadBackup,
   printResults,
 } from './export.js'
-import { enterpriseLabel, VARIABLE_LINES, COST_BASIS } from './calc.js'
+import { enterpriseLabel, scenarioLabel, VARIABLE_LINES, COST_BASIS } from './calc.js'
 
 initAnalytics(initPrefs())
 
@@ -453,6 +453,11 @@ function header() {
   const nameBlock =
     screen === 'build'
       ? `<div class="name-wrap">
+           <!-- The name as it prints. An input cannot wrap, so on paper a long
+                name ran off the edge with an ellipsis; this is ordinary text
+                that wraps, shown in print only, with the box hidden there. Kept
+                in step by the input listener, since typing is not a render. -->
+           <h1 class="print-title" data-print-title>${esc(scenario.name)}</h1>
            <span class="title-row">
              <label class="sr-only" for="scenarioName">Budget name</label>
              <span class="name-edit">
@@ -469,7 +474,7 @@ function header() {
                 On a phone .name-wrap turns into a column, so this drops to its
                 own row and the title gets the width to itself. -->
            <span class="year-edit">
-             <label class="year-label" for="scenarioYear">(Optional) Scenario year:</label>
+             <label class="year-label" for="scenarioYear">Scenario year:</label>
              <input id="scenarioYear" class="scenario-year" type="number"
                inputmode="numeric" step="1" data-path="scenarioYear"
                value="${esc(scenario.scenarioYear ?? '')}"
@@ -1208,7 +1213,12 @@ app.addEventListener('input', (e) => {
   // be in the middle of entering); calc.js coerces with num() anyway.
   setPath(getScenario(), path, el.value)
 
-  if (path === 'name') sizeNameInput(el, 50, 118)
+  if (path === 'name') {
+    sizeNameInput(el, 50, 118)
+    // The printed title is a copy of this box, and typing is not a render.
+    const title = app.querySelector('[data-print-title]')
+    if (title) title.textContent = el.value
+  }
 
   // The card heading follows whichever of name/crop is providing the label.
   if (/^enterprises\.\d+\.(name|crop)$/.test(path)) {
@@ -2812,7 +2822,7 @@ function handleAction(action, btn) {
       const shared = Boolean(target.shareId) && SHARING_ENABLED
       if (
         !confirm(
-          `Delete "${target.name}"? This cannot be undone.` +
+          `Delete "${scenarioLabel(target)}"? This cannot be undone.` +
             (shared
               ? '\n\nThe copy you shared with the Coalition is kept and marked deleted. ' +
                 'If you would like to unshare it as well, turn the Share switch off and back on.'
@@ -3155,9 +3165,17 @@ function handleAction(action, btn) {
       downloadJSON(scenario)
       break
 
-    case 'print':
-      printResults()
+    case 'print': {
+      // Names the saved PDF. The comparison is named for its baseline, the
+      // first budget selected, the same way its CSV is.
+      if (screen === 'compare') {
+        const base = getScenarioById(compareIds[0])
+        printResults(`${base?.name || 'farm-budget'}-comparison`)
+      } else {
+        printResults(scenario?.name ?? '')
+      }
       break
+    }
   }
 }
 
@@ -3217,9 +3235,9 @@ function printSavedBudget(found) {
   const win = document.defaultView
   if (win && 'onafterprint' in win) {
     win.addEventListener('afterprint', restore, { once: true })
-    printResults()
+    printResults(found.name ?? '')
   } else {
-    printResults()
+    printResults(found.name ?? '')
     restore()
   }
 }
@@ -3721,6 +3739,9 @@ function updateShareState() {
  * the same file numbers itself rather than colliding again.
  */
 function nameForImport(name, existingNames) {
+  // An unnamed budget stays unnamed. Tagging it would store
+  // " (opened from file)" as a name nobody typed.
+  if (!String(name ?? '').trim()) return ''
   if (!existingNames.has(name)) return name
   const tagged = `${name} (opened from file)`
   if (!existingNames.has(tagged)) return tagged

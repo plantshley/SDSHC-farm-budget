@@ -134,8 +134,14 @@ function identity(doc) {
   }
 }
 
-/** Fixed-cost columns, repeated onto a child row so it carries its own context. */
-function fixedColumns(f) {
+/**
+ * Fixed-cost columns, repeated onto a child row so it carries its own context.
+ *
+ * `input` is the scenario's own `fixed` block, read for the overheads only. The
+ * model turns a blank overhead into 0, so the computed figure cannot tell an
+ * untouched line from one entered as zero; the input can.
+ */
+function fixedColumns(f, input) {
   const out = {
     'Land rent $/acre': money(f.landRentPerAcre),
     'Land rent total $': money(f.landRentTotal),
@@ -149,7 +155,13 @@ function fixedColumns(f) {
     'Building depreciation $': money(f.bldgDepTotal),
     'Building interest $': money(f.bldgIntTotal),
   }
-  for (const key of ANNUAL_KEYS) out[`${ANNUAL_LABELS[key]} $/year`] = money(f.annual?.[key])
+  // `f.annual[key]` is an object, not a figure. Handing it to money() blanked
+  // every overhead column in every export while the total beside them was
+  // right. `total` is the annual figure, after a monthly or quarterly basis.
+  for (const key of ANNUAL_KEYS) {
+    out[`${ANNUAL_LABELS[key]} $/year`] =
+      raw(input?.annual?.[key]) === '' ? '' : money(f.annual?.[key]?.total)
+  }
   out['Overheads total $'] = money(f.annualTotal)
   out['Total fixed costs $'] = money(f.totalFixedAnnual)
   out['Total fixed $/acre'] = money(f.totalFixedPerAcre)
@@ -298,11 +310,11 @@ function addBudgetRow(sheets, { doc, scenario, calc, ents }) {
 }
 
 /** Sheet 6. One row per budget: land rent, labor, and the overheads. */
-function addFixedRow(sheets, { doc, calc }) {
+function addFixedRow(sheets, { doc, scenario, calc }) {
   sheets['Fixed costs'].push({
     ...identity(doc),
     'Total acres': money(calc.totalAcres),
-    ...fixedColumns(calc.fixed),
+    ...fixedColumns(calc.fixed, scenario.fixed),
   })
 }
 
@@ -339,7 +351,7 @@ function addEnterpriseRows(sheets, { doc, scenario, calc, ents }) {
       'Last updated': stamp(doc?.updatedAt),
       ...lineTotalColumns(ec),
       ...variableInputColumns(ent),
-      ...fixedColumns(calc.fixed),
+      ...fixedColumns(calc.fixed, scenario.fixed),
       ...resultColumns(calc),
     })
   })
@@ -458,7 +470,7 @@ function allDataRow({ doc, scenario, calc, ents, equipment, buildings }, max) {
     'App version': doc?.appVersion ?? '',
     Enterprises: ents.length,
     ...resultColumns(calc),
-    ...fixedColumns(calc.fixed),
+    ...fixedColumns(calc.fixed, scenario.fixed),
   }
 
   for (let i = 0; i < max.maxEnterprises; i += 1) {

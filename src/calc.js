@@ -251,6 +251,22 @@ export function enterpriseLabel(ent, index) {
 }
 
 /**
+ * The display label for a budget's name.
+ *
+ * A new budget starts with no name, like every other field, and the header box
+ * shows a placeholder asking for one. Everywhere else a blank would print as
+ * nothing at all (an empty row on the Saved tab, an empty column heading in a
+ * comparison), so this stands in for it. It is a label, never a value: the
+ * stored name stays blank until the producer types one, and the data export
+ * keeps it blank for the same reason it keeps every other blank.
+ */
+export const UNNAMED = '(unnamed)'
+
+export function scenarioLabel(scenario) {
+  return String(scenario?.name ?? '').trim() || UNNAMED
+}
+
+/**
  * Resolve one variable expense line to $/acre.
  *
  * The sheet only offers $/unit × units/acre (D12 = B12*C12), which forces

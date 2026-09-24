@@ -8,6 +8,7 @@ import {
   lineModes,
   num,
   VARIABLE_LINES,
+  scenarioLabel,
 } from '../src/calc.js'
 import { scenario, SHEET } from './fixture.js'
 
@@ -833,5 +834,15 @@ describe('an enterprise name, separate from its crop', () => {
     const without = calcScenario({ enterprises: [{ crop: 'Corn', acres: 100, yieldPerAcre: 50, pricePerUnit: 4 }] })
     const with_ = calcScenario({ enterprises: [{ name: 'X', crop: 'Corn', acres: 100, yieldPerAcre: 50, pricePerUnit: 4 }] })
     assert.deepEqual(without.totals, with_.totals)
+  })
+})
+
+describe('a budget with no name', () => {
+  test('is labelled "(unnamed)", and a typed name is used as it is', () => {
+    assert.equal(scenarioLabel({ name: '' }), '(unnamed)')
+    assert.equal(scenarioLabel({ name: '   ' }), '(unnamed)', 'spaces are not a name')
+    assert.equal(scenarioLabel({}), '(unnamed)')
+    assert.equal(scenarioLabel(null), '(unnamed)')
+    assert.equal(scenarioLabel({ name: 'North quarter' }), 'North quarter')
   })
 })

@@ -140,7 +140,7 @@ export function newBuilding() {
   }
 }
 
-export function newScenario(name = 'My Budget Scenario') {
+export function newScenario(name = '') {
   const now = new Date().toISOString()
   return {
     schemaVersion: SCHEMA_VERSION,
@@ -230,7 +230,9 @@ export function duplicateScenario(source, name) {
   const copy = structuredClone(source)
   const now = new Date().toISOString()
   copy.id = makeId('scn')
-  copy.name = name || `${source.name} (copy)`
+  // An unnamed budget's copy is unnamed too. "(unnamed) (copy)" would store
+  // the label as if somebody had typed it.
+  copy.name = name || (String(source.name ?? '').trim() ? `${source.name} (copy)` : '')
   copy.createdAt = now
   copy.updatedAt = now
   // A copy has never been dragged anywhere. Inheriting the original's list

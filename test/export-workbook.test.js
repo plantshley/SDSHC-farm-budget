@@ -288,6 +288,24 @@ describe('a blank is a blank', () => {
     assert.notEqual(row['Entered $/acre'], '')
   })
 
+  test('an overhead exports its annual figure, and a blank one stays blank', () => {
+    // Every overhead column once exported blank while the total beside it was
+    // right: the flattener handed money() an object rather than a figure.
+    const s = bareFarm()
+    s.fixed.annual.utilities = '1222'
+    s.fixed.annual.duesFees = '0'
+    s.fixed.annual.misc = '100'
+    s.fixed.annualBasis.misc = 'month'
+    const { sheets } = buildWorkbook([submission(s)])
+    for (const row of [sheets['Fixed costs'][0], sheets['All data'][0], sheets['Enterprises all data'][0]]) {
+      assert.equal(row['Utilities $/year'], 1222)
+      assert.equal(row['Miscellaneous $/year'], 1200, 'per year, after the monthly basis')
+      assert.equal(row['Dues and fees $/year'], 0, 'an explicit zero is a zero')
+      assert.equal(row['Farm insurance $/year'], '', 'an untouched line is blank')
+      assert.equal(row['Overheads total $'], 2422)
+    }
+  })
+
   test('a building gets no salvage column value at all', () => {
     // A building has no salvage in this model. That is an absent concept, not
     // an amount of zero, so the cell is blank rather than 0.

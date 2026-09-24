@@ -4,7 +4,7 @@
  * dialog for paper or PDF.
  */
 
-import { calcScenario, VARIABLE_LINES, enterpriseLabel, num } from './calc.js'
+import { calcScenario, VARIABLE_LINES, enterpriseLabel, scenarioLabel, num } from './calc.js'
 import { exportScenarioJSON, exportBackupJSON } from './storage.js'
 import { usd, usdCents, number } from './ui/format.js'
 // The comparison table's own row list, so the CSV cannot list a different set of
@@ -60,8 +60,7 @@ export function scenarioToCSV(scenario) {
   rows.push(['Profit per acre (weighted)', round(r.totals.profitPerAcre)])
   rows.push([])
 
-  rows.push(['ENTERPRISES'])
-  rows.push([
+  const enterpriseHeader = [
     'Enterprise',
     'Crop',
     'Acres',
@@ -75,7 +74,18 @@ export function scenarioToCSV(scenario) {
     'Total variable/acre',
     'Gross margin/acre',
     'Enterprise gross margin',
-  ])
+  ]
+  // The section title shares its row with a label over each group of columns,
+  // the way the enterprise card groups them on screen. Placed by finding the
+  // group's first column, so adding a column cannot leave a label over the
+  // wrong one.
+  const bands = enterpriseHeader.map(() => '')
+  bands[0] = 'ENTERPRISES'
+  bands[enterpriseHeader.indexOf('Acres')] = 'INCOME'
+  bands[enterpriseHeader.indexOf(`${VARIABLE_LINES[0].label} $/acre`)] = 'VARIABLE EXPENSES'
+  bands[enterpriseHeader.indexOf('Gross margin/acre')] = 'GROSS MARGIN'
+  rows.push(bands)
+  rows.push(enterpriseHeader)
   for (const [i, e] of r.enterprises.entries()) {
     const src = scenario.enterprises[i] ?? {}
     rows.push([
@@ -168,13 +178,13 @@ export function compareToCSV(scenarios) {
 
   rows.push(['SDSHC Farm Plan Budget — comparison'])
   rows.push(['Exported', new Date().toLocaleString()])
-  rows.push(['Baseline', results[0].scenario.name])
+  rows.push(['Baseline', scenarioLabel(results[0].scenario)])
   rows.push([])
 
   const header = ['Figure']
   for (const [i, x] of results.entries()) {
-    header.push(x.scenario.name)
-    if (i > 0) header.push(`${x.scenario.name} — difference from baseline`)
+    header.push(scenarioLabel(x.scenario))
+    if (i > 0) header.push(`${scenarioLabel(x.scenario)} — difference from baseline`)
   }
   rows.push(header)
 
@@ -195,7 +205,7 @@ export function compareToCSV(scenarios) {
   for (const x of results) {
     for (const [i, e] of x.r.enterprises.entries()) {
       rows.push([
-        x.scenario.name,
+        scenarioLabel(x.scenario),
         e.label || enterpriseLabel(x.scenario.enterprises[i], i),
         e.crop,
         round(e.acres),
@@ -212,13 +222,31 @@ export function compareToCSV(scenarios) {
   return csvRows(rows)
 }
 
-function safeFilename(name, ext) {
-  const base =
+function fileStem(name) {
+  return (
     String(name || 'farm-budget')
       .replace(/[^a-z0-9]+/gi, '-')
       .replace(/^-+|-+$/g, '')
       .slice(0, 60) || 'farm-budget'
-  return `${base}.${ext}`
+  )
+}
+
+function safeFilename(name, ext) {
+  return `${fileStem(name)}.${ext}`
+}
+
+/**
+ * What "Save as PDF" offers as the file name: the budget's name and the day,
+ * the same stem the other downloads use. The browser takes it from the page
+ * title, so this is what the title becomes for the length of the print.
+ *
+ * The LOCAL date, not toISOString(): that is UTC, and an evening print in South
+ * Dakota would be named for tomorrow.
+ */
+export function pdfTitle(name, date = new Date()) {
+  const p = (n) => String(n).padStart(2, '0')
+  const day = `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}`
+  return `${fileStem(name)}-${day}`
 }
 
 function downloadBlob(filename, blob) {
@@ -274,9 +302,29 @@ export function downloadBackup() {
   download(`sdshc-farm-budgets-${day}.json`, exportBackupJSON(), 'application/json')
 }
 
-/** Paper or PDF, via the browser's own print dialog. See @media print in styles.css. */
-export function printResults() {
-  window.print()
+/**
+ * Paper or PDF, via the browser's own print dialog. See @media print in styles.css.
+ *
+ * `name` becomes the page title while the dialog is up, which is where the
+ * browser takes a saved PDF's file name from; the title goes back on
+ * `afterprint`, the same event printSavedBudget() waits on and for the same
+ * reason (on a phone, print() can return before the sheet appears). With no
+ * name it prints under the page's own title, as it always did.
+ */
+export function printResults(name) {
+  const view = document.defaultView
+  const before = document.title
+  if (name !== undefined) document.title = pdfTitle(name)
+  const restore = () => {
+    document.title = before
+  }
+  if (view && 'onafterprint' in view) {
+    view.addEventListener('afterprint', restore, { once: true })
+    view.print()
+  } else {
+    view?.print()
+    restore()
+  }
 }
 
 /* ────────────────────────────── PNG image ──────────────────────────────── */
@@ -292,6 +340,21 @@ const ROW_H = 38
 const SECTION_GAP = 22
 const WARN_H = 34
 const FOOT_H = 36
+
+/**
+ * The page's `--font` stack, which the font toggle sets through [data-font].
+ *
+ * Every family in it is one the device already has (no webfont is loaded), so
+ * the canvas can draw in it straight away. Read through the document's own
+ * window, never a bare global, for the reason sizeNameInput() gives; with no
+ * layout available it falls back to the stack the image always used.
+ */
+export function imageFontFamily() {
+  const root = document.documentElement
+  const view = root?.ownerDocument?.defaultView
+  const family = view?.getComputedStyle?.(root).getPropertyValue('--font').trim()
+  return family || 'system-ui, sans-serif'
+}
 
 /**
  * The Results section as a picture.
@@ -331,6 +394,11 @@ export function downloadPNG(scenario) {
   }
   ctx.scale(dpr, dpr)
 
+  // The typeface the producer chose on the font toggle, read at the moment of
+  // export. Unlike the palette below, this is not the reader's to guess at: it
+  // is the author's choice, and the image should look like the page they saw.
+  const family = imageFontFamily()
+
   // Always the light palette, and hard-coded rather than read off the page.
   // The image leaves the app and lands in a text message or a printout, where
   // the reader's theme is not ours to guess — and getComputedStyle would hand
@@ -358,12 +426,12 @@ export function downloadPNG(scenario) {
   let y = PAD
 
   ctx.fillStyle = brand
-  ctx.font = 'bold 34px system-ui, sans-serif'
+  ctx.font = `bold 34px ${family}`
   ctx.fillText('SDSHC Farm Plan Budget', PAD, y + 30)
   y += 52
 
   ctx.fillStyle = muted
-  ctx.font = '20px system-ui, sans-serif'
+  ctx.font = `20px ${family}`
   fitText(ctx, model.subtitle, PAD, y + 18, W - PAD * 2)
   y += 48
 
@@ -388,11 +456,11 @@ export function downloadPNG(scenario) {
     ctx.fillRect(x, y, cardW, 4)
 
     ctx.fillStyle = muted
-    ctx.font = '17px system-ui, sans-serif'
+    ctx.font = `17px ${family}`
     fitText(ctx, k.label, x + 18, y + 40, cardW - 36)
 
     ctx.fillStyle = 'tone' in k ? toneColor(k.tone) : ink
-    ctx.font = 'bold 26px system-ui, sans-serif'
+    ctx.font = `bold 26px ${family}`
     fitText(ctx, k.value, x + 18, y + 84, cardW - 36)
   })
   y += CARD_H + 30
@@ -403,7 +471,7 @@ export function downloadPNG(scenario) {
   // and are deliberately left behind.
   if (model.warnings.length) {
     ctx.fillStyle = cost
-    ctx.font = '18px system-ui, sans-serif'
+    ctx.font = `18px ${family}`
     for (const w of model.warnings) {
       fitText(ctx, w, PAD, y + 14, W - PAD * 2)
       y += WARN_H
@@ -412,12 +480,12 @@ export function downloadPNG(scenario) {
 
   for (const section of model.sections) {
     ctx.fillStyle = brand
-    ctx.font = 'bold 22px system-ui, sans-serif'
+    ctx.font = `bold 22px ${family}`
     const titleW = ctx.measureText(section.title).width
     ctx.fillText(section.title, PAD, y + 20)
     if (section.note) {
       ctx.fillStyle = muted
-      ctx.font = '16px system-ui, sans-serif'
+      ctx.font = `16px ${family}`
       fitText(ctx, section.note, PAD + titleW + 10, y + 20, W - PAD * 2 - titleW - 10)
     }
     ctx.strokeStyle = olive
@@ -430,7 +498,7 @@ export function downloadPNG(scenario) {
 
     if (section.head) {
       ctx.fillStyle = muted
-      ctx.font = 'bold 15px system-ui, sans-serif'
+      ctx.font = `bold 15px ${family}`
       ctx.fillText(section.head[0], PAD, y + 16)
       ctx.textAlign = 'right'
       section.grid.forEach((x, i) => ctx.fillText(section.head[i + 1], x, y + 16))
@@ -445,7 +513,7 @@ export function downloadPNG(scenario) {
       if (row.cells.length) {
         ctx.textAlign = 'right'
         row.cells.forEach((cell, i) => {
-          ctx.font = `${row.strong ? 'bold ' : ''}17px system-ui, sans-serif`
+          ctx.font = `${row.strong ? 'bold ' : ''}17px ${family}`
           ctx.fillStyle = 'tone' in cell ? toneColor(cell.tone) : ink
           ctx.fillText(cell.text, section.grid[i], y + 22)
           if (i === 0) {
@@ -455,7 +523,7 @@ export function downloadPNG(scenario) {
         ctx.textAlign = 'left'
       }
 
-      ctx.font = `${row.strong ? 'bold ' : ''}17px system-ui, sans-serif`
+      ctx.font = `${row.strong ? 'bold ' : ''}17px ${family}`
       ctx.fillStyle = row.cells.length ? ink : muted
       fitText(ctx, row.label, PAD, y + 22, labelMax)
 
@@ -474,7 +542,7 @@ export function downloadPNG(scenario) {
 
   y += 8
   ctx.fillStyle = muted
-  ctx.font = '16px system-ui, sans-serif'
+  ctx.font = `16px ${family}`
   // The same sentence the CSV ends with. Both are handed to somebody who was
   // not at the keyboard, and the two divergences it names are the ones that
   // make a figure here differ from one they may work out by hand.
