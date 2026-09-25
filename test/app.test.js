@@ -477,6 +477,31 @@ describe('entering a budget', () => {
     )
   })
 
+  test('mode_select counts a change of mode, never a tap on the lit segment', () => {
+    // Under Node the tag runs in debug mode and logs every event instead of
+    // sending it, which is the only place an event can be observed from here.
+    const sent = []
+    const debug = console.debug
+    console.debug = (tag, name, params) => {
+      if (tag === '[ga]' && name === 'mode_select') sent.push(params)
+    }
+    try {
+      const seg = (mode) => `[data-path="enterprises.0.variable.seed.mode"][data-mode="${mode}"]`
+      const lit = doc
+        .querySelector('[data-path="enterprises.0.variable.seed.mode"][aria-pressed="true"]')
+        .getAttribute('data-mode')
+      const other = lit === 'unit' ? 'perAcre' : 'unit'
+
+      click(seg(lit))
+      assert.equal(sent.length, 0, 'a tap on the segment already lit was counted')
+
+      click(seg(other))
+      assert.deepEqual(sent, [{ control: 'cost_line_mode', choice: other, context: 'seed' }])
+    } finally {
+      console.debug = debug
+    }
+  })
+
   test('the mode pill shows every option and marks exactly one', async () => {
     const segments = () => [
       ...doc.querySelectorAll('[data-path="enterprises.0.variable.seed.mode"]'),

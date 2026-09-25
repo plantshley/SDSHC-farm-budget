@@ -2416,7 +2416,7 @@ const TRACKED_ACTIONS = {
 const TRACKED_SELECTS = [
   [/^enterprises\.\d+\.yieldUnit$/, () => ['yield_unit', undefined]],
   [/^fixed\.annualBasis\.(\w+)$/, (m) => ['fixed_basis', m[1]]],
-  [/^fixed\.labor\.hoursBasis$/, () => ['labour_basis', undefined]],
+  [/^fixed\.labor\.hoursBasis$/, () => ['labor_basis', undefined]],
 ]
 
 /**
@@ -2438,6 +2438,15 @@ function trackAction(action, btn, scenario) {
     return
   }
   if (action === 'new-scenario') resetOnce(scenario?.id)
+  // This runs before handleAction()'s switch, so it has to repeat the switch's
+  // own no-op test. Tapping the segment already lit changes nothing, and counted
+  // it reads as a deliberate choice of whatever the line was already set to,
+  // which is usually the default.
+  if (action === 'set-line-mode' || action === 'set-preharvest-mode') {
+    const mode = btn.getAttribute('data-mode')
+    const next = action === 'set-preharvest-mode' ? mode === 'auto' : mode
+    if (getPath(scenario, btn.getAttribute('data-path')) === next) return
+  }
 
   const entry = TRACKED_ACTIONS[action]
   if (!entry) return

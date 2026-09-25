@@ -21,7 +21,7 @@ like one family.
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 1,040 tests: the economic model, storage, data, exports, and a DOM smoke test
+npm test           # 1,041 tests: the economic model, storage, data, exports, and a DOM smoke test
 npm run build      # -> dist/
 ```
 
@@ -1077,7 +1077,7 @@ it.
 
 ## Tests
 
-1,040 tests across ten files. `npm test` runs them, and so does the deploy
+1,041 tests across ten files. `npm test` runs them, and so does the deploy
 workflow before it builds. *Detail in [DESIGN-NOTES.md](DESIGN-NOTES.md).*
 
 - `test/calc.test.js` — the model against real Excel output, plus the deliberate
